@@ -1,0 +1,599 @@
+“The only way to do great work is to love what you do.” - Steve Jobs
+
+“Life is what happens to you while you're busy making other plans.” - John Lennon
+
+“It is never too late to be what you might have been.” - George Eliot
+
+“The future belongs to those who believe in the beauty of their dreams.” - Eleanor Roosevelt
+
+“In the middle of difficulty lies opportunity.” - Albert Einstein
+
+“The only impossible journey is the one you never begin.” - Tony Robbins
+
+“Do what you can, with what you have, where you are.” - Theodore Roosevelt
+
+“Happiness depends upon ourselves.” - Aristotle
+
+“Everything you can imagine is real.” - Pablo Picasso
+
+“Turn your wounds into wisdom.” - Oprah Winfrey
+
+“Success is not final, failure is not fatal: it is the courage to continue that counts.” - Winston Churchill
+
+“Whether you think you can or you think you can't, you're right.” - Henry Ford
+
+“The best way out is always through.” - Robert Frost
+
+“Not all those who wander are lost.” - J. R. R. Tolkien
+
+“It always seems impossible until it's done.” - Nelson Mandela
+
+“Be yourself; everyone else is already taken.” - Oscar Wilde
+
+“Excellence, then, is not an act, but a habit.” - Will Durant
+
+“What you do speaks so loudly that I cannot hear what you say.” - Ralph Waldo Emerson
+
+“The mind is everything. What you think you become.” - Buddha
+
+“If you want to lift yourself up, lift up someone else.” - Booker T. Washington
+
+“A journey of a thousand miles begins with a single step.” - Lao Tzu
+
+“The purpose of our lives is to be happy.” - Dalai Lama
+
+“It does not matter how slowly you go as long as you do not stop.” - Confucius
+
+“Everything has beauty, but not everyone sees it.” - Confucius
+
+“The greatest glory in living lies not in never falling, but in rising every time we fall.” - Nelson Mandela
+
+“You miss 100% of the shots you don't take.” - Wayne Gretzky
+
+“I have not failed. I've just found 10,000 ways that won't work.” - Thomas Edison
+
+“The secret of getting ahead is getting started.” - Mark Twain
+
+“It is during our darkest moments that we must focus to see the light.” - Aristotle
+
+“Believe you can and you're halfway there.” - Theodore Roosevelt
+
+“Act as if what you do makes a difference. It does.” - William James
+
+“What lies behind us and what lies before us are tiny matters compared to what lies within us.” - Ralph Waldo Emerson
+
+“The only person you are destined to become is the person you decide to be.” - Ralph Waldo Emerson
+
+“If opportunity doesn't knock, build a door.” - Milton Berle
+
+“You must be the change you wish to see in the world.” - Mahatma Gandhi
+
+“A room without books is like a body without a soul.” - Marcus Tullius Cicero
+
+“Knowledge is power.” - Francis Bacon
+
+“The unexamined life is not worth living.” - Socrates
+
+“To be, or not to be, that is the question.” - William Shakespeare
+
+“All the world's a stage, and all the men and women merely players.” - William Shakespeare
+
+“There is nothing either good or bad, but thinking makes it so.” - William Shakespeare
+
+“We know what we are, but know not what we may be.” - William Shakespeare
+
+“Some are born great, some achieve greatness, and some have greatness thrust upon them.” - William Shakespeare
+
+“Whatever you are, be a good one.” - Abraham Lincoln
+
+“Nearly all men can stand adversity, but if you want to test a man's character, give him power.” - Abraham Lincoln
+
+“The best thing about the future is that it comes one day at a time.” - Abraham Lincoln
+
+“You cannot escape the responsibility of tomorrow by evading it today.” - Abraham Lincoln
+
+“Keep your face always toward the sunshine—and shadows will fall behind you.” - Walt Whitman
+
+“Do not go where the path may lead, go instead where there is no path and leave a trail.” - Ralph Waldo Emerson
+
+“Live in the sunshine, swim the sea, drink the wild air.” - Ralph Waldo Emerson
+
+“The only limit to our realization of tomorrow is our doubts of today.” - Franklin D. Roosevelt
+
+“When you reach the end of your rope, tie a knot in it and hang on.” - Franklin D. Roosevelt
+
+“The future depends on what you do today.” - Mahatma Gandhi
+
+“An eye for an eye only ends up making the whole world blind.” - Mahatma Gandhi
+
+“Where there is love there is life.” - Mahatma Gandhi
+
+“The greatest wealth is to live content with little.” - Plato
+
+“Courage is knowing what not to fear.” - Plato
+
+“Wise men speak because they have something to say; fools because they have to say something.” - Plato
+
+“We are what we pretend to be, so we must be careful what we pretend to be.” - Kurt Vonnegut
+
+“And now that you don't have to be perfect, you can be good.” - John Steinbeck
+
+“All we have to decide is what to do with the time that is given us.” - J. R. R. Tolkien
+
+“Courage is found in unlikely places.” - J. R. R. Tolkien
+
+“There is some good in this world, and it's worth fighting for.” - J. R. R. Tolkien
+
+“It is our choices that show what we truly are, far more than our abilities.” - J. K. Rowling
+
+“Happiness can be found even in the darkest of times, if one only remembers to turn on the light.” - J. K. Rowling
+
+“It matters not what someone is born, but what they grow to be.” - J. K. Rowling
+
+“After all, tomorrow is another day.” - Margaret Mitchell
+
+“Frankly, my dear, I don't give a damn.” - Margaret Mitchell
+
+“The only thing we have to fear is fear itself.” - Franklin D. Roosevelt
+
+“Ask not what your country can do for you—ask what you can do for your country.” - John F. Kennedy
+
+“Those who dare to fail miserably can achieve greatly.” - John F. Kennedy
+
+“That's one small step for man, one giant leap for mankind.” - Neil Armstrong
+
+“I think, therefore I am.” - René Descartes
+
+“The heart has its reasons of which reason knows nothing.” - Blaise Pascal
+
+“God is dead.” - Friedrich Nietzsche
+
+“That which does not kill us makes us stronger.” - Friedrich Nietzsche
+
+“He who has a why to live can bear almost any how.” - Friedrich Nietzsche
+
+“One must imagine Sisyphus happy.” - Albert Camus
+
+“In the depth of winter, I finally learned that within me there lay an invincible summer.” - Albert Camus
+
+“Man is condemned to be free.” - Jean-Paul Sartre
+
+“Hell is other people.” - Jean-Paul Sartre
+
+“Power tends to corrupt, and absolute power corrupts absolutely.” - Lord Acton
+
+“Those who cannot remember the past are condemned to repeat it.” - George Santayana
+
+“The pen is mightier than the sword.” - Edward Bulwer-Lytton
+
+“If you tell the truth, you don't have to remember anything.” - Mark Twain
+
+“Good friends, good books, and a sleepy conscience: this is the ideal life.” - Mark Twain
+
+“Whenever you find yourself on the side of the majority, it is time to pause and reflect.” - Mark Twain
+
+“Get your facts first, then you can distort them as you please.” - Mark Twain
+
+“The journey, not the arrival matters.” - T. S. Eliot
+
+“Only those who will risk going too far can possibly find out how far one can go.” - T. S. Eliot
+
+“Do not fear death; fear the unlived life.” - Natalie Babbitt
+
+“We don't see things as they are, we see them as we are.” - Anaïs Nin
+
+“Life shrinks or expands in proportion to one's courage.” - Anaïs Nin
+
+“The way to get started is to quit talking and begin doing.” - Walt Disney
+
+“If life were predictable it would cease to be life, and be without flavor.” - Eleanor Roosevelt
+
+“The future belongs to those who prepare for it today.” - Malcolm X
+
+“It is not the years in your life but the life in your years that counts.” - Adlai Stevenson
+
+“The only person you should try to be better than is the person you were yesterday.” - Anonymous
+
+“Dream big and dare to fail.” - Norman Vincent Peale
+
+“Shoot for the moon. Even if you miss, you'll land among the stars.” - Norman Vincent Peale
+
+“Change your thoughts and you change your world.” - Norman Vincent Peale
+
+“You become what you believe.” - Oprah Winfrey
+
+“Doing the best at this moment puts you in the best place for the next moment.” - Oprah Winfrey
+
+“The biggest adventure you can take is to live the life of your dreams.” - Oprah Winfrey
+
+“You have power over your mind—not outside events. Realize this, and you will find strength.” - Marcus Aurelius
+
+“The happiness of your life depends upon the quality of your thoughts.” - Marcus Aurelius
+
+“Waste no more time arguing about what a good man should be. Be one.” - Marcus Aurelius
+
+“Very little is needed to make a happy life; it is all within yourself.” - Marcus Aurelius
+
+“The soul becomes dyed with the color of its thoughts.” - Marcus Aurelius
+
+“If it is not right do not do it; if it is not true do not say it.” - Marcus Aurelius
+
+“The obstacle is the way.” - Marcus Aurelius
+
+“We suffer more often in imagination than in reality.” - Seneca
+
+“Luck is what happens when preparation meets opportunity.” - Seneca
+
+“Difficulties strengthen the mind, as labor does the body.” - Seneca
+
+“It is not that we have a short time to live, but that we waste a lot of it.” - Seneca
+
+“He who is brave is free.” - Seneca
+
+“Begin at once to live, and count each separate day as a separate life.” - Seneca
+
+“Knowing others is intelligence; knowing yourself is true wisdom.” - Lao Tzu
+
+“When I let go of what I am, I become what I might be.” - Lao Tzu
+
+“Silence is a source of great strength.” - Lao Tzu
+
+“Nature does not hurry, yet everything is accomplished.” - Lao Tzu
+
+“A good traveler has no fixed plans and is not intent upon arriving.” - Lao Tzu
+
+“Mastering others is strength; mastering yourself is true power.” - Lao Tzu
+
+“The journey of a thousand miles begins beneath one's feet.” - Lao Tzu
+
+“He who knows all the answers has not been asked all the questions.” - Confucius
+
+“The will to win, the desire to succeed, the urge to reach your full potential... these are the keys that will unlock the door to personal excellence.” - Confucius
+
+“Our greatest glory is not in never falling, but in rising every time we fall.” - Confucius
+
+“Real knowledge is to know the extent of one's ignorance.” - Confucius
+
+“Wherever you go, go with all your heart.” - Confucius
+
+“Study the past if you would define the future.” - Confucius
+
+“The only true wisdom is in knowing you know nothing.” - Socrates
+
+“Wonder is the beginning of wisdom.” - Socrates
+
+“Be kind, for everyone you meet is fighting a hard battle.” - Plato
+
+“Wise men learn more from fools than fools learn from wise men.” - Cato the Elder
+
+“It is impossible for a man to learn what he thinks he already knows.” - Epictetus
+
+“No man is free who is not master of himself.” - Epictetus
+
+“First say to yourself what you would be; and then do what you have to do.” - Epictetus
+
+“We have two ears and one mouth so that we can listen twice as much as we speak.” - Epictetus
+
+“Don't explain your philosophy. Embody it.” - Epictetus
+
+“It's not what happens to you, but how you react to it that matters.” - Epictetus
+
+“Knowing yourself is the beginning of all wisdom.” - Aristotle
+
+“It is the mark of an educated mind to be able to entertain a thought without accepting it.” - Aristotle
+
+“We are what we repeatedly do.” - Aristotle
+
+“Pleasure in the job puts perfection in the work.” - Aristotle
+
+“The roots of education are bitter, but the fruit is sweet.” - Aristotle
+
+“Quality is not an act, it is a habit.” - Aristotle
+
+“The energy of the mind is the essence of life.” - Aristotle
+
+“Hope is a waking dream.” - Aristotle
+
+“Patience is bitter, but its fruit is sweet.” - Aristotle
+
+“The beginning is more than half of the whole.” - Aristotle
+
+“The secret of happiness, you see, is not found in seeking more, but in developing the capacity to enjoy less.” - Socrates
+
+“I cannot teach anybody anything. I can only make them think.” - Socrates
+
+“An honest man's word is as good as his bond.” - Miguel de Cervantes
+
+“The truth may be stretched thin, but it never breaks, and it always surfaces above lies, as oil floats on water.” - Don Quixote
+
+“Too much sanity may be madness—and maddest of all: to see life as it is, and not as it should be.” - Miguel de Cervantes
+
+“There is no book so bad that something good cannot be found in it.” - Miguel de Cervantes
+
+“The greatest wealth is health.” - Virgil
+
+“Fortune favors the bold.” - Virgil
+
+“Love conquers all.” - Virgil
+
+“Time flies.” - Virgil
+
+“It is sweet and fitting to die for one's country.” - Horace
+
+“Carpe diem.” - Horace
+
+“Anger is a brief madness.” - Horace
+
+“He who has begun has half done.” - Horace
+
+“Every new beginning comes from some other beginning's end.” - Seneca
+
+“A smooth sea never made a skilled sailor.” - Franklin D. Roosevelt
+
+“Do one thing every day that scares you.” - Eleanor Roosevelt
+
+“No one can make you feel inferior without your consent.” - Eleanor Roosevelt
+
+“Great minds discuss ideas; average minds discuss events; small minds discuss people.” - Eleanor Roosevelt
+
+“It takes as much energy to wish as it does to plan.” - Eleanor Roosevelt
+
+“You gain strength, courage, and confidence by every experience in which you really stop to look fear in the face.” - Eleanor Roosevelt
+
+“A winner is a dreamer who never gives up.” - Nelson Mandela
+
+“Education is the most powerful weapon which you can use to change the world.” - Nelson Mandela
+
+“A good head and a good heart are always a formidable combination.” - Nelson Mandela
+
+“There is no passion to be found playing small and settling for a life that's less than the one you're capable of living.” - Nelson Mandela
+
+“I learned that courage was not the absence of fear, but the triumph over it.” - Nelson Mandela
+
+“Freedom is never really won. You earn it and win it in every generation.” - Coretta Scott King
+
+“Faith is taking the first step even when you don't see the whole staircase.” - Martin Luther King Jr.
+
+“Darkness cannot drive out darkness; only light can do that.” - Martin Luther King Jr.
+
+“Injustice anywhere is a threat to justice everywhere.” - Martin Luther King Jr.
+
+“The time is always right to do what is right.” - Martin Luther King Jr.
+
+“Life's most persistent and urgent question is, What are you doing for others?” - Martin Luther King Jr.
+
+“We must accept finite disappointment, but never lose infinite hope.” - Martin Luther King Jr.
+
+“I have a dream.” - Martin Luther King Jr.
+
+“You can never cross the ocean until you have the courage to lose sight of the shore.” - Christopher Columbus
+
+“The secret of success is to do the common thing uncommonly well.” - John D. Rockefeller
+
+“Don't be afraid to give up the good to go for the great.” - John D. Rockefeller
+
+“The way to make money is to buy when blood is running in the streets.” - John D. Rockefeller
+
+“A friendship founded on business is better than a business founded on friendship.” - John D. Rockefeller
+
+“When you undervalue who you are, the world will undervalue what you do.” - Oprah Winfrey
+
+“Create the highest, grandest vision possible for your life, because you become what you believe.” - Oprah Winfrey
+
+“The greatest discovery of all time is that a person can change his future by merely changing his attitude.” - Oprah Winfrey
+
+“You can't use up creativity. The more you use, the more you have.” - Maya Angelou
+
+“Try to be a rainbow in someone's cloud.” - Maya Angelou
+
+“We may encounter many defeats but we must not be defeated.” - Maya Angelou
+
+“Nothing will work unless you do.” - Maya Angelou
+
+“My mission in life is not merely to survive, but to thrive.” - Maya Angelou
+
+“If you don't like something, change it. If you can't change it, change your attitude.” - Maya Angelou
+
+“You are never too old to set another goal or to dream a new dream.” - C. S. Lewis
+
+“Courage, dear heart.” - C. S. Lewis
+
+“We are what we believe we are.” - C. S. Lewis
+
+“There are far, far better things ahead than any we leave behind.” - C. S. Lewis
+
+“Humility is not thinking less of yourself, but thinking of yourself less.” - C. S. Lewis
+
+“You can make anything by writing.” - C. S. Lewis
+
+“Not all who wander are lost.” - J. R. R. Tolkien
+
+“All that is gold does not glitter.” - J. R. R. Tolkien
+
+“Even the smallest person can change the course of the future.” - J. R. R. Tolkien
+
+“The world is full of magic things, patiently waiting for our senses to grow sharper.” - W. B. Yeats
+
+“There are no strangers here; Only friends you haven't yet met.” - William Butler Yeats
+
+“Think where man's glory most begins and ends, and say my glory was I had such friends.” - William Butler Yeats
+
+“Do not wait to strike till the iron is hot; but make it hot by striking.” - William Butler Yeats
+
+“The best lack all conviction, while the worst are full of passionate intensity.” - William Butler Yeats
+
+“A thing of beauty is a joy forever.” - John Keats
+
+“Beauty is truth, truth beauty.” - John Keats
+
+“Heard melodies are sweet, but those unheard are sweeter.” - John Keats
+
+“Nothing ever becomes real till it is experienced.” - John Keats
+
+“The poetry of earth is never dead.” - John Keats
+
+“Hope is the thing with feathers that perches in the soul.” - Emily Dickinson
+
+“That it will never come again is what makes life so sweet.” - Emily Dickinson
+
+“Forever is composed of nows.” - Emily Dickinson
+
+“If I can stop one heart from breaking, I shall not live in vain.” - Emily Dickinson
+
+“We never know how high we are till we are called to rise.” - Emily Dickinson
+
+“I dwell in Possibility.” - Emily Dickinson
+
+“The truth is rarely pure and never simple.” - Oscar Wilde
+
+“We are all in the gutter, but some of us are looking at the stars.” - Oscar Wilde
+
+“Experience is simply the name we give our mistakes.” - Oscar Wilde
+
+“Always forgive your enemies; nothing annoys them so much.” - Oscar Wilde
+
+“To live is the rarest thing in the world. Most people exist, that is all.” - Oscar Wilde
+
+“Life is far too important a thing ever to talk seriously about.” - Oscar Wilde
+
+“We are each our own devil, and we make this world our hell.” - Oscar Wilde
+
+“It is absurd to divide people into good and bad. People are either charming or tedious.” - Oscar Wilde
+
+“The only duty we owe to history is to rewrite it.” - Oscar Wilde
+
+“There is no such thing as a moral or an immoral book. Books are well written, or badly written.” - Oscar Wilde
+
+“We have really everything in common with America nowadays except, of course, language.” - Oscar Wilde
+
+“All happy families are alike; each unhappy family is unhappy in its own way.” - Leo Tolstoy
+
+“Everyone thinks of changing the world, but no one thinks of changing himself.” - Leo Tolstoy
+
+“If you want to be happy, be.” - Leo Tolstoy
+
+“The two most powerful warriors are patience and time.” - Leo Tolstoy
+
+“Without knowing what I am and why I am here, life is impossible.” - Leo Tolstoy
+
+“Boredom: the desire for desires.” - Leo Tolstoy
+
+“The strongest of all warriors are these two—Time and Patience.” - Leo Tolstoy
+
+“It is amazing how complete is the delusion that beauty is goodness.” - Leo Tolstoy
+
+“Everything I know, I know only because of love.” - Leo Tolstoy
+
+“All, everything that I understand, I understand only because I love.” - Leo Tolstoy
+
+“You have to know how to accept rejection and reject acceptance.” - Ray Bradbury
+
+“You must stay drunk on writing so reality cannot destroy you.” - Ray Bradbury
+
+“Without libraries what have we? We have no past and no future.” - Ray Bradbury
+
+“There is no end to education. It is not that you read a book, pass an examination, and finish with education.” - Isaac Asimov
+
+“The saddest aspect of life right now is that science gathers knowledge faster than society gathers wisdom.” - Isaac Asimov
+
+“People who think they know everything are a great annoyance to those of us who do.” - Isaac Asimov
+
+“Violence is the last refuge of the incompetent.” - Isaac Asimov
+
+“Any sufficiently advanced technology is indistinguishable from magic.” - Arthur C. Clarke
+
+“The only way of discovering the limits of the possible is to venture a little way past them into the impossible.” - Arthur C. Clarke
+
+“Two possibilities exist: either we are alone in the Universe or we are not. Both are equally terrifying.” - Arthur C. Clarke
+
+“The future isn't what it used to be.” - Arthur C. Clarke
+
+“The answer to the ultimate question of life, the universe and everything is 42.” - Douglas Adams
+
+“Don't Panic.” - Douglas Adams
+
+“I love deadlines. I love the whooshing noise they make as they go by.” - Douglas Adams
+
+“Time is an illusion. Lunchtime doubly so.” - Douglas Adams
+
+“Human beings, who are limited by biology, don't have the power to fully understand anything.” - Douglas Adams
+
+“The most important thing we learn at school is the fact that the most important things can't be learned at school.” - Haruki Murakami
+
+“Pain is inevitable. Suffering is optional.” - Haruki Murakami
+
+“If you only read the books that everyone else is reading, you can only think what everyone else is thinking.” - Haruki Murakami
+
+“Memories warm you up from the inside. But they also tear you apart.” - Haruki Murakami
+
+“When you come out of the storm, you won't be the same person who walked in.” - Haruki Murakami
+
+“What we think, we become.” - Buddha
+
+“Three things cannot be long hidden: the sun, the moon, and the truth.” - Buddha
+
+“Peace comes from within. Do not seek it without.” - Buddha
+
+“Holding on to anger is like drinking poison and expecting the other person to die.” - Buddha
+
+“Health is the greatest gift, contentment the greatest wealth, faithfulness the best relationship.” - Buddha
+
+“No one saves us but ourselves. No one can and no one may. We ourselves must walk the path.” - Buddha
+
+“The trouble is, you think you have time.” - Buddha
+
+“What you seek is seeking you.” - Rumi
+
+“The wound is the place where the Light enters you.” - Rumi
+
+“Let yourself be silently drawn by the strange pull of what you really love.” - Rumi
+
+“Don't grieve. Anything you lose comes round in another form.” - Rumi
+
+“The quieter you become, the more you are able to hear.” - Rumi
+
+“Raise your words, not your voice. It is rain that grows flowers, not thunder.” - Rumi
+
+“Live as if you were to die tomorrow. Learn as if you were to live forever.” - Mahatma Gandhi
+
+“Be the change that you wish to see in the world.” - Mahatma Gandhi
+
+“The weak can never forgive. Forgiveness is the attribute of the strong.” - Mahatma Gandhi
+
+“Strength does not come from physical capacity. It comes from an indomitable will.” - Mahatma Gandhi
+
+“Hate the sin, love the sinner.” - Mahatma Gandhi
+
+“Earth provides enough to satisfy every man's needs, but not every man's greed.” - Mahatma Gandhi
+
+“An ounce of prevention is worth a pound of cure.” - Benjamin Franklin
+
+“Tell me and I forget, teach me and I remember, involve me and I learn.” - Benjamin Franklin
+
+“Well done is better than well said.” - Benjamin Franklin
+
+“Either write something worth reading or do something worth writing.” - Benjamin Franklin
+
+“Lost time is never found again.” - Benjamin Franklin
+
+“He that can have patience can have what he will.” - Benjamin Franklin
+
+“Diligence is the mother of good luck.” - Benjamin Franklin
+
+“Energy and persistence conquer all things.” - Benjamin Franklin
+
+“By failing to prepare, you are preparing to fail.” - Benjamin Franklin
+
+“An investment in knowledge pays the best interest.” - Benjamin Franklin
+
+“If you would know the value of money, go and try to borrow some.” - Benjamin Franklin
+
+“Beware of little expenses. A small leak will sink a great ship.” - Benjamin Franklin
+
+“You may delay, but time will not.” - Benjamin Franklin
+
+“A penny saved is a penny earned.” - Benjamin Franklin
+
+“The harder I work, the luckier I get.” - Samuel Goldwyn
+
+“The best revenge is massive success.” - Frank Sinatra
