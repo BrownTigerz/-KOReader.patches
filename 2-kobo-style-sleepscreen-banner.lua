@@ -17,10 +17,10 @@ local B_SETT = {	--BANNER SETTINGS
 										--sleep screen message. for eg, "%T" shows book title,
 										--"page %c of %t" shows 'page 1 of 400' etc.
 					title_fontFace = "AtkinsonHyperlegibleNext-Regular.otf",
-					title_fontSize = 22,
+					title_fontSize = 24,
 					stats_fontFace = "AtkinsonHyperlegibleNext-Regular.otf",
-					stats_fontSize = 16,
-					border_size = 1,
+					stats_fontSize = 17,
+					border_size = 2,
 					border_color = 1,	-- 0 = white, 1 = black						
 					background = 0,		-- 0 = white, 1 = black
 					margin = 10,
@@ -32,7 +32,7 @@ local B_SETT = {	--BANNER SETTINGS
 local HL_SETT = {	--HIGHLIGHT SETTINGS
 					showRandomHighlight = true, 
 					highlight_fontFace = "NotoSerif-Italic.ttf",
-					highlight_fontSize = 16,
+					highlight_fontSize = 17,
 					justify = true,
 					add_quotations = true,
 					show_accent_line = true,					
@@ -60,11 +60,9 @@ local HL_SETT = {	--HIGHLIGHT SETTINGS
 }
 local QUOTE_SETT = {	--FALLBACK QUOTE SETTINGS
 						--used only when the current book has no eligible highlights.
-						--quotes.txt should have one quote per line, already formatted
-						--the way you want it shown, e.g.:
 						--“Blah blah blah” - Quoter
 					enabled = true,
-					file_path = "/mnt/onboard/quotes.txt",  -- adjust path to your device
+					file_path = "/mnt/onboard/.adds/Famous Quotes.txt",  -- adjust path to your device
 					no_repeat_window = 8,	-- won't repeat a quote until this many
 											-- other quotes have shown first
 }
