@@ -17,8 +17,7 @@ The goal is to give reading more structure and variety while encouraging consist
 Download and ADD Famous Quotes.txt to file_path = "/mnt/onboard/.adds/Famous Quotes.txt"
 
 Changes from the original
-Custom quote fallback — if the current book has no eligible highlights, the patch automatically displays a random quote from a custom quotes.txt file.
-Custom quote file — add your own quotes to /mnt/onboard/quotes.txt, with one quote per line.
+Custom quote fallback — if the current book has no eligible highlights, the patch automatically displays a random quote from a custom txt file.
 No-repeat system — highlights and custom quotes have separate no-repeat windows to avoid seeing the same ones repeatedly.
 Seeded randomization — improves random selection between KOReader restarts.
 Automatic quote reloading — changes to quotes.txt are detected and the file is reloaded without needing to restart KOReader.
