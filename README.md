@@ -12,3 +12,8 @@ A KOReader patch that adds a quest and challenge system to ReadMastery. It intro
 
 The goal is to give reading more structure and variety while encouraging consistent reading without making the system overly complicated or distracting.
 
+# Custom Quotes for SimpleUI
+
+300 famous quotes to use with simple ui, add it to <KOReader settings dir>/simpleui/sui_quotes/
+then set Source → Custom on the module
+
