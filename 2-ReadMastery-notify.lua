@@ -20,8 +20,17 @@ files whose name starts with a supported priority number (0, 1, 2,
 8, or 9) - "2-" is the one that runs after the UI is ready, which
 is what these patches need. Keep the "2-" prefix.
 
-Everything lives under ReadMastery -> Settings -> Notification Settings
-(greyed out while "Notifications" below it is off):
+Two top-level toggles above the settings menu:
+  * Notifications             - master ON/OFF for everything below
+  * Nudges                    - 80%/90% "almost there" notices from
+                                 the quest patch (informational only,
+                                 no XP). Greyed out whenever
+                                 Notifications is off, since nudges
+                                 are delivered through the same
+                                 render pipeline.
+
+Everything else lives under ReadMastery -> Settings -> Notification
+Settings (greyed out while "Notifications" above it is off):
   * Full / Compact / Banner   - notification style
         Full    = ReadMastery's original popup (tap to dismiss)
         Compact = a small centered box (auto-dismiss or tap) - a
@@ -42,6 +51,10 @@ Everything lives under ReadMastery -> Settings -> Notification Settings
                                  notification using everything above,
                                  so you can check changes without
                                  waiting for a real one
+
+Level Up notifications also show a cosmetic title badge at certain
+milestone levels (e.g. "Established Reader" at 10) - flavor text
+only, no XP or gameplay effect.
 
 Achievement notifications (Compact/Banner only) show that
 achievement's own small pixel-art icon (from ReadMastery's own
@@ -98,6 +111,7 @@ local Notify = {
     duration  = settings:readSetting("duration") or 4,           -- seconds
     position  = settings:readSetting("position") or "right",     -- "left" | "right" | "full_top" | "full_bottom"
     font_path = settings:readSetting("font_path"),                -- nil = KOReader default UI font
+    nudges_enabled = settings:nilOrTrue("nudges_enabled"),        -- default: true; 80%/90% "almost there" notices from the quest patch
 }
 
 local function saveSetting(key, value)
@@ -519,8 +533,8 @@ local function showNextQueued()
                 title = item.title,
                 text = item.text,
                 ascii_art = item.ascii_art,
-                timeout = Notify.duration,
-                font_path = Notify.font_path,
+                timeout = item.duration,
+                font_path = item.font_path,
                 on_close = onDone,
             })
         else
@@ -528,9 +542,9 @@ local function showNextQueued()
                 title = item.title,
                 text = item.text,
                 ascii_art = item.ascii_art,
-                timeout = Notify.duration,
-                position = Notify.position,
-                font_path = Notify.font_path,
+                timeout = item.duration,
+                position = item.position,
+                font_path = item.font_path,
                 on_close = onDone,
             })
         end
@@ -541,9 +555,24 @@ local function showNextQueued()
     end
 end
 
+-- Snapshot ALL display settings (style already fixed at enqueue via
+-- "kind" - position/font/duration used to be re-read fresh from
+-- Notify at display time instead, so changing a setting while
+-- something was still queued gave that queued item a mismatched mix
+-- of old and new settings. Now the whole look is locked in at the
+-- moment it's queued, consistently.
 local function enqueue(kind, title, text, ascii_art)
-    table.insert(notify_queue, { kind = kind, title = title, text = text, ascii_art = ascii_art })
+    table.insert(notify_queue, {
+        kind = kind, title = title, text = text, ascii_art = ascii_art,
+        duration = Notify.duration, position = Notify.position, font_path = Notify.font_path,
+    })
     showNextQueued()
+end
+
+local function clearQueue()
+    for i = #notify_queue, 1, -1 do
+        table.remove(notify_queue, i)
+    end
 end
 
 local function showBanner(title, text, ascii_art)
@@ -579,6 +608,7 @@ end
 -- anything that doesn't check for it.
 _G.ReadMasteryNotify = _G.ReadMasteryNotify or {}
 _G.ReadMasteryNotify.render = render
+_G.ReadMasteryNotify.nudgesEnabled = function() return Notify.enabled and Notify.nudges_enabled end
 
 -- =================================================================
 -- Patch the plugin (runs once per plugin-instantiation; guarded so
@@ -623,8 +653,25 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- returns (title, text, ascii_art) - ascii_art is nil except
     -- for real, unlocked achievements.
     -- -----------------------------------------------------------
+
+    -- Cosmetic only - no XP, no gameplay effect, just a title badge
+    -- shown in the Level Up popup at these milestone levels.
+    local LEVEL_TITLES = {
+        [2] = "Curious Reader", [3] = "Bookworm", [4] = "Page Turner",
+        [5] = "Avid Reader", [6] = "Dedicated Reader", [7] = "Literary Explorer",
+        [8] = "Seasoned Reader", [9] = "Reading Regular", [10] = "Established Reader",
+        [11] = "Mastered Reader", [12] = "Literary Adventurer", [13] = "Dedicated Bibliophile",
+        [14] = "Veteran Reader", [15] = "Reading Veteran", [16] = "Literary Scholar",
+        [17] = "Book Connoisseur", [18] = "Reading Expert", [19] = "Master Reader",
+        [20] = "Reading Master",
+    }
+
     local function levelUpContent(level, unlocked_feature)
         local text = "You reached Level " .. level .. " " .. Icons.LIGHTNING
+        local title_badge = LEVEL_TITLES[level]
+        if title_badge then
+            text = text .. "\n" .. Icons.CROWN .. " " .. title_badge
+        end
         if unlocked_feature then
             text = text .. "\n" .. Icons.UNLOCK .. " Unlocked: " .. unlocked_feature.name
         end
@@ -809,6 +856,23 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                 callback = function()
                     Notify.enabled = not Notify.enabled
                     saveSetting("enabled", Notify.enabled)
+                    if not Notify.enabled then
+                        -- OFF means stop everything, not just block
+                        -- new ones - clear whatever's still pending.
+                        -- Whatever's CURRENTLY on screen finishes out
+                        -- naturally rather than being force-closed.
+                        clearQueue()
+                    end
+                end,
+                keep_menu_open = true,
+            },
+            {
+                text = "Nudges",
+                checked_func = function() return Notify.nudges_enabled end,
+                enabled_func = function() return Notify.enabled end,
+                callback = function()
+                    Notify.nudges_enabled = not Notify.nudges_enabled
+                    saveSetting("nudges_enabled", Notify.nudges_enabled)
                 end,
                 keep_menu_open = true,
             },
