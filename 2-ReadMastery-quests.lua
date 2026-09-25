@@ -56,16 +56,19 @@ Quests included:
   Close the Cover, Double Feature, Reading Marathon (single
   session), Iron Reader (single session pages), Chronicles of the
   Multiverse (tag-based pages), Expand the Mind (tag-based pages),
-  Genre Explorer (finish 1 fantasy/sci-fi book).
+  Genre Explorer (finish 1 fantasy/sci-fi book), The Final Stretch
+  (reach 80%+ during a session and finish the book that same sitting).
 
   Monthly (reset on the 1st): Bibliophile, The Endurance Trial,
   The Brick Slayer / The Long Haul / Leviathan (finish a book of a
-  given length), Lost in the Story (single session), Change of
-  Scenery (finish 2 books across 2 different genres), Genre Hopper
-  (finish 3 books across 3 different genres). Genre diversity tracks
-  distinct finished books AND distinct genres separately, so a
-  single book tagged with two genres still only counts as one
-  finished book - it can't complete a "2 books" quest by itself.
+  given length - mutually exclusive, only the highest tier a book
+  qualifies for pays out), Lost in the Story (single session),
+  Change of Scenery (finish 2 books across 2 different genres),
+  Genre Hopper (finish 3 books across 3 different genres). Genre
+  diversity tracks distinct finished books AND distinct genres
+  separately, so a single book tagged with two genres still only
+  counts as one finished book - it can't complete a "2 books" quest
+  by itself.
 
   Reasoning for the split: a single matching book in a week is a
   realistic ask, but genuine multi-book genre variety needs a full
@@ -80,20 +83,52 @@ Quests included:
   epic-fantasy/classics-tagged book). Only shown in View Quests
   while actually active - no 11 months of dead entries in the list.
 
+  Yearly (resets each January, own dedup set so the same book can't
+  double-count across different months): Genre Conqueror (finish
+  books covering 7 different genres) and Author Explorer (finish
+  books by 8 different authors) - deliberately set below "1 book a
+  month" pace, so a full year's normal reading is genuinely needed,
+  not just a few months of deliberate effort. Both pay a small XP
+  taste the instant you touch something new (a genre or author not
+  yet counted this year - no popup, just quiet XP), with the bulk of
+  the reward reserved for actually completing the whole thing.
+
+Near-completion nudges (80%/90% - "you're in the final stretch" /
+"almost there") are informational only: no XP, no quest progress,
+just a friendly notice, and have their own ON/OFF toggle in the
+notify patch (Settings -> Nudges, right under the main Notifications
+toggle). Genuinely distinct from The Final Stretch quest above,
+which does track progress and pay XP - the nudge is just a heads-up,
+the quest is the actual reward for following through on it.
+
+Anti-cheat: book-completion quests (Close the Cover, length tiers,
+Genre Explorer, Change of Scenery, Genre Hopper, seasonal, Yearly,
+Final Stretch) require at least 5 pages of real page-by-page reading
+THIS session before EndOfBook is trusted - leans on ReadMastery's
+own existing big-jump filter (a slider jump over 5 pages never
+updates session.pages_read at all), so slider-jumping straight to
+the last page without reading can't award credit. A genuine reader
+finishing a book they mostly read in earlier sessions still clears
+this easily.
+
 Tag-based quests read a book's own keywords/subject metadata (the
 same thing Calibre tags usually end up in for EPUBs) once when you
 open it, cached for that reading session - no scanning of the book's
 actual text, no per-page cost beyond a table lookup. A book with no
 usable tags simply doesn't advance tag quests; every other quest for
 that book keeps working normally. Book-completion tag quests
-(Genre Explorer, Change of Scenery, Genre Hopper, seasonal) are
-checked once, when a book finishes - not by page count, since
-"finish a book in this genre" is what they actually ask for.
+(Genre Explorer, Change of Scenery, Genre Hopper, seasonal, Genre
+Conqueror) are checked once, when a book finishes - not by page
+count, since "finish a book in this genre" is what they actually
+ask for. Author Explorer works the same way, off getProps().authors.
 
-Held back for a later phase: the remaining single-genre tag quests
-(thriller/classics/history/biography), quest chains, wildcard
-quests, and author/series quests - same reasoning as before: prove
-the current set works well before stacking more on.
+Held back for a later phase: quest chains and wildcard quests - both
+need real new mechanics (chain state across resets, "don't repeat an
+active pick" selection logic) rather than more of what's already
+proven. Series quests stay blocked entirely - there's no reliable
+series metadata field in standard EPUB/Calibre exports, unlike
+author (getProps().authors), which is why Author Explorer is safe
+to have already but a series-based quest isn't.
 --]]--
 
 local userpatch   = require("userpatch")
@@ -119,6 +154,7 @@ local Quest = {
         weekly   = { key = nil, progress = {}, finished_paths = {} },
         monthly  = { key = nil, progress = {}, finished_paths = {} },
         seasonal = { keys = {}, progress = {} },
+        yearly   = { key = nil, progress = {}, finished_paths = {} },
     },
     -- Lifetime counters only - unaffected by daily/weekly/monthly
     -- period boundaries or by the "Quests (Enhanced)" OFF toggle
@@ -136,10 +172,14 @@ local Quest = {
     },
 }
 
--- Migration: an existing saved state from before seasonal quests
--- existed won't have this field - add it rather than error later.
+-- Migration: an existing saved state from before seasonal/yearly
+-- quests existed won't have these fields - add them rather than
+-- error later.
 if not Quest.state.seasonal then
     Quest.state.seasonal = { keys = {}, progress = {} }
+end
+if not Quest.state.yearly then
+    Quest.state.yearly = { key = nil, progress = {}, finished_paths = {} }
 end
 
 local function persist(flush_now)
@@ -153,7 +193,37 @@ end
 
 -- Not persisted - just this session's diffing baseline, reset
 -- whenever a new reading session starts.
-local Runtime = { last_pages_read = 0, last_active_seconds = 0, current_book_groups = {} }
+local Runtime = {
+    last_pages_read = 0, last_active_seconds = 0,
+    current_book_groups = {}, current_book_author = nil,
+    final_stretch_eligible = false, final_stretch_start_pages = 0,
+    nudge_80_sent = false, nudge_90_sent = false,
+}
+
+-- Minimum pages actually turned THIS session before a book-completion
+-- event (EndOfBook) is trusted enough to award quest credit. Leans on
+-- ReadMastery's own MAX_NORMAL_PAGE_JUMP (5 pages) filter: a jump
+-- larger than that already doesn't count toward session.pages_read
+-- at all, so someone who slider-jumps straight to the last page
+-- without reading has pages_read stuck at 0 - this just refuses
+-- credit in that case, rather than trusting "reached the last page"
+-- on its own. A genuine reader finishing a book they mostly read in
+-- earlier sessions still clears this easily (even just the last few
+-- pages read normally today is enough).
+local MIN_SESSION_PAGES_FOR_BOOK_CREDIT = 5
+
+-- Nudges (80%/90% "almost there" notices) have their own ON/OFF
+-- toggle, but it lives in the notify patch's settings menu (that's
+-- where all the other notification-style controls already are).
+-- This just checks it via the same bridge pattern as render() -
+-- defaults ON if the notify patch isn't installed at all.
+local function NudgesEnabled()
+    local bridge = _G.ReadMasteryNotify
+    if bridge and bridge.nudgesEnabled then
+        return bridge.nudgesEnabled()
+    end
+    return true
+end
 
 -- =================================================================
 -- Quest definitions (Phase 1: no req_tag matching)
@@ -204,6 +274,7 @@ local WEEKLY_QUESTS = {
     { id = "w_fantasy",   title = "Chronicles of the Multiverse", type = "tag_pages", target = 300, reward_xp = 500, tag_groups = { "fantasy" } },
     { id = "w_nonfiction", title = "Expand the Mind",             type = "tag_pages", target = 100, reward_xp = 350, tag_groups = { "nonfiction" } },
     { id = "w_genre_explorer", title = "Genre Explorer", type = "tag_book_finish", target = 1, reward_xp = 500, tag_groups = { "fantasy", "scifi" } },
+    { id = "w_final_stretch", title = "The Final Stretch", type = "final_stretch", target = 1, reward_xp = 200 },
 }
 
 local MONTHLY_QUESTS = {
@@ -226,6 +297,16 @@ local SEASONAL_QUESTS = {
     { id = "s_winter", title = "The Great Epic",    type = "tag_book_finish", target = 1, reward_xp = 1200, active_month = 12, tag_groups = { "fantasy", "classic", "winter" } },
     { id = "s_love",   title = "Love Story",        type = "tag_book_finish", target = 1, reward_xp = 1200, active_month = 2,  tag_groups = { "romance" } },
     { id = "s_summer", title = "Summer Reads",      type = "tag_book_finish", target = 1, reward_xp = 1200, active_month = 7,  tag_groups = { "adventure", "thriller", "romance" } },
+}
+
+-- Yearly: long-term, resets each January. Both pay a small XP taste
+-- the moment you touch something NEW (a genre or author you hadn't
+-- hit yet this year), with the bulk of the reward reserved for
+-- actually completing the whole thing - "main focus is finishing
+-- books," not collecting a discovery bonus and stopping.
+local YEARLY_QUESTS = {
+    { id = "y_genre_conquer",   title = "Genre Conqueror", type = "genre_conquer",   target = 7, reward_xp = 2000, discovery_xp = 100 },
+    { id = "y_author_explorer", title = "Author Explorer", type = "author_explorer", target = 8, reward_xp = 1200, discovery_xp = 100 },
 }
 
 local function findQuest(list, id)
@@ -262,9 +343,22 @@ local function describeQuest(quest)
                .. " tagged " .. table.concat(quest.tag_groups, " or ")
                .. " (based on the book's own metadata)."
     elseif quest.type == "tag_unique_book_finish" then
-        return "Finish " .. quest.target .. " books, together covering " .. quest.target
-               .. " different genres (based on each book's own metadata) - a single book "
-               .. "tagged with multiple genres still only counts as one finished book."
+        return "Finish " .. quest.target .. " different books, together covering at least "
+               .. quest.target .. " different genres (based on each book's own metadata) - "
+               .. "both requirements are tracked separately, so a single book tagged with "
+               .. "multiple genres still only counts as one finished book."
+    elseif quest.type == "genre_conquer" then
+        return "Finish books covering " .. quest.target .. " different genres, at any pace, "
+               .. "over the year - " .. quest.discovery_xp .. " XP the moment each NEW genre is "
+               .. "touched, +" .. quest.reward_xp .. " XP once all " .. quest.target .. " are covered."
+    elseif quest.type == "author_explorer" then
+        return "Finish books by " .. quest.target .. " different authors over the year "
+               .. "(tracks each book's primary/first listed author) - "
+               .. quest.discovery_xp .. " XP for each NEW author, +" .. quest.reward_xp
+               .. " XP once you've covered all " .. quest.target .. "."
+    elseif quest.type == "final_stretch" then
+        return "Reach 80%+ completion during a reading session, then finish the book in "
+               .. "that same session, with at least 5 pages of real reading along the way."
     end
     return ""
 end
@@ -273,8 +367,17 @@ end
 -- Period keys / reset boundaries
 -- =================================================================
 
+-- Daily quest-day boundary is shifted to 3 AM instead of literal
+-- midnight, specifically so Night Owl (21:00-02:00) never gets its
+-- progress wiped mid-window by the daily reset landing right in the
+-- middle of it. Only the DAILY key is shifted - week/month/seasonal
+-- boundaries stay at real midnight, since nothing else crosses a day
+-- boundary the way Night Owl does, and seasonal months in particular
+-- should switch over at the real calendar boundary.
+local QUEST_DAY_SHIFT_SECONDS = 3 * 3600
+
 local function todayKey(t)
-    return os.date("%Y-%m-%d", t)
+    return os.date("%Y-%m-%d", t - QUEST_DAY_SHIFT_SECONDS)
 end
 
 local function weekKey(t)
@@ -311,13 +414,18 @@ local function pickRotateId(now_t)
     return DAILY_ROTATE_POOL[idx].id
 end
 
+local function yearKey(t)
+    return os.date("%Y", t)
+end
+
 local function ensurePeriod()
     local now = os.time()
-    local now_t = os.date("*t", now)
+    local now_t = os.date("*t", now) -- TRUE current time - used for seasonal month/year checks and returned for inTimeWindow
 
+    local quest_day_t = os.date("*t", now - QUEST_DAY_SHIFT_SECONDS) -- shifted, for daily key/rotation only
     local tk = todayKey(now)
     if Quest.state.daily.key ~= tk then
-        Quest.state.daily = { key = tk, rotate_id = pickRotateId(now_t), progress = {} }
+        Quest.state.daily = { key = tk, rotate_id = pickRotateId(quest_day_t), progress = {} }
     end
 
     local wk = weekKey(now)
@@ -328,6 +436,11 @@ local function ensurePeriod()
     local mk = monthKey(now)
     if Quest.state.monthly.key ~= mk then
         Quest.state.monthly = { key = mk, progress = {}, finished_paths = {} }
+    end
+
+    local yk = yearKey(now)
+    if Quest.state.yearly.key ~= yk then
+        Quest.state.yearly = { key = yk, progress = {}, finished_paths = {} }
     end
 
     -- Seasonal: each quest has its own independent reset key (they're
@@ -449,6 +562,9 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         tag_pages = Icons.PAGE,
         tag_book_finish = Icons.BOOK,
         tag_unique_book_finish = Icons.CAT_DISCOVERY,
+        genre_conquer = Icons.CROWN,
+        author_explorer = Icons.CAT_DISCOVERY,
+        final_stretch = Icons.ARROW_RIGHT,
     }
 
     -- ---------------------------------------------------------------
@@ -484,6 +600,164 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         return groups
     end
 
+    -- Same idea, for the book's primary author (getProps().authors -
+    -- real, reliable metadata, same call as keywords above). Multiple
+    -- authors may be joined by newline/comma; only the first/primary
+    -- one is used, normalized for comparison.
+    -- "Last, First" is a common EPUB author format; treating comma as
+    -- a multi-author separator (as an earlier version of this did)
+    -- meant "Tolkien, J.R.R." got truncated to just "Tolkien". Authors
+    -- are actually separated by newline/semicolon, not comma - comma
+    -- shows up *within* one author's own "Last, First" formatting.
+    -- Detect and flip that to "First Last" so it matches however a
+    -- different book lists the same author, instead of counting as
+    -- two different people.
+    local function normalizeAuthorName(name)
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        local last, first = name:match("^([^,]+),%s*(.+)$")
+        if last and first and not first:find(",") then
+            name = first .. " " .. last
+        end
+        return name:lower()
+    end
+
+    local function detectBookAuthor(instance)
+        if not (instance.ui and instance.ui.document and instance.ui.document.getProps) then
+            return nil
+        end
+        local ok, props = pcall(function() return instance.ui.document:getProps() end)
+        local raw = ok and props and props.authors
+        if not raw or raw == "" then return nil end
+        local first_entry = raw:match("[^\n;]+") or raw
+        local normalized = normalizeAuthorName(first_entry)
+        if normalized == "" then return nil end
+        return normalized
+    end
+
+    -- Yearly "Genre Conqueror" progress - tracks only DISTINCT genres
+    -- touched (not a paired book-count like Change of Scenery/Genre
+    -- Hopper), since the point here is pure genre breadth over a
+    -- whole year, not a book-count minimum. Returns the quest if it
+    -- just completed, plus the list of genre ids newly discovered by
+    -- THIS book (for the discovery-bonus XP).
+    local function addGenreConquerProgress(period_table, quest, book_groups)
+        if not quest then return nil, {} end
+        local p = period_table.progress[quest.id]
+        if not p then
+            p = { value = 0, completed = false, genres = {} }
+            period_table.progress[quest.id] = p
+        end
+        if p.completed then return nil, {} end
+        local newly_discovered = {}
+        for group_id in pairs(book_groups) do
+            if not p.genres[group_id] then
+                p.genres[group_id] = true
+                table.insert(newly_discovered, group_id)
+            end
+        end
+        local genre_count = 0
+        for _ in pairs(p.genres) do genre_count = genre_count + 1 end
+        p.value = genre_count
+        if genre_count >= quest.target then
+            p.completed = true
+            return quest, newly_discovered
+        end
+        return nil, newly_discovered
+    end
+
+    -- Same pattern, keyed by author instead of genre.
+    local function addAuthorExplorerProgress(period_table, quest, author_key)
+        if not quest or not author_key then return nil, false end
+        local p = period_table.progress[quest.id]
+        if not p then
+            p = { value = 0, completed = false, authors = {} }
+            period_table.progress[quest.id] = p
+        end
+        if p.completed then return nil, false end
+        local is_new = not p.authors[author_key]
+        if is_new then p.authors[author_key] = true end
+        local author_count = 0
+        for _ in pairs(p.authors) do author_count = author_count + 1 end
+        p.value = author_count
+        if author_count >= quest.target then
+            p.completed = true
+            return quest, is_new
+        end
+        return nil, is_new
+    end
+
+    -- Small, silent XP taste for touching something new (a genre or
+    -- author not yet counted this year) - no popup, so this doesn't
+    -- compete with the real "QUEST COMPLETE" fanfare reserved for
+    -- actually finishing the whole Yearly quest. Still real XP
+    -- (through the normal addXP channel) and still checked for a
+    -- level-up, just delivered quietly.
+    local function awardDiscoveryBonus(instance, count, xp_each)
+        if not count or count <= 0 then return end
+        local total = count * xp_each
+        local level_before = instance.core and instance.core:getLevel() or nil
+        if instance.core then
+            instance.core:addXP(total, "quest:discovery")
+            instance.core:save()
+        end
+        Quest.lifetime.total_xp = Quest.lifetime.total_xp + total
+        local level_after = instance.core and instance.core:getLevel() or nil
+        if level_after and level_before and level_after > level_before and instance.notifications then
+            instance.notifications:showLevelUp(level_after, nil)
+        end
+        persist(true)
+    end
+
+    -- ---------------------------------------------------------------
+    -- Final Stretch eligibility + near-completion nudges. Both read
+    -- the page-count fraction at page-update time (using the `page`
+    -- KOReader already hands onPageUpdate, plus getPageCount() -
+    -- already used for the length-tier quests) rather than any
+    -- reader-type-specific "starting position" API. Checked once per
+    -- session's worth of page updates; Runtime fields reset fresh in
+    -- onReaderReady below.
+    -- ---------------------------------------------------------------
+    local function checkFinalStretchEligibility(instance, page)
+        if Runtime.final_stretch_eligible then return end
+        if not (instance.ui and instance.ui.document and instance.ui.document.getPageCount) then return end
+        local ok, total = pcall(function() return instance.ui.document:getPageCount() end)
+        if not ok or not total or total <= 0 or not page then return end
+        if (page / total) >= 0.8 then
+            Runtime.final_stretch_eligible = true
+            Runtime.final_stretch_start_pages = (instance.session and instance.session.pages_read) or 0
+        end
+    end
+
+    local function sendNudge(instance, text)
+        if not NudgesEnabled() then return end
+        local bridge = _G.ReadMasteryNotify
+        if bridge and bridge.render then
+            bridge.render(Icons.ARROW_RIGHT .. " READING PROGRESS", text)
+        else
+            UIManager:show(InfoMessage:new{ text = text, timeout = 3 })
+        end
+    end
+
+    -- Informational only - no XP, doesn't touch quest state at all.
+    -- Once per session per threshold (not persisted per-book, so
+    -- reopening the same book in a later session can nudge again -
+    -- a deliberate simplification, not a bug).
+    local function checkNearCompletionNudges(instance, page)
+        if Runtime.nudge_90_sent then return end
+        if not (instance.ui and instance.ui.document and instance.ui.document.getPageCount) then return end
+        local ok, total = pcall(function() return instance.ui.document:getPageCount() end)
+        if not ok or not total or total <= 0 or not page then return end
+        local pct = page / total
+        if pct >= 0.9 then
+            Runtime.nudge_90_sent = true
+            Runtime.nudge_80_sent = true
+            sendNudge(instance, "Almost there - finish the book!")
+        elseif pct >= 0.8 and not Runtime.nudge_80_sent then
+            Runtime.nudge_80_sent = true
+            sendNudge(instance, "You're in the final stretch - about 20% remaining.")
+        end
+    end
+
     -- ---------------------------------------------------------------
     -- Completion: award XP through ReadMastery's own addXP (so it's
     -- real XP, counted the same as everything else), pass any
@@ -491,37 +765,52 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- fire our own "Quest Complete" popup via the notification
     -- patch's shared, queued render() if available, else a plain
     -- fallback.
+    --
+    -- Takes a LIST of newly-completed quests (rather than one at a
+    -- time) so that when several complete from the same event (e.g.
+    -- a big book crossing several thresholds at once), the XP save
+    -- and settings flush happen ONCE for the whole batch instead of
+    -- once per quest - each is still its own synchronous disk write,
+    -- and there's no reason to pay that cost N times for one event.
     -- ---------------------------------------------------------------
-    local function completeQuest(instance, quest)
+    local function completeQuests(instance, quests)
+        if #quests == 0 then return end
         local level_before = instance.core and instance.core:getLevel() or nil
+
+        for _, quest in ipairs(quests) do
+            if instance.core then
+                instance.core:addXP(quest.reward_xp, "quest:" .. quest.id)
+            end
+
+            Quest.lifetime.total_completed = Quest.lifetime.total_completed + 1
+            Quest.lifetime.total_xp = Quest.lifetime.total_xp + quest.reward_xp
+            Quest.lifetime.by_id[quest.id] = (Quest.lifetime.by_id[quest.id] or 0) + 1
+
+            local title = Icons.TARGET .. " QUEST COMPLETE " .. Icons.TARGET
+            local text = quest.title .. "\n+" .. quest.reward_xp .. " XP"
+            local bridge = _G.ReadMasteryNotify
+            if bridge and bridge.render then
+                bridge.render(title, text)
+            else
+                UIManager:show(InfoMessage:new{
+                    text = title .. "\n\n" .. text,
+                    timeout = 4,
+                })
+            end
+        end
+
         if instance.core then
-            instance.core:addXP(quest.reward_xp, "quest:" .. quest.id)
-            instance.core:save()
+            instance.core:save() -- one disk write for the whole batch
         end
         local level_after = instance.core and instance.core:getLevel() or nil
-
-        local title = Icons.TARGET .. " QUEST COMPLETE " .. Icons.TARGET
-        local text = quest.title .. "\n+" .. quest.reward_xp .. " XP"
-
-        Quest.lifetime.total_completed = Quest.lifetime.total_completed + 1
-        Quest.lifetime.total_xp = Quest.lifetime.total_xp + quest.reward_xp
-        Quest.lifetime.by_id[quest.id] = (Quest.lifetime.by_id[quest.id] or 0) + 1
-
-        local bridge = _G.ReadMasteryNotify
-        if bridge and bridge.render then
-            bridge.render(title, text)
-        else
-            UIManager:show(InfoMessage:new{
-                text = title .. "\n\n" .. text,
-                timeout = 4,
-            })
-        end
-
         if level_after and level_before and level_after > level_before and instance.notifications then
             instance.notifications:showLevelUp(level_after, nil)
         end
 
-        persist(true) -- flush immediately so a completion is never lost
+        -- Caller is responsible for persisting (both call sites need
+        -- slightly different flush behavior depending on whether
+        -- anything completed), so this function only updates
+        -- in-memory state and shows notifications.
     end
 
     -- ---------------------------------------------------------------
@@ -621,10 +910,8 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             note(checkThreshold(Quest.state.weekly, w_streak, instance.core:getStreak() or 0))
         end
 
-        for _, q in ipairs(completed_list) do
-            completeQuest(instance, q)
-        end
-        persist(false) -- cheap in-memory save; disk flush happens on completion/session-end
+        completeQuests(instance, completed_list)
+        persist(#completed_list > 0) -- flush only if something completed; otherwise cheap in-memory save
     end
 
     -- ---------------------------------------------------------------
@@ -635,10 +922,24 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- ---------------------------------------------------------------
     local function trackEndOfBook(instance)
         if not Quest.enabled then return end
-        ensurePeriod()
+        local now_t = ensurePeriod()
         local session = instance.session
         local path = session and session.book_path
         if not path then return end
+
+        -- Anti-cheat: require some real page-by-page reading THIS
+        -- session before trusting "reached the last page" as an
+        -- actual finish. Leans on ReadMastery's own big-jump filter
+        -- (a slider jump over 5 pages never updates pages_read at
+        -- all), so someone who teleports straight to the end without
+        -- reading has pages_read stuck at 0 here - a genuine reader
+        -- finishing a book they mostly read earlier still clears
+        -- this easily. Not bulletproof (a jump-then-one-real-page-
+        -- turn could still slip through), but a real deterrent for
+        -- essentially no cost to legitimate reading.
+        if (session.pages_read or 0) < MIN_SESSION_PAGES_FOR_BOOK_CREDIT then
+            return
+        end
 
         -- A content-based fingerprint rather than the raw path, so the
         -- same book isn't double-counted (or missed) if it exists as
@@ -680,6 +981,19 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             if bookMatchesAny(w_genre_explorer) then
                 note(addProgress(Quest.state.weekly, w_genre_explorer, 1))
             end
+
+            -- Final Stretch: eligible if this session opened the book
+            -- already 80%+ complete (checked on page updates above),
+            -- and some real reading happened this session before
+            -- finishing (reuses the pages_read baseline captured at
+            -- that eligibility check, on top of the anti-cheat gate
+            -- already passed to even reach this point).
+            if Runtime.final_stretch_eligible then
+                local pages_this_session = ((session.pages_read or 0) - Runtime.final_stretch_start_pages)
+                if pages_this_session >= 5 then
+                    note(addProgress(Quest.state.weekly, findQuest(WEEKLY_QUESTS, "w_final_stretch"), 1))
+                end
+            end
         end
         if not Quest.state.monthly.finished_paths[book_id] then
             Quest.state.monthly.finished_paths[book_id] = true
@@ -718,8 +1032,8 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
 
             -- Seasonal - only checked during the quest's active month
             -- (ensurePeriod already made sure its progress entry is
-            -- fresh for this year if so).
-            local now_t = os.date("*t")
+            -- fresh for this year if so). Reuses the same now_t from
+            -- ensurePeriod() above rather than querying time again.
             for _, sq in ipairs(SEASONAL_QUESTS) do
                 if now_t.month == sq.active_month and bookMatchesAny(sq) then
                     note(addProgress(Quest.state.seasonal, sq, 1))
@@ -727,10 +1041,33 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             end
         end
 
-        for _, q in ipairs(completed_list) do
-            completeQuest(instance, q)
+        -- Yearly - own dedup set (resets each January, independent of
+        -- the monthly one above) so the same book can't contribute
+        -- twice across different months of the same year.
+        if not Quest.state.yearly.finished_paths[book_id] then
+            Quest.state.yearly.finished_paths[book_id] = true
+
+            if next(book_groups) ~= nil then
+                local y_genre_conquer = findQuest(YEARLY_QUESTS, "y_genre_conquer")
+                local completed_gc, new_genres = addGenreConquerProgress(Quest.state.yearly, y_genre_conquer, book_groups)
+                awardDiscoveryBonus(instance, #new_genres, y_genre_conquer.discovery_xp)
+                note(completed_gc)
+            end
+
+            local author = Runtime.current_book_author
+            if author then
+                local y_author = findQuest(YEARLY_QUESTS, "y_author_explorer")
+                local completed_ae, is_new_author = addAuthorExplorerProgress(Quest.state.yearly, y_author, author)
+                if is_new_author then
+                    awardDiscoveryBonus(instance, 1, y_author.discovery_xp)
+                end
+                note(completed_ae)
+            end
         end
-        persist(true)
+
+        completeQuests(instance, completed_list)
+        persist(true) -- always flush after a book completion event, even if no quest
+                       -- fully completed (partial progress, e.g. 1/2 books, still matters)
     end
 
     -- ---------------------------------------------------------------
@@ -795,7 +1132,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     end
 
     local function buildQuestListItems()
-        ensurePeriod()
+        local now_t = ensurePeriod()
         local items = {}
 
         table.insert(items, { text = Icons.CALENDAR .. " -- Daily --", bold = true, select_enabled = false })
@@ -818,7 +1155,6 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
 
         -- Seasonal - only shown during its active month, so the list
         -- doesn't carry 11 months of dead entries.
-        local now_t = os.date("*t")
         local active_seasonal = {}
         for _, sq in ipairs(SEASONAL_QUESTS) do
             if now_t.month == sq.active_month then
@@ -830,6 +1166,11 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             for _, sq in ipairs(active_seasonal) do
                 table.insert(items, questItem(sq, Quest.state.seasonal.progress[sq.id]))
             end
+        end
+
+        table.insert(items, { text = Icons.CROWN .. " -- Yearly --", bold = true, select_enabled = false })
+        for _, q in ipairs(YEARLY_QUESTS) do
+            table.insert(items, questItem(q, Quest.state.yearly.progress[q.id]))
         end
 
         return items
@@ -882,6 +1223,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         addSection(Icons.CHART .. " -- Weekly --", WEEKLY_QUESTS)
         addSection(Icons.BOOKS .. " -- Monthly --", MONTHLY_QUESTS)
         addSection(Icons.SNOWFLAKE .. " -- Seasonal --", SEASONAL_QUESTS)
+        addSection(Icons.CROWN .. " -- Yearly --", YEARLY_QUESTS)
 
         return items
     end
@@ -922,6 +1264,8 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             local orig_onPageUpdate = plugin.onPageUpdate
             plugin.onPageUpdate = function(instance, page)
                 local ret = orig_onPageUpdate(instance, page)
+                checkFinalStretchEligibility(instance, page)
+                checkNearCompletionNudges(instance, page)
                 trackReading(instance)
                 return ret
             end
@@ -941,9 +1285,23 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             plugin.onReaderReady = function(instance, ...)
                 local ret
                 if orig_onReaderReady then ret = orig_onReaderReady(instance, ...) end
-                Runtime.last_pages_read = 0
-                Runtime.last_active_seconds = 0
+                -- Sync to whatever ReadMastery's own session already
+                -- shows, rather than blindly zeroing - if session
+                -- somehow already has activity by the time this runs
+                -- (e.g. onReaderReady re-firing without a genuine
+                -- close in between), zeroing here would make the next
+                -- page update count that whole existing amount as one
+                -- delta. Same fix already applied to Reset Progress
+                -- and the toggle-ON path.
+                local session = instance.session
+                Runtime.last_pages_read = (session and session.pages_read) or 0
+                Runtime.last_active_seconds = (session and session.active_reading_seconds) or 0
                 Runtime.current_book_groups = detectBookGroups(instance)
+                Runtime.current_book_author = detectBookAuthor(instance)
+                Runtime.final_stretch_eligible = false
+                Runtime.final_stretch_start_pages = 0
+                Runtime.nudge_80_sent = false
+                Runtime.nudge_90_sent = false
                 return ret
             end
         end
@@ -973,6 +1331,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                     weekly   = { key = nil, progress = {}, finished_paths = {} },
                     monthly  = { key = nil, progress = {}, finished_paths = {} },
                     seasonal = { keys = {}, progress = {} },
+                    yearly   = { key = nil, progress = {}, finished_paths = {} },
                 }
                 Quest.lifetime = {
                     total_completed = 0,
