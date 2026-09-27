@@ -1,5 +1,53 @@
 # -KOReader.patches
 
+# SimpleUI Mod
+
+A KOReader user patch for SimpleUI that adds colour control for the home screen and makes Night Mode readable over a light wallpaper.
+
+Features
+Module text colour: set the text colour for home screen modules (Currently Reading, Quote, Reading Goals, Reading Stats, etc.), with a separate colour for Night Mode.
+Progress and border colours: recolour progress bars, rings, borders and stat icons for the modules you choose.
+Section titles: set a colour for module headers, and optionally keep their day look in Night Mode.
+Nav bar in Night Mode: keep labels black, and keep colour icons in their original colours instead of inverted.
+Status bar: keep its day look in Night Mode, and use bold text for easier reading.
+In-app settings: everything is under Tools → SimpleUI Mod and saved in KOReader's settings.
+Install
+Copy 2-simpleui-mod.lua into koreader/patches/. Create the folder if it doesn't exist. On Kobo it's .adds/koreader/patches/.
+Restart KOReader.
+Open Tools → SimpleUI Mod to configure.
+
+Requires SimpleUI installed and enabled. Patches don't work on the F-Droid build of KOReader.
+
+Settings
+Setting	Applies
+Module text colour (normal / Night Mode)	After restart
+Also recolour grey text	After restart
+Section title colour	After restart
+Section titles: day look in Night Mode	Instantly
+Progress & border colour, Progress track colour	After restart
+Modules using progress colours	After restart
+Nav labels black in Night Mode	Instantly
+Nav icons in Night Mode (Original / Solid black / Off)	Instantly
+Status bar: day look in Night Mode	Instantly
+Status bar: bold text	Instantly
+Show status popup on startup	Next start
+
+Colours are picked as they should look on screen. The patch handles Night Mode inversion for you.
+
+Notes
+Wallpaper inversion: turn off SimpleUI's wallpaper Night Mode inversion. Black text needs a light background.
+Module backdrop: set module backdrop/fill to 0 on light wallpapers, or text can disappear in Night Mode.
+Colour nav icons: these need a non-Framed nav bar style. Framed style draws all icons in one colour.
+Icon formats: use SVG icons with transparency. Opaque icons are left alone in "Original colours" mode.
+Per-module text colours: edit PER_MODULE near the top of the file. This one isn't in the menu.
+Troubleshooting
+
+Turn on Show status popup on startup and restart. The popup lists each hook as ok, FAILED or error <module>, along with your SimpleUI version. Include it when reporting an issue.
+
+Uninstall
+
+Delete 2-simpleui-mod.lua from patches/ and restart. Saved settings live under the simpleui_mod key in settings.reader.lua and can be removed with Reset to defaults before uninstalling.
+
 # ReadMastery Notify
 
 A KOReader patch that adds a customizable notification system to ReadMastery. It provides visual feedback for events such as earning XP, completing quests, leveling up, and making reading progress.
