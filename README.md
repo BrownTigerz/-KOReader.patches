@@ -48,6 +48,12 @@ Uninstall
 
 Delete 2-simpleui-mod.lua from patches/ and restart. Saved settings live under the simpleui_mod key in settings.reader.lua and can be removed with Reset to defaults before uninstalling.
 
+# ShelfSync Tweaks
+
+Put 2-shelfsync-tweaks.lua in koreader/patches/ and restart. It survives ShelfSync updates.
+
+Goodreads login on device — adds a Log in button (email + password) to ShelfSync > Providers > Goodreads > Account, same as StoryGraph's. No more copying cookies from a browser. The login code is bundled from goodreadskosync (MIT, license included in the file), so that plugin isn't needed. Remember login — Goodreads and StoryGraph can both save your email and password so you can sign in with one tap ("Log in as..."). Long-press to edit, or use "Forget saved login". Stored encrypted with a device-local key when possible. Goodreads WAF fix — ShelfSync's Goodreads search and security-token requests get blocked by Amazon's bot check. The patch uses the same endpoints goodreadskosync uses (/book/auto_complete and /review/list) so auto-linking and manual linking work, and falls back to the original if they fail. New toggles in ShelfSync > Settings, above Verbose logging: Exclude WikiReader articles (on by default) — stops articles opened with WikiReader (saved in koreader/cache/wikireader/) from being auto-linked to random books. Hide StoryGraph / Goodreads / Hardcover / Fable (off by default) — removes that provider from the Providers menu and stops it from running. Reopen the book or file browser to update the menu.
+
 # ReadMastery Notify
 
 A KOReader patch that adds a customizable notification system to ReadMastery. It provides visual feedback for events such as earning XP, completing quests, leveling up, and making reading progress.
