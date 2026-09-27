@@ -77,6 +77,27 @@ Seeded randomization — improves random selection between KOReader restarts.
 Automatic quote reloading — changes to quotes.txt are detected and the file is reloaded without needing to restart KOReader.
 Removed unnecessary Sidecar:flush() — the patch only reads highlight data, so it no longer performs a flush every time the sleep screen appears.
 
+# 2 Track Reading Location
+
+Forward popup now auto-dismisses after a configurable delay (Off/15s/20s/30s/50s, default 20s) if you never act on it — new setting, right after "Show shadow." The next real page turn after it dismisses becomes the new anchor. Backward popup is untouched — still persistent, no timeout.
+Several quick forward taps in a row (skimming ahead) now trigger the popup even when no single tap was a big jump — a "burst" of 3+ pages within 1.5s counts as one jump.
+Button now docks above KOReader's own footer bar instead of potentially overlapping it (and correctly skips that offset when you have "Overlap status bar" on).
+
+Correctness fixes (silent — nothing to notice, just fewer edge-case bugs)
+
+Reflowable docs (EPUB/FB2) track position by xpointer, not just raw page number, so a font-size/margin change mid-session can't leave "go back" pointing at the wrong page.
+Anchor and popup visibility now always resolve through that xpointer, everywhere they're checked — not just right after a page turn.
+Stale on-disk xpointer data gets cleared instead of lingering and getting wrongly reloaded later.
+A bug where the forward-dismiss timer stopped rescheduling itself after the first cycle (only fixed itself once, then silently broke) — fixed.
+
+Reliability / resource use
+
+Anchor is saved immediately (not just on KOReader's periodic autosave) when you explicitly accept a page, and on device suspend.
+Suspend no longer writes to disk if nothing's actually changed since the last save.
+Pending timers get cleaned up on document close and when you disable the floating button, so nothing fires against a closed book or a feature you've turned off.
+
+Untouched: menu structure, dispatcher/gesture actions, the core anchor concept, and every other existing setting.
+
 # Custom Quotes for SimpleUI
 
 300 famous quotes to use with simple ui, add it to <KOReader settings dir>/simpleui/sui_quotes/
