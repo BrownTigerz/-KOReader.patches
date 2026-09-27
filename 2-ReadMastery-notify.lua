@@ -644,13 +644,32 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     local MainMenu = require("ui/mainmenu")
     local Icons = require("icons")
     local AsciiArt = require("ascii_art")
+    local AchievementsView = require("ui/achievements_view")
 
-    -- (Previously wrapped AchievementsView.showAchievementDetail with
-    -- a nextTick deferral here to fix a flash-and-disappear bug.
-    -- Reverted: that wrap likely raced against the achievements list's
-    -- own auto-close-on-tap behavior instead of fixing it. Left as
-    -- stock/untouched - lightest, safest option until there's a
-    -- confirmed, targeted fix.)
+    -- Stock ReadMastery's achievement list closes itself on every tap
+    -- (its rows never set keep_menu_open), so viewing a detail then
+    -- dismissing it drops you all the way out to the top menu. Fix:
+    -- after the detail popup shows, grab that exact instance off the
+    -- window stack and hook ITS close (not the class, not any other
+    -- AsciiPopup use - achievement unlocks, tier-ups, and our own
+    -- Preview all stay untouched) to reopen the list. Different
+    -- mechanism from an earlier, reverted attempt here that deferred
+    -- the popup's SHOW and raced against the list's synchronous
+    -- close - this instead hooks the popup's CLOSE, after the show
+    -- has already safely happened, so there's nothing to race.
+    local orig_showAchievementDetail = AchievementsView.showAchievementDetail
+    AchievementsView.showAchievementDetail = function(self, achievement)
+        local ret = orig_showAchievementDetail(self, achievement)
+        local popup = UIManager:getTopmostVisibleWidget()
+        if popup then
+            local orig_popup_close = popup.onCloseWidget
+            popup.onCloseWidget = function(popup_self, ...)
+                if orig_popup_close then orig_popup_close(popup_self, ...) end
+                self:show()
+            end
+        end
+        return ret
+    end
 
     local orig_showLevelUp          = Notifications.showLevelUp
     local orig_showAchievement      = Notifications.showAchievement
@@ -773,7 +792,19 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             description = "Read between 4:00 AM and 7:00 AM",
         }
         if Notify.style == "full" then
-            orig_showAchievement(nil, sample)
+            -- Deferred to next tick: AsciiPopup registers a full-
+            -- screen tap-to-close gesture in its own init(), and
+            -- showing it synchronously inside the SAME tap that
+            -- triggered this menu item risks that same originating
+            -- tap being redelivered to the newly-shown popup, closing
+            -- it instantly (looks like "doesn't show" - it shows and
+            -- immediately self-closes, same tick). Safe to defer here
+            -- specifically because "Preview Notification" already has
+            -- keep_menu_open = true, so nothing else is closing
+            -- synchronously after this tap to race against.
+            UIManager:nextTick(function()
+                orig_showAchievement(nil, sample)
+            end)
         else
             local title, text, ascii_art = achievementContent(sample)
             dispatch(title, text, ascii_art)
