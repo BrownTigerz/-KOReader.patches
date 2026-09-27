@@ -29,7 +29,14 @@ local DEFAULTS = {
     nav_icon_night   = "original",  -- "original" | "black" | "off"
     titles_day_night = true,        -- section titles look the same in Night Mode
     topbar_day_night = true,        -- status bar looks the same in Night Mode
-    topbar_bold      = true,        -- bold status bar text and symbols
+    bold = {                        -- bold text (applies after restart,
+        topbar  = true,             -- except the status bar: instant)
+        nav     = false,
+        titles  = false,
+        modules = {},               -- [module id] = true
+    },
+    title_size       = 100,         -- section title size, % (x SimpleUI's own label scale)
+    titles           = {},          -- per-section overrides: [module id] = { color, bold, size }
     show_popup       = false,       -- status popup on startup
 }
 
@@ -49,21 +56,38 @@ local status = {}
 
 -- ---- settings ----------------------------------------------------------------
 local cfg = {}
-local function loadConfig()
-    local saved = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
-    for k, v in pairs(DEFAULTS) do
+
+-- defaults, overlaid (recursively) with saved values
+local function merged(def, saved)
+    local out = {}
+    for k, v in pairs(def) do
         if type(v) == "table" then
-            cfg[k] = {}
-            for k2, v2 in pairs(v) do cfg[k][k2] = v2 end
-            if type(saved[k]) == "table" then
-                for k2, v2 in pairs(saved[k]) do cfg[k][k2] = v2 end
-            end
-        elseif saved[k] ~= nil then
-            cfg[k] = saved[k]
+            out[k] = merged(v, type(saved) == "table" and saved[k] or nil)
+        elseif type(saved) == "table" and saved[k] ~= nil then
+            out[k] = saved[k]
         else
-            cfg[k] = v
+            out[k] = v
         end
     end
+    -- keep saved keys that have no default (e.g. per-module bold flags)
+    if type(saved) == "table" then
+        for k, v in pairs(saved) do
+            if out[k] == nil and def[k] == nil then out[k] = v end
+        end
+    end
+    return out
+end
+
+local function loadConfig()
+    local saved = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
+    local m = merged(DEFAULTS, saved)
+    -- migrate the old single "status bar bold" switch
+    if type(saved.bold) ~= "table" and type(saved.topbar_bold) == "boolean" then
+        m.bold.topbar = saved.topbar_bold
+    end
+    m.topbar_bold = nil
+    for k in pairs(cfg) do cfg[k] = nil end
+    for k, v in pairs(m) do cfg[k] = v end
 end
 local function saveConfig()
     if G_reader_settings then G_reader_settings:saveSetting(SETTINGS_KEY, cfg) end
@@ -156,6 +180,7 @@ end
 
 -- ---- scopes -----------------------------------------------------------------------
 local cur_color = nil  -- colour applied to text built right now
+local cur_bold  = false -- bold applied to text built right now (modules)
 local suspended = 0    -- > 0: don't recolour (mask internals)
 local flip_kind = nil  -- "nav" | "title" | "topbar" while building those
 local in_mask   = 0    -- > 0: painting through an alpha mask
@@ -171,6 +196,57 @@ local function withColor(c, fn, ...)
     cur_color = prev
     if not res[1] then error(res[2], 0) end
     return unpack(res, 2, res.n)
+end
+
+local function withBold(on, fn, ...)
+    if not on then return fn(...) end
+    local prev = cur_bold
+    cur_bold = true
+    local res = pack(pcall(fn, ...))
+    cur_bold = prev
+    if not res[1] then error(res[2], 0) end
+    return unpack(res, 2, res.n)
+end
+
+local function boldForModule(id)
+    local mods = cfg.bold.modules
+    if type(id) ~= "string" then return false end
+    if mods[id] then return true end
+    for key, on in pairs(mods) do
+        if on and id:sub(1, #key) == key then return true end
+    end
+    return false
+end
+
+-- ---- section titles: which module a title belongs to, and its settings --------
+local cur_title_id  = nil  -- module id of the title being built right now
+local last_mod_id   = nil  -- module built most recently (titles follow their module)
+local label_to_id   = {}   -- title text -> module id (learned while building)
+
+local function titleCfg(id)
+    return id and cfg.titles[id] or nil
+end
+local function titleBold(id)
+    local t = titleCfg(id)
+    if t and t.bold ~= nil then return t.bold end
+    return cfg.bold.titles
+end
+local function titleSize(id)
+    local t = titleCfg(id)
+    return (t and tonumber(t.size)) or tonumber(cfg.title_size) or 100
+end
+local function titleColor(id)   -- nil = leave SimpleUI's colour
+    local t = titleCfg(id)
+    local v = t and t.color
+    if v == nil then v = cfg.section_titles end
+    return colorOf(v)           -- "none" -> nil
+end
+
+local function boldForKind(kind)
+    if kind == "topbar" then return cfg.bold.topbar end
+    if kind == "nav"    then return cfg.bold.nav end
+    if kind == "title"  then return titleBold(cur_title_id) end
+    return false
 end
 
 local function activeColor()
@@ -397,10 +473,9 @@ local function hookTextInit(modname)
         if cur_color and suspended == 0 and shouldRecolor(self.fgcolor) then
             self.fgcolor = cur_color
         end
-        if flip_kind and suspended == 0 then
-            if flip_kind == "topbar" and cfg.topbar_bold then self.bold = true end
-            makeNightAwareText(self, flip_kind)
-        end
+        -- bold also applies inside masks (the mask shape IS the glyphs)
+        if cur_bold or (flip_kind and boldForKind(flip_kind)) then self.bold = true end
+        if flip_kind and suspended == 0 then makeNightAwareText(self, flip_kind) end
         if orig_init then return orig_init(self, ...) end
     end
 end
@@ -473,12 +548,19 @@ local function wrapDescriptor(m, fallback_id)
     local orig = m.build
     m.build = function(...)
         local id = (type(m.id) == "string" and m.id) or fallback_id
+        last_mod_id = id
+        if type(m.label) == "string" then label_to_id[m.label] = id end
+        if type(m.label_func) == "function" then
+            local okl, lbl = pcall(m.label_func, select(2, ...))
+            if okl and type(lbl) == "string" then label_to_id[lbl] = id end
+        end
         local accent = isAccentModule(id)
         local ok, w
+        local bold = boldForModule(id)
         if accent then
-            ok, w = pcall(withAccents, withColor, colorForModule(id), orig, ...)
+            ok, w = pcall(withBold, bold, withAccents, withColor, colorForModule(id), orig, ...)
         else
-            ok, w = pcall(withColor, colorForModule(id), orig, ...)
+            ok, w = pcall(withBold, bold, withColor, colorForModule(id), orig, ...)
         end
         if ok then
             -- nil is a legitimate result (e.g. no book / no data yet)
@@ -495,16 +577,17 @@ local function wrapDescriptor(m, fallback_id)
 
     -- In-place refreshes (e.g. stats after returning from the reader) rebuild
     -- parts of the module outside build(): give them the same colours.
-    for _, fname in ipairs({ "updateStats", "updateCovers" }) do
+    for _i, fname in ipairs({ "updateStats", "updateCovers" }) do
         local orig_upd = m[fname]
         if type(orig_upd) == "function" then
             m[fname] = function(...)
                 local id = (type(m.id) == "string" and m.id) or fallback_id
                 local res
+                local bold = boldForModule(id)
                 if isAccentModule(id) then
-                    res = pack(pcall(withAccents, withColor, colorForModule(id), orig_upd, ...))
+                    res = pack(pcall(withBold, bold, withAccents, withColor, colorForModule(id), orig_upd, ...))
                 else
-                    res = pack(pcall(withColor, colorForModule(id), orig_upd, ...))
+                    res = pack(pcall(withBold, bold, withColor, colorForModule(id), orig_upd, ...))
                 end
                 if res[1] then return unpack(res, 2, res.n) end
                 status["error " .. tostring(id) .. " " .. fname] = tostring(res[2])
@@ -521,7 +604,7 @@ local function patchModule(name, M)
     local file_id = name:match("module_(.+)$")
     local orig = wrapDescriptor(M, file_id)
     if type(M.sub_modules) == "table" then
-        for _, sm in ipairs(M.sub_modules) do wrapDescriptor(sm, file_id) end
+        for _i, sm in ipairs(M.sub_modules) do wrapDescriptor(sm, file_id) end
     end
     if type(M.makeInstance) == "function" and not wrapped[M.makeInstance] then
         local orig_mk = M.makeInstance
@@ -537,7 +620,7 @@ local function patchModule(name, M)
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
         if lb then
             debug.setupvalue(orig, idx, function(...)
-                return withColor(colorForModule("clock"), lb, ...)
+                return withBold(boldForModule("clock"), withColor, colorForModule("clock"), lb, ...)
             end)
         end
     end
@@ -615,13 +698,22 @@ local function patchEngine(E)
         local orig_label, idx = findUpvalue(fn, "sectionLabel")
         if type(orig_label) == "function" then
             if ours[orig_label] then return true end
-            debug.setupvalue(fn, idx, mine(function(...)
-                return withColor(LABEL_C, flipScope, "title", orig_label, ...)
+            debug.setupvalue(fn, idx, mine(function(text, w, right_text, page_nav, lf, ...)
+                local id = (type(page_nav) == "table" and page_nav.mod_id)
+                        or (type(text) == "string" and label_to_id[text])
+                        or last_mod_id
+                local prev = cur_title_id
+                cur_title_id = id
+                local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
+                                       orig_label, text, w, right_text, page_nav, lf, ...))
+                cur_title_id = prev
+                if not res[1] then error(res[2], 0) end
+                return unpack(res, 2, res.n)
             end))
             return true
         end
     end
-    for _, v in pairs(E or {}) do
+    for _i, v in pairs(E or {}) do
         if done then break end
         if type(v) == "function" then
             if tryFn(v) then done = true break end
@@ -630,7 +722,7 @@ local function patchEngine(E)
                 local n, uv = debug.getupvalue(v, i)
                 if n == nil then break end
                 if type(uv) == "table" then
-                    for _, m in pairs(uv) do
+                    for _i, m in pairs(uv) do
                         if type(m) == "function" and tryFn(m) then done = true break end
                     end
                 end
@@ -655,17 +747,129 @@ local function patchTopbar(T)
     return true
 end
 
+-- ---- nav bar "day look" for backgrounds/borders (fixes the Framed style) ------
+-- In Night Mode the bar's own fills, borders and indicator would stay
+-- inverted while its labels/icons get the day look, so e.g. black icons end
+-- up on a black frame. Flip those too, at paint time.
+local function cachedInv(self, slot, c)
+    local src_slot = slot .. "_of"
+    if not self[slot] or not rawequal(self[src_slot], c) then
+        self[slot], self[src_slot] = invColor(c), c
+    end
+    return self[slot]
+end
+
+local function makeNightAwareFill(node)
+    if node._sui_fill_night then return end
+    node._sui_fill_night = true
+    local orig = node.paintTo
+    node.paintTo = function(self, bb, x, y)
+        if cfg.nav_labels_black and Screen.night_mode and in_mask == 0 then
+            local bg, col, bc = rawget(self, "background"), self.color, rawget(self, "border_color")
+            if bg  then self.background   = cachedInv(self, "_sui_inv_bg", bg) end
+            if col then self.color        = cachedInv(self, "_sui_inv_col", col) end
+            if bc  then self.border_color = cachedInv(self, "_sui_inv_bc", bc) end
+            local ok, err = pcall(orig, self, bb, x, y)
+            if bg then self.background = bg end
+            if col then self.color = col end
+            if bc then self.border_color = bc end
+            if not ok then error(err, 0) end
+            return
+        end
+        return orig(self, bb, x, y)
+    end
+end
+
+local function walkNav(node, depth, seen)
+    if type(node) ~= "table" or depth > 14 or seen[node] then return end
+    seen[node] = true
+    if not rawget(node, "_sui_nav_night") and not rawget(node, "_fg")
+       and type(node.paintTo) == "function"
+       and (rawget(node, "background") or rawget(node, "border_color")
+            or (tonumber(rawget(node, "bordersize")) or 0) > 0) then
+        makeNightAwareFill(node)
+    end
+    for i = 1, #node do walkNav(node[i], depth + 1, seen) end
+end
+
+-- Backdrops/scrims read the palette at paint time: swap it for the bar.
+local NAV_PALETTE_KEYS = { "surface", "surface_flat", "gray" }
+local function makeNavPalettePaint(w)
+    if type(w) ~= "table" or w._sui_nav_palette then return end
+    w._sui_nav_palette = true
+    local orig = w.paintTo
+    local saved, inv_cache = {}, {}
+    w.paintTo = function(self, bb, x, y)
+        local C = accentPalette()
+        if not (C and cfg.nav_labels_black and Screen.night_mode and in_mask == 0) then
+            return orig(self, bb, x, y)
+        end
+        for i = 1, #NAV_PALETTE_KEYS do
+            local k = NAV_PALETTE_KEYS[i]
+            local v = C[k]
+            if v then
+                if not inv_cache[k] or not rawequal(inv_cache[k .. "_of"], v) then
+                    inv_cache[k], inv_cache[k .. "_of"] = invColor(v), v
+                end
+                saved[k] = v
+                C[k] = inv_cache[k]
+            end
+        end
+        local ok, err = pcall(orig, self, bb, x, y)
+        for i = 1, #NAV_PALETTE_KEYS do
+            local k = NAV_PALETTE_KEYS[i]
+            if saved[k] then C[k] = saved[k]; saved[k] = nil end   -- truthiness only
+        end
+        if not ok then error(err, 0) end
+    end
+end
+
+local function dayLookNav(w, whole_bar)
+    walkNav(w, 0, {})
+    if whole_bar then makeNavPalettePaint(w) end
+end
+
+-- Section title size: SimpleUI sizes titles from Config.getLabelScale(),
+-- which only the section-title builder uses; multiply it by our setting.
+local function patchConfig(Cf)
+    if type(Cf) ~= "table" or type(Cf.getLabelScale) ~= "function" then
+        status.title_size = "FAILED"
+        return false
+    end
+    local orig = Cf.getLabelScale
+    if not ours[orig] then
+        Cf.getLabelScale = mine(function(...)
+            local v = orig(...)
+            local pct = titleSize(cur_title_id)
+            if type(v) == "number" and pct ~= 100 then return v * pct / 100 end
+            return v
+        end)
+    end
+    status.title_size = "ok"
+    return true
+end
+
 local function patchBottombar(B)
     if type(B) ~= "table" then return end
     local n = 0
-    for _, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows",
+    for _i, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows",
                              "buildBarWidgetWithKeyFocus", "buildTabCell",
                              "buildNavpagerArrowCell" }) do
         local orig = B[fname]
         if ours[orig] then
             n = n + 1
         elseif type(orig) == "function" then
-            B[fname] = mine(function(...) return flipScope("nav", orig, ...) end)
+            local whole_bar = fname:find("^buildBarWidget") ~= nil
+            B[fname] = mine(function(...)
+                local outermost = flip_kind == nil
+                local res = pack(flipScope("nav", orig, ...))
+                -- post-process once, on the outermost call (whole bar, or a
+                -- single cell rebuilt on its own e.g. after a page change)
+                if outermost and type(res[1]) == "table" then
+                    pcall(dayLookNav, res[1], whole_bar)
+                end
+                return unpack(res, 1, res.n)
+            end)
             n = n + 1
         end
     end
@@ -683,6 +887,7 @@ local function patcherFor(name)
     if name == "engines/sui_screen_engine" then return patchEngine end
     if name == "screens/sui_bottombar" then return patchBottombar end
     if name == "screens/sui_topbar" then return patchTopbar end
+    if name == "infra/sui_config" then return patchConfig end
     if name:find("^modules/module_") then
         return function(mod) patchModule(name, mod); return true end
     end
@@ -723,7 +928,7 @@ local PRESETS = {
 }
 
 local function isPreset(v)
-    for _, p in ipairs(PRESETS) do if p[2] == v then return true end end
+    for _i, p in ipairs(PRESETS) do if p[2] == v then return true end end
     return false
 end
 
@@ -759,46 +964,146 @@ local function set(key, value, needs_restart)
     if needs_restart then askRestart() else repaintNow() end
 end
 
-local function colorMenu(key, needs_restart, off_label)
+local function customColorDialog(current, on_save)
+    local UIManager = orig_require("ui/uimanager")
+    local InputDialog = orig_require("ui/widget/inputdialog")
+    local dlg
+    dlg = InputDialog:new{
+        title = _("Colour (hex, e.g. #336699)"),
+        input = (type(current) == "string" and parseRGB(current) and current) or "#",
+        buttons = {{
+            { text = _("Cancel"), id = "close",
+              callback = function() UIManager:close(dlg) end },
+            { text = _("Save"), is_enter_default = true,
+              callback = function()
+                  local v = dlg:getInputText():gsub("%s", "")
+                  if v:sub(1, 1) ~= "#" then v = "#" .. v end
+                  if not parseRGB(v) then
+                      UIManager:show(orig_require("ui/widget/infomessage"):new{
+                          text = _("Not a valid colour. Use #RRGGBB."), timeout = 3 })
+                      return
+                  end
+                  UIManager:close(dlg)
+                  on_save(v:upper())
+              end },
+        }},
+    }
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
+end
+
+-- get() returns the stored value; put(v) stores it (nil = inherit).
+-- inherit_label: adds a "same as ..." choice stored as nil.
+local function colorMenuWith(get, put, off_label, inherit_label)
     local items = {}
-    for _, p in ipairs(PRESETS) do
+    if inherit_label then
         items[#items + 1] = {
-            text = p[1],
-            radio = true,
-            checked_func = function() return cfg[key] == p[2] end,
-            callback = function() set(key, p[2], needs_restart) end,
+            text = inherit_label, radio = true,
+            checked_func = function() return get() == nil end,
+            callback = function() put(nil) end,
+            separator = true,
+        }
+    end
+    for _i, p in ipairs(PRESETS) do
+        items[#items + 1] = {
+            text = p[1], radio = true,
+            checked_func = function() return get() == p[2] end,
+            callback = function() put(p[2]) end,
         }
     end
     items[#items + 1] = {
         text_func = function()
-            local v = cfg[key]
-            if v ~= "none" and not isPreset(v) then return _("Custom") .. " (" .. tostring(v) .. ")" end
+            local v = get()
+            if v ~= nil and v ~= "none" and not isPreset(v) then
+                return _("Custom") .. " (" .. tostring(v) .. ")"
+            end
             return _("Custom…")
         end,
         radio = true,
-        checked_func = function() return cfg[key] ~= "none" and not isPreset(cfg[key]) end,
+        checked_func = function()
+            local v = get()
+            return v ~= nil and v ~= "none" and not isPreset(v)
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            customColorDialog(get(), function(v)
+                put(v)
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end)
+        end,
+    }
+    items[#items + 1] = {
+        text = off_label or _("SimpleUI default"), radio = true,
+        checked_func = function() return get() == "none" end,
+        callback = function() put("none") end,
+    }
+    return items
+end
+
+local function colorMenu(key, needs_restart, off_label)
+    return colorMenuWith(
+        function() return cfg[key] end,
+        function(v) set(key, v, needs_restart) end,
+        off_label)
+end
+
+-- Size menu: presets + custom %. get()/put() as above; inherit_label optional.
+local SIZE_PRESETS = { 80, 90, 100, 110, 125, 150, 175, 200 }
+local function sizeMenuWith(get, put, inherit_label)
+    local items = {}
+    if inherit_label then
+        items[#items + 1] = {
+            text = inherit_label, radio = true,
+            checked_func = function() return get() == nil end,
+            callback = function() put(nil) end,
+            separator = true,
+        }
+    end
+    local function isSizePreset(v)
+        for _i, p in ipairs(SIZE_PRESETS) do if p == v then return true end end
+        return false
+    end
+    for _i, pct in ipairs(SIZE_PRESETS) do
+        items[#items + 1] = {
+            text = pct == 100 and (pct .. "% " .. _("(default)")) or (pct .. "%"),
+            radio = true,
+            checked_func = function() return get() == pct end,
+            callback = function() put(pct) end,
+        }
+    end
+    items[#items + 1] = {
+        text_func = function()
+            local v = get()
+            if v ~= nil and not isSizePreset(v) then return _("Custom") .. " (" .. v .. "%)" end
+            return _("Custom…")
+        end,
+        radio = true,
+        checked_func = function()
+            local v = get()
+            return v ~= nil and not isSizePreset(v)
+        end,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             local UIManager = orig_require("ui/uimanager")
             local InputDialog = orig_require("ui/widget/inputdialog")
             local dlg
             dlg = InputDialog:new{
-                title = _("Colour (hex, e.g. #336699)"),
-                input = (cfg[key] ~= "none" and cfg[key]) or "#",
+                title = _("Size in % (50 to 300)"),
+                input = tostring(get() or 100),
+                input_type = "number",
                 buttons = {{
                     { text = _("Cancel"), id = "close",
                       callback = function() UIManager:close(dlg) end },
                     { text = _("Save"), is_enter_default = true,
                       callback = function()
-                          local v = dlg:getInputText():gsub("%s", "")
-                          if v:sub(1, 1) ~= "#" then v = "#" .. v end
-                          if not parseRGB(v) then
+                          local n = tonumber(dlg:getInputText())
+                          if not n or n < 50 or n > 300 then
                               UIManager:show(orig_require("ui/widget/infomessage"):new{
-                                  text = _("Not a valid colour. Use #RRGGBB."), timeout = 3 })
+                                  text = _("Enter a number from 50 to 300."), timeout = 3 })
                               return
                           end
                           UIManager:close(dlg)
-                          set(key, v:upper(), needs_restart)
+                          put(math.floor(n + 0.5))
                           if touchmenu_instance then touchmenu_instance:updateItems() end
                       end },
                 }},
@@ -807,32 +1112,152 @@ local function colorMenu(key, needs_restart, off_label)
             dlg:onShowKeyboard()
         end,
     }
-    items[#items + 1] = {
-        text = off_label or _("SimpleUI default"),
-        radio = true,
-        checked_func = function() return cfg[key] == "none" end,
-        callback = function() set(key, "none", needs_restart) end,
-    }
     return items
 end
 
-local function buildMenu()
-    local modules_list = {
-        { "reading_goals", _("Reading Goals") },
-        { "reading_stats", _("Reading Stats") },
-        { "currently",     _("Currently Reading") },
+-- All home screen modules, as SimpleUI names them (id = SimpleUI module id).
+local ALL_MODULES = {
+    { "currently",         _("Currently Reading") },
+    { "quote",             _("Quote of the Day") },
+    { "reading_goals",     _("Reading Goals") },
+    { "reading_stats",     _("Reading Stats") },
+    { "recent",            _("Recent Books") },
+    { "clock",             _("Clock") },
+    { "heatmap",           _("Reading Heatmap") },
+    { "tbr",               _("To Be Read") },
+    { "new_books",         _("New Books") },
+    { "collections",       _("Collections") },
+    { "coll_row",          _("Featured Collection") },
+    { "coverdeck",         _("Coverdeck") },
+    { "flat_library",      _("Library") },
+    { "quick_actions_row", _("Quick Actions") },
+    { "action_list",       _("Action List") },
+}
+
+local function toggle(tbl, key, after)
+    return {
+        checked_func = function() return tbl()[key] and true or false end,
+        callback = function()
+            local t = tbl()
+            t[key] = not t[key]
+            saveConfig()
+            applyConfig()
+            if after then after() end
+        end,
     }
-    local accent_items = {}
-    for _, m in ipairs(modules_list) do
-        accent_items[#accent_items + 1] = {
-            text = m[2],
-            checked_func = function() return cfg.accent_modules[m[1]] and true or false end,
-            callback = function()
-                cfg.accent_modules[m[1]] = not cfg.accent_modules[m[1]]
+end
+
+local function item(text, spec)
+    spec.text = text
+    return spec
+end
+
+local function buildMenu()
+    local function boldTbl() return cfg.bold end
+    local function boldMods() return cfg.bold.modules end
+    local function accentMods() return cfg.accent_modules end
+
+    -- Bold > Modules
+    local bold_module_items = {
+        {
+            text = _("All modules"),
+            checked_func = function()
+                for _i, m in ipairs(ALL_MODULES) do
+                    if not cfg.bold.modules[m[1]] then return false end
+                end
+                return true
+            end,
+            callback = function(touchmenu_instance)
+                local all = true
+                for _i, m in ipairs(ALL_MODULES) do
+                    if not cfg.bold.modules[m[1]] then all = false break end
+                end
+                for _i, m in ipairs(ALL_MODULES) do cfg.bold.modules[m[1]] = not all end
                 saveConfig()
-                applyConfig()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
                 askRestart()
             end,
+            separator = true,
+        },
+    }
+    for _i, m in ipairs(ALL_MODULES) do
+        bold_module_items[#bold_module_items + 1] = item(m[2], toggle(boldMods, m[1], askRestart))
+    end
+
+    -- Colours > Progress colours for
+    local accent_items = {}
+    for _i, id in ipairs({ "reading_goals", "reading_stats", "currently" }) do
+        for _i, m in ipairs(ALL_MODULES) do
+            if m[1] == id then
+                accent_items[#accent_items + 1] = item(m[2], toggle(accentMods, id, askRestart))
+            end
+        end
+    end
+
+    -- Section titles: "All sections" defaults + one submenu per module
+    local function sectionPut(id, field)
+        return function(v)
+            local t = cfg.titles[id] or {}
+            t[field] = v
+            if next(t) == nil then cfg.titles[id] = nil else cfg.titles[id] = t end
+            saveConfig()
+            applyConfig()
+            askRestart()
+        end
+    end
+    local function sectionGet(id, field)
+        return function() local t = cfg.titles[id]; return t and t[field] end
+    end
+
+    local titles_items = {
+        {
+            text = _("All sections"),
+            sub_item_table = {
+                { text = _("Colour"), sub_item_table = colorMenu("section_titles", true) },
+                item(_("Bold"), toggle(boldTbl, "titles", askRestart)),
+                { text_func = function() return _("Size") .. ": " .. tostring(cfg.title_size) .. "%" end,
+                  sub_item_table = sizeMenuWith(
+                      function() return cfg.title_size end,
+                      function(v) set("title_size", v or 100, true) end) },
+            },
+            separator = true,
+        },
+    }
+    for _i, m in ipairs(ALL_MODULES) do
+        local id, name = m[1], m[2]
+        titles_items[#titles_items + 1] = {
+            text_func = function()
+                return cfg.titles[id] and (name .. " •") or name   -- dot = customised
+            end,
+            sub_item_table = {
+                { text = _("Colour"),
+                  sub_item_table = colorMenuWith(sectionGet(id, "color"), sectionPut(id, "color"),
+                                                 nil, _("Same as all sections")) },
+                { text = _("Bold"),
+                  sub_item_table = {
+                    { text = _("Same as all sections"), radio = true,
+                      checked_func = function() return sectionGet(id, "bold")() == nil end,
+                      callback = function() sectionPut(id, "bold")(nil) end,
+                      separator = true },
+                    { text = _("Bold"), radio = true,
+                      checked_func = function() return sectionGet(id, "bold")() == true end,
+                      callback = function() sectionPut(id, "bold")(true) end },
+                    { text = _("Not bold"), radio = true,
+                      checked_func = function() return sectionGet(id, "bold")() == false end,
+                      callback = function() sectionPut(id, "bold")(false) end },
+                  } },
+                { text_func = function()
+                      local v = sectionGet(id, "size")()
+                      return _("Size") .. ": " .. (v and (v .. "%") or _("same as all"))
+                  end,
+                  sub_item_table = sizeMenuWith(sectionGet(id, "size"), sectionPut(id, "size"),
+                                                _("Same as all sections")) },
+                { text = _("Reset this section"),
+                  callback = function()
+                      cfg.titles[id] = nil
+                      saveConfig(); applyConfig(); askRestart()
+                  end },
+            },
         }
     end
 
@@ -840,73 +1265,61 @@ local function buildMenu()
         text = _("SimpleUI Mod"),
         sub_item_table = {
             {
-                text = _("Module text colour"),
-                sub_item_table = colorMenu("module_text", true),
-            },
-            {
-                text = _("Module text colour in Night Mode"),
-                sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")),
-            },
-            {
-                text = _("Also recolour grey text"),
-                checked_func = function() return cfg.recolor_all end,
-                callback = function() set("recolor_all", not cfg.recolor_all, true) end,
-            },
-            {
-                text = _("Section title colour"),
-                sub_item_table = colorMenu("section_titles", true),
-            },
-            {
-                text = _("Section titles: day look in Night Mode"),
-                checked_func = function() return cfg.titles_day_night end,
-                callback = function() set("titles_day_night", not cfg.titles_day_night) end,
-                separator = true,
-            },
-            {
-                text = _("Progress & border colour"),
-                sub_item_table = colorMenu("accent", true),
-            },
-            {
-                text = _("Progress track colour"),
-                sub_item_table = colorMenu("track", true),
-            },
-            {
-                text = _("Modules using progress colours"),
-                sub_item_table = accent_items,
-                separator = true,
-            },
-            {
-                text = _("Nav labels black in Night Mode"),
-                checked_func = function() return cfg.nav_labels_black end,
-                callback = function() set("nav_labels_black", not cfg.nav_labels_black) end,
-            },
-            {
-                text = _("Nav icons in Night Mode"),
+                text = _("Colours"),
                 sub_item_table = {
-                    { text = _("Keep original colours"), radio = true,
-                      checked_func = function() return cfg.nav_icon_night == "original" end,
-                      callback = function() set("nav_icon_night", "original") end },
-                    { text = _("Solid black"), radio = true,
-                      checked_func = function() return cfg.nav_icon_night == "black" end,
-                      callback = function() set("nav_icon_night", "black") end },
-                    { text = _("Off (invert normally)"), radio = true,
-                      checked_func = function() return cfg.nav_icon_night == "off" end,
-                      callback = function() set("nav_icon_night", "off") end },
+                    { text = _("Module text"),
+                      sub_item_table = colorMenu("module_text", true) },
+                    { text = _("Module text in Night Mode"),
+                      sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")) },
+                    { text = _("Also recolour grey text"),
+                      checked_func = function() return cfg.recolor_all end,
+                      callback = function() set("recolor_all", not cfg.recolor_all, true) end,
+                      separator = true },
+                    { text = _("Progress & borders"),
+                      sub_item_table = colorMenu("accent", true) },
+                    { text = _("Progress track"),
+                      sub_item_table = colorMenu("track", true) },
+                    { text = _("Use progress colours in"),
+                      sub_item_table = accent_items },
                 },
-                separator = true,
             },
             {
-                text = _("Status bar: day look in Night Mode"),
-                checked_func = function() return cfg.topbar_day_night end,
-                callback = function() set("topbar_day_night", not cfg.topbar_day_night) end,
+                text = _("Bold"),
+                sub_item_table = {
+                    item(_("Status bar"), toggle(boldTbl, "topbar", refreshTopbarNow)),
+                    item(_("Nav bar labels"), toggle(boldTbl, "nav", askRestart)),
+                    { text = _("Modules"), sub_item_table = bold_module_items },
+                },
             },
             {
-                text = _("Status bar: bold text"),
-                checked_func = function() return cfg.topbar_bold end,
-                callback = function()
-                    set("topbar_bold", not cfg.topbar_bold)
-                    refreshTopbarNow()
-                end,
+                text = _("Section titles"),
+                sub_item_table = titles_items,
+            },
+            {
+                text = _("Night Mode"),
+                sub_item_table = {
+                    { text = _("Nav bar: day look"),
+                      checked_func = function() return cfg.nav_labels_black end,
+                      callback = function() set("nav_labels_black", not cfg.nav_labels_black) end },
+                    { text = _("Nav icons"),
+                      sub_item_table = {
+                        { text = _("Keep original colours"), radio = true,
+                          checked_func = function() return cfg.nav_icon_night == "original" end,
+                          callback = function() set("nav_icon_night", "original") end },
+                        { text = _("Solid black"), radio = true,
+                          checked_func = function() return cfg.nav_icon_night == "black" end,
+                          callback = function() set("nav_icon_night", "black") end },
+                        { text = _("Off (invert normally)"), radio = true,
+                          checked_func = function() return cfg.nav_icon_night == "off" end,
+                          callback = function() set("nav_icon_night", "off") end },
+                      } },
+                    { text = _("Section titles: day look"),
+                      checked_func = function() return cfg.titles_day_night end,
+                      callback = function() set("titles_day_night", not cfg.titles_day_night) end },
+                    { text = _("Status bar: day look"),
+                      checked_func = function() return cfg.topbar_day_night end,
+                      callback = function() set("topbar_day_night", not cfg.topbar_day_night) end },
+                },
                 separator = true,
             },
             {
@@ -940,7 +1353,7 @@ end
 local function addToOrder(order_mod)
     local ok, order = pcall(orig_require, order_mod)
     if not ok or type(order) ~= "table" or type(order.tools) ~= "table" then return end
-    for _, v in ipairs(order.tools) do if v == "simpleui_mod" then return end end
+    for _i, v in ipairs(order.tools) do if v == "simpleui_mod" then return end end
     local pos = #order.tools + 1
     for i, v in ipairs(order.tools) do
         if type(v) == "string" and v:find("^%-%-%-") then pos = i break end
@@ -955,7 +1368,16 @@ local function hookMenu(menu_mod, order_mod)
     local orig = Menu.setUpdateItemTable
     if ours[orig] then return end
     Menu.setUpdateItemTable = mine(function(self, ...)
-        if self.menu_items then self.menu_items.simpleui_mod = buildMenu() end
+        if self.menu_items then
+            -- a menu bug must never take KOReader down: skip the entry instead
+            local ok, menu = pcall(buildMenu)
+            if ok then
+                self.menu_items.simpleui_mod = menu
+            else
+                logger.warn(TAG, "menu build failed:", menu)
+                status.menu = "ERROR " .. tostring(menu)
+            end
+        end
         return orig(self, ...)
     end)
 end
