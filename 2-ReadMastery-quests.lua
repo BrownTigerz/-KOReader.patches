@@ -89,9 +89,11 @@ Quests included:
   books by 8 different authors) - deliberately set below "1 book a
   month" pace, so a full year's normal reading is genuinely needed,
   not just a few months of deliberate effort. Both pay a small XP
-  taste the instant you touch something new (a genre or author not
-  yet counted this year - no popup, just quiet XP), with the bulk of
-  the reward reserved for actually completing the whole thing.
+  taste as soon as a finished book confirms something new (a genre
+  or author not yet counted this year - checked at book completion,
+  same as the anti-cheat gate, not at book-open - no popup, just
+  quiet XP), with the bulk of the reward reserved for actually
+  completing the whole thing.
 
 Near-completion nudges (80%/90% - "you're in the final stretch" /
 "almost there") are informational only: no XP, no quest progress,
@@ -196,7 +198,7 @@ end
 local Runtime = {
     last_pages_read = 0, last_active_seconds = 0,
     current_book_groups = {}, current_book_author = nil,
-    final_stretch_eligible = false, final_stretch_start_pages = 0,
+    final_stretch_eligible = false,
     nudge_80_sent = false, nudge_90_sent = false,
 }
 
@@ -240,10 +242,10 @@ end
 -- =================================================================
 
 local GENRE_GROUPS = {
-    fantasy    = { "fantasy", "epic fantasy", "high fantasy", "magic", "dark fantasy" },
+    fantasy    = { "fantasy", "epic fantasy", "high fantasy", "magic" },
     scifi      = { "sci-fi", "science fiction", "science-fiction", "cyberpunk", "space opera" },
     nonfiction = { "non-fiction", "nonfiction" },
-    thriller   = { "thriller", "suspense", "mystery", "crime", "horror" },
+    thriller   = { "thriller", "suspense", "mystery", "crime" },
     classic    = { "classic", "classics" },
     horror     = { "horror", "gothic", "spooky", "dark fantasy", "vampires", "ghosts" },
     winter     = { "winter", "mythology" },
@@ -368,7 +370,7 @@ end
 -- =================================================================
 
 -- Daily quest-day boundary is shifted to 3 AM instead of literal
--- midnight, specifically so Night Owl (21:00-02:00) never gets its
+-- midnight, specifically so Night Owl Reader (21:00-02:00) never gets its
 -- progress wiped mid-window by the daily reset landing right in the
 -- middle of it. Only the DAILY key is shifted - week/month/seasonal
 -- boundaries stay at real midnight, since nothing else crosses a day
@@ -406,8 +408,11 @@ local function inTimeWindow(from_str, to_str, now_t)
     end
 end
 
--- Deterministic so it's fair over a week rather than random/luck
--- based, and stable for the whole day.
+-- Deterministic rather than random/luck-based, and stable for the
+-- whole day. "Fair" means evenly distributed over the long run (each
+-- of the 5 pool quests gets ~1/5 of all days across a year) - a
+-- given 7-day week won't divide perfectly evenly since 7 and 5 don't
+-- share a factor, that's expected, not a bug.
 local function pickRotateId(now_t)
     local yday = now_t.yday or tonumber(os.date("%j"))
     local idx = (yday % #DAILY_ROTATE_POOL) + 1
@@ -584,7 +589,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         end
         local ok, props = pcall(function() return instance.ui.document:getProps() end)
         local raw = ok and props and props.keywords
-        if not raw or raw == "" then return groups end
+        if type(raw) ~= "string" or raw == "" then return groups end
         for tag in raw:gmatch("[^\n]+") do
             local norm = tag:gsub("^%s+", ""):gsub("%s+$", ""):lower()
             if norm ~= "" then
@@ -627,7 +632,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         end
         local ok, props = pcall(function() return instance.ui.document:getProps() end)
         local raw = ok and props and props.authors
-        if not raw or raw == "" then return nil end
+        if type(raw) ~= "string" or raw == "" then return nil end
         local first_entry = raw:match("[^\n;]+") or raw
         local normalized = normalizeAuthorName(first_entry)
         if normalized == "" then return nil end
@@ -647,7 +652,10 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             p = { value = 0, completed = false, genres = {} }
             period_table.progress[quest.id] = p
         end
-        if p.completed then return nil, {} end
+        -- Keep tracking/discovering even after completion, so the
+        -- small discovery bonus keeps flowing for genuinely new
+        -- genres the rest of the year - only the BIG completion
+        -- reward is capped to firing once (guarded below).
         local newly_discovered = {}
         for group_id in pairs(book_groups) do
             if not p.genres[group_id] then
@@ -655,6 +663,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                 table.insert(newly_discovered, group_id)
             end
         end
+        if p.completed then return nil, newly_discovered end
         local genre_count = 0
         for _ in pairs(p.genres) do genre_count = genre_count + 1 end
         p.value = genre_count
@@ -673,9 +682,9 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             p = { value = 0, completed = false, authors = {} }
             period_table.progress[quest.id] = p
         end
-        if p.completed then return nil, false end
         local is_new = not p.authors[author_key]
         if is_new then p.authors[author_key] = true end
+        if p.completed then return nil, is_new end
         local author_count = 0
         for _ in pairs(p.authors) do author_count = author_count + 1 end
         p.value = author_count
@@ -694,15 +703,14 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- level-up, just delivered quietly.
     local function awardDiscoveryBonus(instance, count, xp_each)
         if not count or count <= 0 then return end
+        if not instance.core then return end -- no real ledger to credit XP to; skip entirely rather than record a phantom amount
         local total = count * xp_each
-        local level_before = instance.core and instance.core:getLevel() or nil
-        if instance.core then
-            instance.core:addXP(total, "quest:discovery")
-            instance.core:save()
-        end
+        local level_before = instance.core:getLevel()
+        instance.core:addXP(total, "quest:discovery")
+        instance.core:save()
         Quest.lifetime.total_xp = Quest.lifetime.total_xp + total
-        local level_after = instance.core and instance.core:getLevel() or nil
-        if level_after and level_before and level_after > level_before and instance.notifications then
+        local level_after = instance.core:getLevel()
+        if level_after > level_before and instance.notifications then
             instance.notifications:showLevelUp(level_after, nil)
         end
         persist(true)
@@ -724,7 +732,6 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         if not ok or not total or total <= 0 or not page then return end
         if (page / total) >= 0.8 then
             Runtime.final_stretch_eligible = true
-            Runtime.final_stretch_start_pages = (instance.session and instance.session.pages_read) or 0
         end
     end
 
@@ -778,24 +785,31 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         local level_before = instance.core and instance.core:getLevel() or nil
 
         for _, quest in ipairs(quests) do
+            -- Everything below - lifetime stats AND the "QUEST
+            -- COMPLETE" popup - is gated on instance.core existing,
+            -- same as the XP grant. Previously only the XP grant was
+            -- guarded, so a nil instance.core (shouldn't normally
+            -- happen, but was already being defensively checked
+            -- elsewhere) could show a completion popup and bump
+            -- lifetime totals for XP that was never actually credited.
             if instance.core then
                 instance.core:addXP(quest.reward_xp, "quest:" .. quest.id)
-            end
 
-            Quest.lifetime.total_completed = Quest.lifetime.total_completed + 1
-            Quest.lifetime.total_xp = Quest.lifetime.total_xp + quest.reward_xp
-            Quest.lifetime.by_id[quest.id] = (Quest.lifetime.by_id[quest.id] or 0) + 1
+                Quest.lifetime.total_completed = Quest.lifetime.total_completed + 1
+                Quest.lifetime.total_xp = Quest.lifetime.total_xp + quest.reward_xp
+                Quest.lifetime.by_id[quest.id] = (Quest.lifetime.by_id[quest.id] or 0) + 1
 
-            local title = Icons.TARGET .. " QUEST COMPLETE " .. Icons.TARGET
-            local text = quest.title .. "\n+" .. quest.reward_xp .. " XP"
-            local bridge = _G.ReadMasteryNotify
-            if bridge and bridge.render then
-                bridge.render(title, text)
-            else
-                UIManager:show(InfoMessage:new{
-                    text = title .. "\n\n" .. text,
-                    timeout = 4,
-                })
+                local title = Icons.TARGET .. " QUEST COMPLETE " .. Icons.TARGET
+                local text = quest.title .. "\n+" .. quest.reward_xp .. " XP"
+                local bridge = _G.ReadMasteryNotify
+                if bridge and bridge.render then
+                    bridge.render(title, text)
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = title .. "\n\n" .. text,
+                        timeout = 4,
+                    })
+                end
             end
         end
 
@@ -982,17 +996,17 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                 note(addProgress(Quest.state.weekly, w_genre_explorer, 1))
             end
 
-            -- Final Stretch: eligible if this session opened the book
-            -- already 80%+ complete (checked on page updates above),
-            -- and some real reading happened this session before
-            -- finishing (reuses the pages_read baseline captured at
-            -- that eligibility check, on top of the anti-cheat gate
-            -- already passed to even reach this point).
+            -- Final Stretch: eligible if this session crossed 80%
+            -- complete at some point (checked on page updates above)
+            -- and the book then finished in that same session. No
+            -- separate "5 pages after crossing 80%" check here - that
+            -- unfairly penalized a marathon reader who crossed 80%
+            -- with a short tail left (e.g. 4 pages to go): the
+            -- MIN_SESSION_PAGES_FOR_BOOK_CREDIT gate at the top of
+            -- this function (5+ pages read THIS SESSION, whole book)
+            -- already provides the real anti-cheat protection here.
             if Runtime.final_stretch_eligible then
-                local pages_this_session = ((session.pages_read or 0) - Runtime.final_stretch_start_pages)
-                if pages_this_session >= 5 then
-                    note(addProgress(Quest.state.weekly, findQuest(WEEKLY_QUESTS, "w_final_stretch"), 1))
-                end
+                note(addProgress(Quest.state.weekly, findQuest(WEEKLY_QUESTS, "w_final_stretch"), 1))
             end
         end
         if not Quest.state.monthly.finished_paths[book_id] then
@@ -1264,9 +1278,11 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             local orig_onPageUpdate = plugin.onPageUpdate
             plugin.onPageUpdate = function(instance, page)
                 local ret = orig_onPageUpdate(instance, page)
-                checkFinalStretchEligibility(instance, page)
-                checkNearCompletionNudges(instance, page)
-                trackReading(instance)
+                if Quest.enabled then
+                    checkFinalStretchEligibility(instance, page)
+                    checkNearCompletionNudges(instance, page)
+                    trackReading(instance)
+                end
                 return ret
             end
         end
@@ -1275,7 +1291,13 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             local orig_onCloseDocument = plugin.onCloseDocument
             plugin.onCloseDocument = function(instance, ...)
                 local ret = orig_onCloseDocument(instance, ...)
-                trackReading(instance)
+                if Quest.enabled then trackReading(instance) end
+                -- Clear any still-queued notifications on book close,
+                -- so one from this book doesn't pop up later while
+                -- looking at a different book/screen. Whatever's
+                -- currently ON screen still finishes out naturally.
+                local bridge = _G.ReadMasteryNotify
+                if bridge and bridge.clearQueue then bridge.clearQueue() end
                 return ret
             end
         end
@@ -1299,7 +1321,6 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                 Runtime.current_book_groups = detectBookGroups(instance)
                 Runtime.current_book_author = detectBookAuthor(instance)
                 Runtime.final_stretch_eligible = false
-                Runtime.final_stretch_start_pages = 0
                 Runtime.nudge_80_sent = false
                 Runtime.nudge_90_sent = false
                 return ret
