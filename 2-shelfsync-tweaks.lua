@@ -10,7 +10,7 @@
 --    (/book/auto_complete and /review/list instead of /search and /).
 -- 4) ShelfSync > Settings, above "Verbose logging":
 --      * Exclude WikiReader articles  (no autolink for koreader/cache/wikireader/)
---      * Hide StoryGraph / Goodreads / Hardcover / Fable
+--      * Hide providers > Fable / Hardcover / Goodreads / StoryGraph
 --    Only "Exclude WikiReader articles" is ON by default; the Hide toggles
 --    start OFF. Hiding a provider also stops it doing anything.
 --    Menu changes show after reopening the book / file browser.
@@ -608,14 +608,19 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
             local new = {
                 toggle(_("Exclude WikiReader articles"), "exclude_wikireader",
                     _("Don't auto-link Wikipedia articles opened with WikiReader (koreader/cache/wikireader/) to books on any provider.")),
-                toggle(_("Hide StoryGraph"), "hide_storygraph",
-                    _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
-                toggle(_("Hide Goodreads"), "hide_goodreads",
-                    _("Remove Goodreads from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
-                toggle(_("Hide Hardcover"), "hide_hardcover",
-                    _("Remove Hardcover from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
-                toggle(_("Hide Fable"), "hide_fable",
-                    _("Remove Fable from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                {
+                    text = _("Hide providers"),
+                    sub_item_table = {
+                        toggle(_("Fable"), "hide_fable",
+                            _("Remove Fable from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                        toggle(_("Hardcover"), "hide_hardcover",
+                            _("Remove Hardcover from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                        toggle(_("Goodreads"), "hide_goodreads",
+                            _("Remove Goodreads from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                        toggle(_("StoryGraph"), "hide_storygraph",
+                            _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                    },
+                },
             }
             new[#new].separator = true
             for i = #new, 1, -1 do table.insert(items, idx, new[i]) end
