@@ -183,7 +183,7 @@ local SETTING_MODE_PERCENTAGE = "readingloc_mode_percentage"
 -- cover before it's treated as a jump instead of quick reading. Both are
 -- heuristic, chosen without on-device testing - adjust if they feel off.
 local FAST_TURN_MAX_INTERVAL_MS = 1500
-local FAST_FORWARD_BURST_PAGES = 3
+local FAST_FORWARD_BURST_PAGES = 4
 
 -- The button is always docked to its fixed bottom-left/bottom-right corner.
 -- Its distance from the bottom edge, and from whichever side edge (left or
