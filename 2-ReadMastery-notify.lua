@@ -561,7 +561,16 @@ end
 -- something was still queued gave that queued item a mismatched mix
 -- of old and new settings. Now the whole look is locked in at the
 -- moment it's queued, consistently.
+--
+-- MAX_QUEUE is a defensive cap, not an expected ceiling - normal use
+-- never gets close. If it's ever hit, drop the OLDEST pending item
+-- rather than let an unbounded backlog pile up.
+local MAX_QUEUE = 15
+
 local function enqueue(kind, title, text, ascii_art)
+    if #notify_queue >= MAX_QUEUE then
+        table.remove(notify_queue, 1)
+    end
     table.insert(notify_queue, {
         kind = kind, title = title, text = text, ascii_art = ascii_art,
         duration = Notify.duration, position = Notify.position, font_path = Notify.font_path,
@@ -589,11 +598,21 @@ end
 -- Notifications.show* and the quest-patch bridge use, so turning
 -- Notifications off actually silences everything routed through it,
 -- quest-complete popups included.
+--
+-- Full style is handled differently here than for achievements/
+-- level-ups: those have ReadMastery's own genuine large-ASCII-art
+-- popup to fall back to (a separate code path entirely, bypassing
+-- dispatch). Quest completions have no such native "Full" popup of
+-- their own - if style is "full" but the caller only has a plain
+-- title+text (nothing to hand off to a real Full popup), Compact is
+-- the closest match to "Full"'s tap-to-dismiss modal feel, so that's
+-- what "full" falls through to here rather than silently becoming
+-- Banner against the user's actual choice.
 local function dispatch(title, text, ascii_art)
-    if Notify.style == "compact" then
-        showCompact(title, text, ascii_art)
-    else
+    if Notify.style == "banner" then
         showBanner(title, text, ascii_art)
+    else
+        showCompact(title, text, ascii_art)
     end
 end
 
@@ -609,6 +628,7 @@ end
 _G.ReadMasteryNotify = _G.ReadMasteryNotify or {}
 _G.ReadMasteryNotify.render = render
 _G.ReadMasteryNotify.nudgesEnabled = function() return Notify.enabled and Notify.nudges_enabled end
+_G.ReadMasteryNotify.clearQueue = clearQueue
 
 -- =================================================================
 -- Patch the plugin (runs once per plugin-instantiation; guarded so
@@ -619,7 +639,6 @@ local classes_patched = false
 
 userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     if classes_patched then return end
-    classes_patched = true
 
     local Notifications = require("ui/notifications")
     local MainMenu = require("ui/mainmenu")
@@ -888,4 +907,9 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         for _, it in ipairs(items) do table.insert(combined, it) end
         return combined
     end
+
+    -- Only mark done once setup has actually completed - if anything
+    -- above throws, this stays false so the next plugin instantiation
+    -- can retry instead of permanently skipping setup.
+    classes_patched = true
 end)
