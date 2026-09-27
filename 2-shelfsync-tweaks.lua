@@ -146,6 +146,47 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
         dialog:onShowKeyboard()
     end
 
+
+    -- Fixed-size, scrollable cookie editor. ShelfSync's own dialog grows with
+    -- the text, and a long Goodreads cookie pushes Save/Cancel off-screen.
+    local function cookieDialog(title, settings, key)
+        local InputDialog = require("ui/widget/inputdialog")
+        local Screen = require("device").screen
+        local dialog
+        dialog = InputDialog:new{
+            title = title,
+            input = settings:readSetting(key) or "",
+            allow_newline = true,  -- wrapped, multi-line box...
+            scroll = true,         -- ...that scrolls instead of growing
+            text_height = math.floor(Screen:getHeight() * 0.25),
+            buttons = { {
+                { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+                {
+                    text = _("Save"),
+                    is_enter_default = true,
+                    callback = function()
+                        -- cookies are one line; drop any wrapping/newlines
+                        local value = (dialog:getInputText() or ""):gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
+                        settings:updateSetting(key, value)
+                        UIManager:close(dialog)
+                    end,
+                },
+            } },
+        }
+        UIManager:show(dialog)
+        dialog:onShowKeyboard()
+    end
+
+    -- Swap the callback of the menu item whose text matches `label`
+    local function useCookieDialog(items, label, settings, key)
+        for _, item in ipairs(items) do
+            if item.text == label then
+                item.callback = function() cookieDialog(label, settings, key) end
+                return
+            end
+        end
+    end
+
     function GoodreadsMenu:_grkHandleResult(result, creds)
         local Login = require("shelfsync_grlogin.auth.login")
 
@@ -284,6 +325,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
     local orig_getAuthSubMenuItems = GoodreadsMenu.getAuthSubMenuItems
     GoodreadsMenu.getAuthSubMenuItems = function(self)
         local items = orig_getAuthSubMenuItems(self)
+        useCookieDialog(items, _("Goodreads Cookie"), self.settings, SETTING.GOODREADS.SESSION_COOKIE)
         table.insert(items, 1, {
             text_func = function()
                 local email = loadCreds()
@@ -384,6 +426,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
         local orig_sg_auth = StoryGraphMenu.getAuthSubMenuItems
         StoryGraphMenu.getAuthSubMenuItems = function(self)
             local items = orig_sg_auth(self)
+            useCookieDialog(items, _("StoryGraph Session Cookie"), self.settings, SETTING.STORYGRAPH.SESSION_COOKIE)
+            useCookieDialog(items, _("StoryGraph Remember Token"), self.settings, SETTING.STORYGRAPH.REMEMBER_TOKEN)
             -- Swap ShelfSync's own "Log in" item for ours (same login, plus saving)
             local idx
             for i, item in ipairs(items) do
