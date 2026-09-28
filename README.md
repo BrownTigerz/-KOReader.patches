@@ -87,6 +87,10 @@ Seeded randomization — improves random selection between KOReader restarts.
 Automatic quote reloading — changes to quotes.txt are detected and the file is reloaded without needing to restart KOReader.
 Removed unnecessary Sidecar:flush() — the patch only reads highlight data, so it no longer performs a flush every time the sleep screen appears.
 
+# 2-Tweaks-Meny
+
+To declutter tools menu and keep all plugins settings in on place
+
 # 2 Track Reading Location
 
 Forward popup now auto-dismisses after a configurable delay (Off/15s/20s/30s/50s, default 20s) if you never act on it — new setting, right after "Show shadow." The next real page turn after it dismisses becomes the new anchor. Backward popup is untouched — still persistent, no timeout.
