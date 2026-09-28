@@ -13,6 +13,33 @@
 --      * Hide providers > Fable / Hardcover / Goodreads / StoryGraph
 --    Only "Exclude WikiReader articles" is ON by default; the Hide toggles
 --    start OFF. Hiding a provider also stops it doing anything.
+-- 5) ShelfSync > "Link & Update" (between Providers and Settings): every
+--    enabled provider's Link book and Update status in one place, labelled,
+--     Copies of the providers' own items --
+--    the per-provider menus are untouched. Also 3 new gesture/Dispatcher
+--    actions that open these pages directly:
+--      ShelfSync: Link & Update menu
+--      ShelfSync: Link book (all providers)
+--      ShelfSync: Update status (all providers)
+-- 6) "ShelfSync All: Update progress" action -- syncs progress (no menu) to
+--    every ENABLED provider the book is linked to, then tells you which
+--    enabled providers still need linking. Turns Wi-Fi on first if needed
+--    (and back off afterwards); the hub shortcuts also connect first.
+--    Providers that fail get one automatic retry before Wi-Fi turns off.
+-- 7) Autolink retry on connect: open a book offline and autolink can't reach
+--    the internet, so the book stays unlinked. When Wi-Fi connects, any
+--    enabled provider still unlinked for the open book tries again -- no
+--    need to reopen the book. Toggle: Settings > "Retry autolink when Wi-Fi
+--    connects" (on by default).
+-- 8) ShelfSync's built-in "Update progress for all linked books" action also
+--    turns Wi-Fi on first (and back off after), same as ShelfSync All.
+-- 9) Auto re-login: when a Goodreads or StoryGraph session expires and you
+--    have a saved login, sign in again once, then re-push progress for the
+--    open book. Goodreads verification code / captcha still prompts you.
+--    At most one attempt per provider per 30 min; if it fails you get
+--    ShelfSync's normal "log in again" warning. Toggle: Settings >
+--    "Auto re-login when session expires" (on by default). ShelfSync's own "Update progress
+--    for all linked books" also includes disabled providers with an old link.
 --    Menu changes show after reopening the book / file browser.
 
 local userpatch = require("userpatch")
@@ -26,13 +53,22 @@ local CACHE = {
     csrf = nil,    -- Goodreads CSRF token
     csrf_at = 0,
     uid = nil,     -- Goodreads user id
+    relink = {},   -- [provider label] = { file, at } last autolink retry on connect
+    engines = {},  -- [provider label] = engine (so an api can find its engine)
+    reauth = {},   -- [provider label] = { at, running } last auto re-login
 }
 -- Login: single attempt (no hidden 2s/4s sleep-and-retry that freezes the
 -- screen), 10s socket timeout instead of 15. Saved login = one tap to retry.
 local LOGIN_OPTS = { attempts = 1, timeout = 10 }
+-- Longest ShelfSync All may keep Wi-Fi on if a provider never reports back
+local WIFI_SAFETY_TIMEOUT = 120 -- seconds (covers the retry pass too)
+local RELINK_DELAY = 5       -- seconds after connecting before retrying autolink
+local RELINK_COOLDOWN = 120  -- don't retry the same book on the same provider more often
+local RELOGIN_COOLDOWN = 1800 -- seconds: max one auto re-login per provider per 30 min
+local RETRY_DELAY = 3 -- seconds before retrying providers that failed
 local CSRF_TTL = 120 -- seconds; Goodreads rotates tokens, same TTL goodreadskosync uses
 
-userpatch.registerPatchPluginFunc("shelfsync", function()
+userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local _ = require("gettext")
     local UIManager = require("ui/uimanager")
     local Trapper = require("ui/trapper")
@@ -179,7 +215,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
 
     -- Swap the callback of the menu item whose text matches `label`
     local function useCookieDialog(items, label, settings, key)
-        for _, item in ipairs(items) do
+        for _i, item in ipairs(items) do
             if item.text == label then
                 item.callback = function() cookieDialog(label, settings, key) end
                 return
@@ -198,13 +234,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
             if creds and not (saved_email == creds.email and saved_pw == creds.password) then
                 local ConfirmBox = require("ui/widget/confirmbox")
                 UIManager:show(ConfirmBox:new{
-                    text = _("Logged in to Goodreads.\n\nSave your email and password on this device so you don't have to type them again?"),
+                    text = _("Logged in to Goodreads.\n\nSave your email and password so you don't have to type them again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to Goodreads's own sign-in page, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Remove it anytime with Account > Forget saved login."),
                     ok_text = _("Save"),
                     cancel_text = _("Not now"),
                     ok_callback = function()
                         local encrypted = saveCreds(creds.email, creds.password)
-                        notify(encrypted and _("Login saved (encrypted).")
-                            or _("Login saved (plain text -- encryption unavailable on this device)."))
+                        notify(encrypted and _("Login saved on this device (encrypted).")
+                            or _("Login saved on this device in plain text -- encryption isn't available here. Use Forget saved login if you'd rather not keep it."), not encrypted)
                     end,
                 })
             else
@@ -380,13 +416,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
                     end
                     local ConfirmBox = require("ui/widget/confirmbox")
                     UIManager:show(ConfirmBox:new{
-                        text = _("Logged in to StoryGraph.\n\nSave your email and password on this device so you don't have to type them again?"),
+                        text = _("Logged in to StoryGraph.\n\nSave your email and password so you don't have to type them again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to StoryGraph's own sign-in page, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Remove it anytime with Account > Forget saved login."),
                         ok_text = _("Save"),
                         cancel_text = _("Not now"),
                         ok_callback = function()
                             local encrypted = saveCreds(email, password, SG_CRED_FILE)
-                            notify(encrypted and _("Login saved (encrypted).")
-                                or _("Login saved (plain text -- encryption unavailable on this device)."))
+                            notify(encrypted and _("Login saved on this device (encrypted).")
+                                or _("Login saved on this device in plain text -- encryption isn't available here. Use Forget saved login if you'd rather not keep it."), not encrypted)
                         end,
                     })
                 end)
@@ -500,7 +536,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
             local items = (code == 200) and decodeJson(body) or nil
             if type(items) == "table" and #items > 0 then
                 local results = {}
-                for _, item in ipairs(items) do
+                for _i, item in ipairs(items) do
                     local id = item.bookId and tostring(item.bookId)
                     if id then
                         local author_name = type(item.author) == "table" and item.author.name or "Unknown Author"
@@ -554,7 +590,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
 
     -- Tweaks settings + menu toggles ------------------------------------------
     local TWEAKS_FILE = DataStorage:getSettingsDir() .. "/shelfsync_tweaks.lua"
-    local DEFAULTS = { exclude_wikireader = true } -- everything else defaults OFF
+    local DEFAULTS = { exclude_wikireader = true, relink_on_connect = true, auto_relogin = true } -- everything else defaults OFF
     local function tweak(key)
         if not CACHE.tweaks then
             CACHE.tweaks = LuaSettings:open(TWEAKS_FILE).data or {}
@@ -613,9 +649,69 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
         SyncEngine.__ss_hide_patched = true
         local orig_isActive = SyncEngine.isActive
         SyncEngine.isActive = function(self)
+            if self.label then CACHE.engines[self.label] = self end
             local key = HIDDEN[self.label]
             if key and tweak(key) then return false end
             return orig_isActive(self)
+        end
+        -- onUpdateProgress doesn't check isActive, so ShelfSync's own
+        -- "update all" would still push to a hidden provider with an old link
+        local orig_onUpdateProgress = SyncEngine.onUpdateProgress
+        SyncEngine.onUpdateProgress = function(self, completion_callback, gesture_feedback)
+            local key = HIDDEN[self.label]
+            if key and tweak(key) then
+                if completion_callback then completion_callback(nil, "hidden") end
+                return
+            end
+            return orig_onUpdateProgress(self, completion_callback, gesture_feedback)
+        end
+
+        -- Retry autolink when the network comes up. ShelfSync only restarts
+        -- its startup work on connect if it never ran; an offline autolink
+        -- counts as "ran", so without this the book stays unlinked until reopened.
+        local orig_onNetworkConnected = SyncEngine.onNetworkConnected
+        SyncEngine.onNetworkConnected = function(self, ...)
+            if not tweak("relink_on_connect") then
+                return orig_onNetworkConnected(self, ...)
+            end
+            local already_started = self.state and self.state.read_cache_started
+            local ret = orig_onNetworkConnected(self, ...)
+            -- If ShelfSync just (re)started its own startup work, it autolinks itself
+            if not already_started then return ret end
+
+            local engine = self
+            local doc = engine.ui and engine.ui.document
+            if not doc then return ret end
+            local file = doc.file
+            local last = CACHE.relink[engine.label]
+            if last and last.file == file and (os.time() - last.at) < RELINK_COOLDOWN then
+                return ret
+            end
+
+            -- Short delay: let the connection settle and ShelfSync's own
+            -- on-connect work start first
+            UIManager:scheduleIn(RELINK_DELAY, function()
+                local NetworkMgr = require("ui/network/manager")
+                if not NetworkMgr:isConnected() then return end
+                if not (engine.ui and engine.ui.document and engine.ui.document.file == file) then return end
+                local ok_a, active = pcall(engine.isActive, engine)
+                if not (ok_a and active) then return end
+                if not tweak("relink_on_connect") then return end
+                if engine.settings:bookLinked() then return end
+                if not engine.settings:autolinkEnabled() then return end -- also covers WikiReader exclusion
+
+                CACHE.relink[engine.label] = { file = file, at = os.time() }
+                engine.settings:debugLog(engine.label .. ": network connected, retrying autolink for unlinked book")
+                engine.provider:tryAutolink(function()
+                    if engine.settings:bookLinked() then
+                        -- Linked now: restart ShelfSync's startup work so status
+                        -- loading and progress tracking kick in as normal
+                        engine.state.read_cache_started = false
+                        engine:startReadCache()
+                    end
+                end)
+            end)
+            return ret
         end
     end
     for label, key in pairs(HIDDEN) do
@@ -652,6 +748,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
             local new = {
                 toggle(_("Exclude WikiReader articles"), "exclude_wikireader",
                     _("Don't auto-link Wikipedia articles opened with WikiReader (koreader/cache/wikireader/) to books on any provider.")),
+                toggle(_("Auto re-login when session expires"), "auto_relogin",
+                    _("When a Goodreads or StoryGraph session expires and you've saved your login, sign in again automatically (once per 30 min) and re-send your progress. Goodreads may still ask for a verification code.")),
+                toggle(_("Retry autolink when Wi-Fi connects"), "relink_on_connect",
+                    _("If you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. With this on, any enabled provider still unlinked for the open book tries again when Wi-Fi connects.")),
                 {
                     text = _("Hide providers"),
                     sub_item_table = {
@@ -669,6 +769,406 @@ userpatch.registerPatchPluginFunc("shelfsync", function()
             new[#new].separator = true
             for i = #new, 1, -1 do table.insert(items, idx, new[i]) end
             return items
+        end
+    end
+
+    -- Link & Update hub ------------------------------------------------------
+    local ok_pv, PROVIDERS = pcall(require, "shelfsync/lib/common/constants/providers")
+
+    local function activeEngines(app)
+        local list = {}
+        if not ok_pv or not app or not app.engines then return list end
+        for _i, p in ipairs(PROVIDERS) do
+            local e = app.engines[p.key]
+            if e and e.menu and e.menu.getSubMenuItems then
+                local ok, active = pcall(e.isActive, e)
+                if ok and active then list[#list + 1] = { label = p.label, engine = e } end
+            end
+        end
+        table.sort(list, function(a, b) return a.label < b.label end)
+        return list
+    end
+
+    local function itemText(item)
+        if type(item) ~= "table" then return "" end
+        if item.text then return item.text end
+        if item.text_func then
+            local ok, t = pcall(item.text_func)
+            if ok and type(t) == "string" then return t end
+        end
+        return ""
+    end
+
+    -- Fresh copies of a provider's book-view items (the provider's own menu
+    -- builds its own separate copies, so nothing there is modified).
+    local function providerItems(entry)
+        local ok, items = pcall(entry.engine.menu.getSubMenuItems, entry.engine.menu, true)
+        return ok and type(items) == "table" and items or {}
+    end
+
+    local function placeholder(text)
+        return { { text = text, enabled_func = function() return false end } }
+    end
+
+    local function hubLinkItems(app)
+        if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
+        local out = {}
+        for _i, entry in ipairs(activeEngines(app)) do
+            for _i, item in ipairs(providerItems(entry)) do
+                local t = itemText(item)
+                if t:find("^Link book") or t:find("^Linked book") then
+                    local orig = item.text_func
+                    local label = entry.label
+                    item.text = nil
+                    item.text_func = function()
+                        return label .. ": " .. (orig and orig() or t)
+                    end
+                    item.separator = nil
+                    out[#out + 1] = item
+                    break
+                end
+            end
+        end
+        if #out == 0 then return placeholder(_("No enabled providers")) end
+        return out
+    end
+
+    local function hubStatusItems(app)
+        if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
+        local out = {}
+        for _i, entry in ipairs(activeEngines(app)) do
+            for _i, item in ipairs(providerItems(entry)) do
+                if itemText(item) == _("Update status") then
+                    out[#out + 1] = {
+                        text = entry.label,
+                        enabled_func = item.enabled_func,
+                        sub_item_table = item.sub_item_table,
+                        sub_item_table_func = item.sub_item_table_func,
+                        callback = item.callback,
+                    }
+                    break
+                end
+            end
+        end
+        if #out == 0 then return placeholder(_("No enabled providers")) end
+        return out
+    end
+
+
+    local function updateAllEnabled(app, done)
+        done = done or function() end
+        if not (app.ui and app.ui.document) then
+            notify(_("Unable to update reading progress: No book active"), true)
+            return done()
+        end
+        local linked, unlinked = {}, {}
+        for _i, entry in ipairs(activeEngines(app)) do
+            local ok, is_linked = pcall(entry.engine.settings.bookLinked, entry.engine.settings)
+            if ok and is_linked then
+                linked[#linked + 1] = entry
+            else
+                unlinked[#unlinked + 1] = entry.label
+            end
+        end
+        local function reportUnlinked()
+            if #unlinked > 0 then
+                UIManager:show(InfoMessage:new{
+                    text = _("Not linked on: ") .. table.concat(unlinked, ", ")
+                        .. _("\nUse Link & Update > Link book to link it."),
+                    timeout = 4,
+                })
+            end
+        end
+        if #linked == 0 then
+            if #unlinked == 0 then
+                notify(_("No enabled providers."), true)
+            else
+                reportUnlinked()
+            end
+            return done()
+        end
+        -- Run one pass over `list`; collect the ones that failed.
+        local function runPass(list, on_finished)
+            local failed = {}
+            local function step(i)
+                local entry = list[i]
+                if not entry then return on_finished(failed) end
+                entry.engine:onUpdateProgress(function(result)
+                    if not result then failed[#failed + 1] = entry end
+                    step(i + 1)
+                end, true)
+            end
+            step(1)
+        end
+
+        runPass(linked, function(failed)
+            if #failed == 0 then
+                reportUnlinked()
+                return done()
+            end
+            -- One automatic retry, only for providers that failed
+            local names = {}
+            for _i, e in ipairs(failed) do names[#names + 1] = e.label end
+            UIManager:show(InfoMessage:new{
+                text = _("Retrying: ") .. table.concat(names, ", "),
+                timeout = 2,
+            })
+            UIManager:scheduleIn(RETRY_DELAY, function()
+                runPass(failed, function()
+                    reportUnlinked()
+                    done()
+                end)
+            end)
+        end)
+    end
+
+
+    -- Turn Wi-Fi on and wait for a real connection before running `run(done)`.
+    -- If we switched Wi-Fi on and `restore_after` is set, switch it back off
+    -- once `done` is called (saves battery, same as ShelfSync's auto-wifi).
+    local function withNetwork(run, restore_after)
+        local NetworkMgr = require("ui/network/manager")
+        if NetworkMgr:isConnected() then
+            return run(function() end)
+        end
+        if G_reader_settings:isTrue("airplanemode") then
+            notify(_("Airplane mode is on -- turn it off to sync."), true)
+            return
+        end
+        local was_on = NetworkMgr:isWifiOn()
+        local finished = false
+        local function finish()
+            if finished then return end -- runs once: normal finish OR safety timeout
+            finished = true
+            if restore_after and not was_on then
+                NetworkMgr:turnOffWifi(function()
+                    NetworkMgr.wifi_was_on = false
+                    G_reader_settings:saveSetting("wifi_was_on", false)
+                end)
+            end
+        end
+        NetworkMgr:turnOnWifiAndWaitForConnection(function()
+            -- Safety net: if a provider never reports back (error, cancelled
+            -- request), don't leave Wi-Fi on draining the battery.
+            if restore_after and not was_on then
+                UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
+            end
+            run(finish)
+        end)
+    end
+
+    local function hubRootItems(app)
+        return {
+            {
+                text = _("Link book"),
+                sub_item_table_func = function() return hubLinkItems(app) end,
+            },
+            {
+                text = _("Update status"),
+                sub_item_table_func = function() return hubStatusItems(app) end,
+            },
+        }
+    end
+
+    -- Standalone menu for gesture shortcuts (same widget KOReader's own menu uses)
+    local function showHub(items)
+        local CenterContainer = require("ui/widget/container/centercontainer")
+        local TouchMenu = require("ui/widget/touchmenu")
+        local Screen = require("device").screen
+        local container = CenterContainer:new{
+            covers_header = true,
+            ignore = "height",
+            dimen = Screen:getSize(),
+        }
+        items.icon = "appbar.tools"
+        local menu = TouchMenu:new{
+            width = Screen:getWidth(),
+            tab_item_table = { items },
+            show_parent = container,
+        }
+        menu.close_callback = function() UIManager:close(container) end
+        container[1] = menu
+        UIManager:show(container)
+    end
+
+    if plugin and not plugin.__ss_hub_patched then
+        plugin.__ss_hub_patched = true
+
+        local orig_addToMainMenu = plugin.addToMainMenu
+        plugin.addToMainMenu = function(self, menu_items)
+            orig_addToMainMenu(self, menu_items)
+            local root = menu_items.shelfsync and menu_items.shelfsync.sub_item_table
+            if type(root) ~= "table" then return end
+            local idx = 1
+            for i, item in ipairs(root) do
+                if item.text == _("Providers") then idx = i + 1; break end
+            end
+            local app = self
+            table.insert(root, idx, {
+                text = _("Link & Update"),
+                sub_item_table_func = function() return hubRootItems(app) end,
+            })
+        end
+
+        -- Menus need the network for searches / status lookups, so connect first
+        -- (Wi-Fi is left on while you use them).
+        function plugin:onShelfSyncHub()
+            local app = self
+            withNetwork(function() showHub(hubRootItems(app)) end, false); return true
+        end
+        function plugin:onShelfSyncHubLink()
+            local app = self
+            withNetwork(function() showHub(hubLinkItems(app)) end, false); return true
+        end
+        function plugin:onShelfSyncHubStatus()
+            local app = self
+            withNetwork(function() showHub(hubStatusItems(app)) end, false); return true
+        end
+        -- ShelfSync's built-in "Update progress for all linked books" has no
+        -- Wi-Fi handling. Same behaviour (every linked provider), but connect
+        -- first and turn Wi-Fi back off afterwards if we turned it on.
+        local orig_updateAll = plugin.onShelfSyncUpdateAllProgress
+        if orig_updateAll then
+            plugin.onShelfSyncUpdateAllProgress = function(self)
+                -- No book / nothing linked: let the original show its message
+                if not (self.ui and self.ui.document) or not ok_pv then
+                    return orig_updateAll(self)
+                end
+                local linked = {}
+                for _i, p in ipairs(PROVIDERS) do
+                    local e = self.engines and self.engines[p.key]
+                    if e and e.settings:bookLinked() then linked[#linked + 1] = e end
+                end
+                if #linked == 0 then return orig_updateAll(self) end
+
+                withNetwork(function(done)
+                    local function nextEngine(i)
+                        local e = linked[i]
+                        if not e then return done() end
+                        e:onUpdateProgress(function() nextEngine(i + 1) end, true)
+                    end
+                    nextEngine(1)
+                end, true)
+                return true
+            end
+        end
+
+        -- Update progress: connect, sync, then turn Wi-Fi back off if we turned it on
+        function plugin:onShelfSyncAllUpdateProgress()
+            local app = self
+            if not (app.ui and app.ui.document) then
+                notify(_("Unable to update reading progress: No book active"), true)
+                return true
+            end
+            withNetwork(function(done) updateAllEnabled(app, done) end, true); return true
+        end
+    end
+
+    -- Registering is idempotent, so doing it on every re-init is harmless
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if ok_d and Dispatcher then
+        Dispatcher:registerAction("shelfsync_hub", {
+            category = "none", event = "ShelfSyncHub", general = true,
+            title = _("ShelfSync: Link & Update menu"),
+        })
+        Dispatcher:registerAction("shelfsync_hub_link", {
+            category = "none", event = "ShelfSyncHubLink", general = true,
+            title = _("ShelfSync: Link book (all providers)"),
+        })
+        Dispatcher:registerAction("shelfsync_hub_status", {
+            category = "none", event = "ShelfSyncHubStatus", general = true,
+            title = _("ShelfSync: Update status (all providers)"),
+        })
+        Dispatcher:registerAction("shelfsync_all_update_progress", {
+            category = "none", event = "ShelfSyncAllUpdateProgress", general = true,
+            title = _("ShelfSync All: Update progress"),
+        })
+    end
+
+    -- Auto re-login ------------------------------------------------------------
+    local function engineForApi(api)
+        for _i, e in pairs(CACHE.engines) do
+            if e.api == api then return e end
+        end
+    end
+
+    -- After a successful re-login: re-send progress for the open book
+    local function afterRelogin(engine, label)
+        UIManager:show(require("ui/widget/notification"):new{
+            text = label .. _(": session renewed"),
+        })
+        if engine and engine.ui and engine.ui.document then
+            local ok_l, linked = pcall(engine.settings.bookLinked, engine.settings)
+            if ok_l and linked then
+                UIManager:scheduleIn(2, function() engine:onUpdateProgress(nil, false) end)
+            end
+        end
+    end
+
+    local function tryRelogin(api, label, cred_file, orig_notify)
+        local state = CACHE.reauth[label]
+        local now = os.time()
+        local email, password = loadCreds(cred_file)
+        if not tweak("auto_relogin") or not email
+                or (state and (state.running or (now - state.at) < RELOGIN_COOLDOWN)) then
+            if not (state and state.running) then orig_notify(api) end
+            return
+        end
+        CACHE.reauth[label] = { at = now, running = true }
+        local engine = engineForApi(api)
+
+        UIManager:scheduleIn(1, function()
+            Trapper:wrap(function()
+                local info = InfoMessage:new{ text = _("Renewing ") .. label .. _(" session...") }
+                UIManager:show(info)
+                UIManager:forceRePaint()
+
+                if label == "StoryGraph" then
+                    local ok, res = pcall(function() return api:login(email, password) end)
+                    UIManager:close(info)
+                    CACHE.reauth[label].running = false
+                    if ok and res then return afterRelogin(engine, label) end
+                    return orig_notify(api)
+                end
+
+                -- Goodreads
+                local ok, result = pcall(function()
+                    return require("shelfsync_grlogin.auth.login").perform(email, password, LOGIN_OPTS)
+                end)
+                UIManager:close(info)
+                CACHE.reauth[label].running = false
+                if not ok or not result then return orig_notify(api) end
+                if result.ok and result.session and result.session.cookies
+                        and result.session.cookies ~= "" then
+                    local settings = (engine and engine.settings) or api.settings
+                    if not settings then return orig_notify(api) end
+                    settings:updateSetting(SETTING.GOODREADS.SESSION_COOKIE, result.session.cookies)
+                    CACHE.csrf, CACHE.csrf_at, CACHE.uid = nil, 0, nil
+                    return afterRelogin(engine, label)
+                end
+                if (result.needs_otp or result.needs_challenge) and engine then
+                    -- Can't be silent: hand over to the normal login prompts
+                    notify(_("Goodreads session expired and needs verification to log back in."))
+                    local helper = setmetatable({ settings = engine.settings }, { __index = GoodreadsMenu })
+                    return helper:_grkHandleResult(result, { email = email, password = password })
+                end
+                return orig_notify(api)
+            end)
+        end)
+    end
+
+    local relogin_targets = {
+        { path = "shelfsync/lib/goodreads/api", label = "Goodreads", file = CRED_FILE },
+        { path = "shelfsync/lib/storygraph/api", label = "StoryGraph", file = SG_CRED_FILE },
+    }
+    for _i, t in ipairs(relogin_targets) do
+        local ok_m, Api = pcall(require, t.path)
+        if ok_m and Api and Api.notifyAuthFailure and not Api.__ss_relogin_patched then
+            Api.__ss_relogin_patched = true
+            local orig_notify = Api.notifyAuthFailure
+            Api.notifyAuthFailure = function(self)
+                return tryRelogin(self, t.label, t.file, orig_notify)
+            end
         end
     end
 end)
