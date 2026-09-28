@@ -12,7 +12,8 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
       Inverted         – icon colours flipped relative to the UI
     (no background tile – only the icon pixels are flipped)
   • Optional on/off indicator per icon (follow Wi-Fi, frontlight or night
-    mode): dims the icon when off, or swaps to an alternate "off" icon.
+    mode): dim when off, inverted tile when off or when on, or swap to an
+    alternate "off" icon.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
 home-screen module. Does not modify any plugin files.
@@ -86,7 +87,7 @@ end
 -- The icon keeps its transparency (alpha), so flipping is done as:
 -- invert area -> blend icon -> invert area. The background gets inverted
 -- twice (unchanged); only the icon pixels end up inverted. No tile.
-local function installPaint(img, mode, state, off_img)
+local function installPaint(img, mode, state, off_img, style)
     local base = img.paintTo
     img.paintTo = function(self, bb, x, y)
         local night = require("device").screen.night_mode and true or false
@@ -106,7 +107,15 @@ local function installPaint(img, mode, state, off_img)
         if flip then bb:invertRect(x, y, sz.w, sz.h) end
         paint(src, bb, x, y)
         if flip then bb:invertRect(x, y, sz.w, sz.h) end
-        if not on and not off_img then bb:lightenRect(x, y, sz.w, sz.h) end
+        if state then
+            if style == "dim" and not on then
+                bb:lightenRect(x, y, sz.w, sz.h)
+            elseif (style == "invert_off" and not on) or (style == "invert_on" and on) then
+                -- Full-area flip on purpose: gives a solid "active" tile
+                -- that's visible even for plain black line icons.
+                bb:invertRect(x, y, sz.w, sz.h)
+            end
+        end
     end
 end
 
@@ -122,12 +131,22 @@ local function tweakButton(btn, key)
     if not file then return end
     local alpha = mode ~= "default"
     local img = newIcon(btn, file, alpha)
-    local off_img = (state and fileExists(k.off_file)) and newIcon(btn, k.off_file, alpha) or nil
-    installPaint(img, mode, state, off_img)
+    local style = k.off_style or (k.off_file and "icon") or "dim"
+    local off_img = (state and style == "icon" and fileExists(k.off_file))
+        and newIcon(btn, k.off_file, alpha) or nil
+    installPaint(img, mode, state, off_img, style)
 
     local old = btn.image
+    local hg = btn.horizontal_group
+    local slot
+    if hg then
+        for i = 1, #hg do
+            if hg[i] == old then slot = i; break end
+        end
+    end
+    if not slot then return end -- unexpected layout: leave button untouched
     btn.image = img
-    btn.horizontal_group[2] = img
+    hg[slot] = img
     btn:update()
     if old and old ~= img and old.free then pcall(old.free, old) end
 end
@@ -156,10 +175,10 @@ local function expectedKeys(config)
     local ok_d, SHORTCUT_DATA = pcall(require, "shortcuts_data")
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     local known = {}
-    if ok_d then for _, it in ipairs(SHORTCUT_DATA) do known[it.key] = true end end
+    if ok_d then for _, it in ipairs(SHORTCUT_DATA) do known[it.key] = it end end
     if ok_m then
         for _, it in ipairs(Manager.getShortcutDataItems(config.view or "reader")) do
-            known[it.key] = true
+            known[it.key] = it
         end
     end
     local list = {}
@@ -167,7 +186,11 @@ local function expectedKeys(config)
         local key = token:match("^%s*(.-)%s*$")
         if known[key] and key ~= "spacer" and key ~= "spacer2"
                 and key ~= "time" and key ~= "battery" then
-            table.insert(list, key)
+            -- The icon the plugin passes to IconButton:new for this key.
+            -- Wi-Fi is dynamic, so accept either state.
+            local icons = key == "wifi" and { ["wifi"] = true, ["wifi.open.0"] = true }
+                or { [known[key].icon or "__nil__"] = true }
+            table.insert(list, { key = key, icons = icons })
         end
     end
     return list
@@ -180,15 +203,30 @@ local function withCapture(config, fn, ...)
     local IconButton = require("ui/widget/iconbutton")
     local Screen = require("device").screen
     local icon_size = Screen:scaleBySize(config.icon_size or 32)
+    local padding_h = Screen:scaleBySize(config.spacing or 8)
     local queue = expectedKeys(config)
+    local desynced = false
     local captured = {}
     local orig_new = IconButton.new
 
     building = true
     IconButton.new = function(cls, o)
         local btn = orig_new(cls, o)
-        if o and o.icon ~= "chevron.left" and o.width == icon_size and #queue > 0 then
-            table.insert(captured, { btn = btn, key = table.remove(queue, 1) })
+        -- Only consider buttons shaped like toolbar shortcuts.
+        if desynced or not o or #queue == 0 or o.width ~= icon_size
+                or o.padding_left ~= padding_h then
+            return btn
+        end
+        local want = queue[1]
+        if want.icons[o.icon or "__nil__"] then
+            table.remove(queue, 1)
+            table.insert(captured, { btn = btn, key = want.key })
+        else
+            -- Order no longer matches what we expected: stop matching so
+            -- nothing gets the wrong key's tweaks. Earlier (verified)
+            -- matches still apply.
+            desynced = true
+            require("logger").warn("shortcutstoolbar icon tweaks: button order mismatch at", want.key)
         end
         return btn
     end
@@ -382,28 +420,36 @@ local function perIconMenu(key)
                     })
                 end
                 t[#t].separator = true
+                local function curStyle(k) return k.off_style or (k.off_file and "icon") or "dim" end
+                local styles = {
+                    { id = "dim",        text = _("Dim when off") },
+                    { id = "invert_off", text = _("Inverted when off") },
+                    { id = "invert_on",  text = _("Inverted when on") },
+                }
+                for _i, sty in ipairs(styles) do
+                    table.insert(t, {
+                        text = sty.text,
+                        radio = true,
+                        enabled_func = function() local _s, k = getK(); return k.state ~= nil end,
+                        checked_func = function() local _s, k = getK(); return curStyle(k) == sty.id end,
+                        callback = function() local s, k = getK(); k.off_style = sty.id; putK(s, k) end,
+                    })
+                end
                 table.insert(t, {
                     text_func = function()
                         local _s, k = getK()
-                        return k.off_file and T(_("When off: %1"), k.off_file:match("[^/]+$"))
-                            or _("When off: dimmed (tap to pick an icon)")
+                        return k.off_file and T(_("Custom icon when off: %1"), k.off_file:match("[^/]+$"))
+                            or _("Custom icon when off…")
                     end,
+                    radio = true,
                     enabled_func = function() local _s, k = getK(); return k.state ~= nil end,
+                    checked_func = function() local _s, k = getK(); return curStyle(k) == "icon" end,
                     keep_menu_open = true,
                     callback = function(touchmenu)
                         pickIcon(function(path)
-                            local s, k = getK(); k.off_file = path; putK(s, k)
+                            local s, k = getK(); k.off_file = path; k.off_style = "icon"; putK(s, k)
                             if touchmenu then touchmenu:updateItems() end
                         end)
-                    end,
-                })
-                table.insert(t, {
-                    text = _("Use dimmed icon when off"),
-                    enabled_func = function() local _s, k = getK(); return k.off_file ~= nil end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu)
-                        local s, k = getK(); k.off_file = nil; putK(s, k)
-                        if touchmenu then touchmenu:updateItems() end
                     end,
                 })
                 return t
