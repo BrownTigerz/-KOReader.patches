@@ -311,11 +311,28 @@ local YEARLY_QUESTS = {
     { id = "y_author_explorer", title = "Author Explorer", type = "author_explorer", target = 8, reward_xp = 1200, discovery_xp = 100 },
 }
 
-local function findQuest(list, id)
+-- Every quest id is unique across all lists combined (~20 total), so
+-- a single flat table gives O(1) lookup instead of the linear scan
+-- findQuest() used to do - called up to a dozen times per page turn
+-- in trackReading(), so this genuinely matters on that hot path, not
+-- just a style preference. `list` is kept as a parameter purely so
+-- every existing call site (findQuest(SOME_LIST, id)) still works
+-- unchanged - it's just no longer what's actually searched.
+local QUEST_BY_ID = {}
+local function registerQuestIds(list)
     for _, q in ipairs(list) do
-        if q.id == id then return q end
+        QUEST_BY_ID[q.id] = q
     end
-    return nil
+end
+registerQuestIds(DAILY_ALWAYS)
+registerQuestIds(DAILY_ROTATE_POOL)
+registerQuestIds(WEEKLY_QUESTS)
+registerQuestIds(MONTHLY_QUESTS)
+registerQuestIds(SEASONAL_QUESTS)
+registerQuestIds(YEARLY_QUESTS)
+
+local function findQuest(list, id)
+    return QUEST_BY_ID[id]
 end
 
 -- Plain-English "how to complete this" text, for the tap-to-detail
@@ -378,22 +395,6 @@ end
 -- should switch over at the real calendar boundary.
 local QUEST_DAY_SHIFT_SECONDS = 3 * 3600
 
-local function todayKey(t)
-    return os.date("%Y-%m-%d", t - QUEST_DAY_SHIFT_SECONDS)
-end
-
-local function weekKey(t)
-    t = t or os.time()
-    local wday = tonumber(os.date("%w", t)) -- 0=Sunday..6=Saturday
-    local days_since_monday = (wday == 0) and 6 or (wday - 1)
-    local monday = t - (days_since_monday * 86400)
-    return os.date("%Y-%m-%d", monday)
-end
-
-local function monthKey(t)
-    return os.date("%Y-%m", t)
-end
-
 local function inTimeWindow(from_str, to_str, now_t)
     local function toMinutes(s)
         local h, m = s:match("(%d+):(%d+)")
@@ -419,31 +420,42 @@ local function pickRotateId(now_t)
     return DAILY_ROTATE_POOL[idx].id
 end
 
-local function yearKey(t)
-    return os.date("%Y", t)
-end
-
+-- Called on every page turn (via trackReading), so kept to a fixed 4
+-- os.date/os.time calls total rather than the ~8 separate ones the
+-- old todayKey/weekKey/monthKey/yearKey helpers added up to between
+-- them - each was a single-call-site wrapper, so inlined here with
+-- the redundant calls merged: now_t and quest_day_t each already
+-- carry year/month/day (and now_t carries wday too), so the daily/
+-- monthly/yearly/seasonal keys are built straight from those table
+-- fields via string.format instead of asking os.date to reformat the
+-- same instant again. Only the Monday-of-the-week calculation still
+-- needs its own os.date call, since simple day-of-month subtraction
+-- can't safely cross a month/year boundary on its own.
 local function ensurePeriod()
     local now = os.time()
-    local now_t = os.date("*t", now) -- TRUE current time - used for seasonal month/year checks and returned for inTimeWindow
+    local now_t = os.date("*t", now) -- TRUE current time - seasonal month/year, week-day math, and returned for inTimeWindow
+    local quest_day_t = os.date("*t", now - QUEST_DAY_SHIFT_SECONDS) -- shifted, daily key/rotation only
 
-    local quest_day_t = os.date("*t", now - QUEST_DAY_SHIFT_SECONDS) -- shifted, for daily key/rotation only
-    local tk = todayKey(now)
+    local tk = string.format("%04d-%02d-%02d", quest_day_t.year, quest_day_t.month, quest_day_t.day)
     if Quest.state.daily.key ~= tk then
         Quest.state.daily = { key = tk, rotate_id = pickRotateId(quest_day_t), progress = {} }
     end
 
-    local wk = weekKey(now)
+    -- now_t.wday is Lua's convention (1=Sunday..7=Saturday), reused
+    -- here instead of a second os.date call just for day-of-week.
+    local days_since_monday = (now_t.wday == 1) and 6 or (now_t.wday - 2)
+    local monday_t = os.date("*t", now - days_since_monday * 86400)
+    local wk = string.format("%04d-%02d-%02d", monday_t.year, monday_t.month, monday_t.day)
     if Quest.state.weekly.key ~= wk then
         Quest.state.weekly = { key = wk, progress = {}, finished_paths = {} }
     end
 
-    local mk = monthKey(now)
+    local mk = string.format("%04d-%02d", now_t.year, now_t.month)
     if Quest.state.monthly.key ~= mk then
         Quest.state.monthly = { key = mk, progress = {}, finished_paths = {} }
     end
 
-    local yk = yearKey(now)
+    local yk = tostring(now_t.year)
     if Quest.state.yearly.key ~= yk then
         Quest.state.yearly = { key = yk, progress = {}, finished_paths = {} }
     end
@@ -898,29 +910,27 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         end
 
         -- Gauges (current continuous session, current streak) -
-        -- re-checked every update, not accumulated.
-        local d_deep_dive = Quest.state.daily.rotate_id == "d_deep_dive" and findQuest(DAILY_ROTATE_POOL, "d_deep_dive")
-        if d_deep_dive and session.continuous_start_time then
-            local continuous_secs = os.time() - session.continuous_start_time
-            note(checkThreshold(Quest.state.daily, d_deep_dive, continuous_secs, d_deep_dive.target * 60))
-        end
-
-        local w_marathon_session = findQuest(WEEKLY_QUESTS, "w_marathon_session")
-        if session.continuous_start_time then
-            local continuous_secs = os.time() - session.continuous_start_time
+        -- re-checked every update, not accumulated. continuous_secs
+        -- is computed once and reused for all three checks below,
+        -- rather than calling os.time() three times for what's the
+        -- same delta each time this function runs.
+        local continuous_secs = session.continuous_start_time and (os.time() - session.continuous_start_time)
+        if continuous_secs then
+            if Quest.state.daily.rotate_id == "d_deep_dive" then
+                local d_deep_dive = QUEST_BY_ID.d_deep_dive
+                note(checkThreshold(Quest.state.daily, d_deep_dive, continuous_secs, d_deep_dive.target * 60))
+            end
+            local w_marathon_session = QUEST_BY_ID.w_marathon_session
             note(checkThreshold(Quest.state.weekly, w_marathon_session, continuous_secs, w_marathon_session.target * 60))
-        end
-        local m_immersion = findQuest(MONTHLY_QUESTS, "m_immersion")
-        if session.continuous_start_time then
-            local continuous_secs = os.time() - session.continuous_start_time
+            local m_immersion = QUEST_BY_ID.m_immersion
             note(checkThreshold(Quest.state.monthly, m_immersion, continuous_secs, m_immersion.target * 60))
         end
 
-        local w_iron_reader = findQuest(WEEKLY_QUESTS, "w_iron_reader")
+        local w_iron_reader = QUEST_BY_ID.w_iron_reader
         note(checkThreshold(Quest.state.weekly, w_iron_reader, session.continuous_pages or 0))
 
         if instance.core then
-            local w_streak = findQuest(WEEKLY_QUESTS, "w_streak")
+            local w_streak = QUEST_BY_ID.w_streak
             note(checkThreshold(Quest.state.weekly, w_streak, instance.core:getStreak() or 0))
         end
 
