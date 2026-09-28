@@ -1,123 +1,143 @@
-# -KOReader.patches
+KOReader Patches
 
-# SimpleUI Mod
+User patches for KOReader, mostly for Kobo. Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
-A KOReader user patch for SimpleUI that adds colour control for the home screen and makes Night Mode readable over a light wallpaper.
+Patch	For	What it does
+2-simpleui-mod.lua	SimpleUI	Home screen colours, bold, per-section titles, Night Mode day look
+2-tweaks-menu.lua	KOReader	One Tools menu for plugin and patch settings
+2-shelfsync-tweaks.lua	ShelfSync	Goodreads login, saved logins, WAF fix, one-tap sync
+2-ReadMastery-notify.lua	ReadMastery	Custom notification styles
+2-ReadMastery-quests.lua	ReadMastery	Quests and challenges
+2-kobo-style-sleepscreen-banner.lua	KOReader	Kobo-style sleep screen banner with highlights or quotes
+2-track-reading-location.lua	KOReader	"Go back to where you were" button
+2-shortcutstoolbar-icon-tweaks.lua	Shortcuts Toolbar	Custom icons and Night Mode colour modes
+Quotes.lua / Famous Quotes.txt	SimpleUI / sleep screen	Quote collections
 
-Features
-Module text colour: set the text colour for home screen modules (Currently Reading, Quote, Reading Goals, Reading Stats, etc.), with a separate colour for Night Mode.
-Progress and border colours: recolour progress bars, rings, borders and stat icons for the modules you choose.
-Section titles: set a colour for module headers, and optionally keep their day look in Night Mode.
-Nav bar in Night Mode: keep labels black, and keep colour icons in their original colours instead of inverted.
-Status bar: keep its day look in Night Mode, and use bold text for easier reading.
-In-app settings: everything is under Tools → SimpleUI Mod and saved in KOReader's settings.
 Install
-Copy 2-simpleui-mod.lua into koreader/patches/. Create the folder if it doesn't exist. On Kobo it's .adds/koreader/patches/.
-Restart KOReader.
-Open Tools → SimpleUI Mod to configure.
 
-Requires SimpleUI installed and enabled. Patches don't work on the F-Droid build of KOReader.
+Copy the 2-*.lua files you want into KOReader's patches folder and restart KOReader.
 
-Settings
-Setting	Applies
-Module text colour (normal / Night Mode)	After restart
-Also recolour grey text	After restart
-Section title colour	After restart
-Section titles: day look in Night Mode	Instantly
-Progress & border colour, Progress track colour	After restart
-Modules using progress colours	After restart
-Nav labels black in Night Mode	Instantly
-Nav icons in Night Mode (Original / Solid black / Off)	Instantly
-Status bar: day look in Night Mode	Instantly
-Status bar: bold text	Instantly
-Show status popup on startup	Next start
+	•	Kobo: .adds/koreader/patches/
+	•	Kindle: koreader/patches/
+	•	Android: koreader/patches/
 
-Colours are picked as they should look on screen. The patch handles Night Mode inversion for you.
+Create the folder if it doesn't exist. The 2- prefix is required, because KOReader only loads patches whose names start with a priority number. Patches don't work on the F-Droid build of KOReader.
+
+All patches work independently and together. If one fails to attach (for example, after a plugin update), it logs to koreader/crash.log and leaves things as they were.
+
+SimpleUI Mod
+
+Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
+
+Settings are in Tools → SimpleUI Mod, or Tools → Tweaks & Mods → SimpleUI Mod with the Tweaks menu installed.
+
+	•	Modules:
+	•	text colour, with a separate Night Mode colour
+	•	recolour grey text
+	•	progress bar, ring and border colours (per module)
+	•	bold (per module or all)
+	•	Section titles: defaults for all sections, then per-module colour, bold and size. Size is a preset or a custom 50–300%. A • marks customised sections.
+	•	Nav bar: bold labels, day look in Night Mode, and colour icons keep their original colours in Night Mode.
+	•	Status bar: bold, and day look in Night Mode.
+
+Colours are picked as they should look on screen, and Night Mode inversion is handled for you. Night Mode switches and status bar bold apply instantly. Everything else asks for a restart.
 
 Notes
-Wallpaper inversion: turn off SimpleUI's wallpaper Night Mode inversion. Black text needs a light background.
-Module backdrop: set module backdrop/fill to 0 on light wallpapers, or text can disappear in Night Mode.
-Colour nav icons: these need a non-Framed nav bar style. Framed style draws all icons in one colour.
-Icon formats: use SVG icons with transparency. Opaque icons are left alone in "Original colours" mode.
-Per-module text colours: edit PER_MODULE near the top of the file. This one isn't in the menu.
-Troubleshooting
 
-Turn on Show status popup on startup and restart. The popup lists each hook as ok, FAILED or error <module>, along with your SimpleUI version. Include it when reporting an issue.
+	•	Wallpaper: turn off SimpleUI's wallpaper Night Mode inversion, since black text needs a light background.
+	•	Module fill: with a light wallpaper, set module backdrop/fill to 0, or text can disappear in Night Mode.
+	•	Colour nav icons: these need a non-Framed nav bar style. Framed draws icons in one colour, but still gets the day look.
+	•	Icon files: use SVG icons with transparency.
+	•	Section title sizes: these multiply SimpleUI's own label scale (Scale → Labels).
 
-Uninstall
+Uninstall: use Reset to defaults if you want the saved settings (simpleui_mod in settings.reader.lua) removed. Then delete the file and restart.
 
-Delete 2-simpleui-mod.lua from patches/ and restart. Saved settings live under the simpleui_mod key in settings.reader.lua and can be removed with Reset to defaults before uninstalling.
+Tweaks & Mods menu
 
-# ShelfSync Tweaks
+Declutters Tools by gathering plugin menus and patch settings into one Tools → Tweaks & Mods submenu.
 
-Goodreads login on device — adds a Log in button (email + password) to ShelfSync > Providers > Goodreads > Account, same as StoryGraph's. No more copying cookies from a browser. The login code is bundled from goodreadskosync (MIT, license included in the file), so that plugin isn't needed.
-Remember login — Goodreads and StoryGraph can both save your email and password so you can sign in with one tap ("Log in as..."). Long-press to edit, or use "Forget saved login". Stored encrypted with a device-local key when possible.
-Goodreads WAF fix — ShelfSync's Goodreads search and security-token requests get blocked by Amazon's bot check. The patch uses the same endpoints goodreadskosync uses (/book/auto_complete and /review/list) so auto-linking and manual linking work, and falls back to the original if they fail.
-New toggles in ShelfSync > Settings, above Verbose logging:
-Exclude WikiReader articles (on by default) — stops articles opened with WikiReader (saved in koreader/cache/wikireader/) from being auto-linked to random books.
-Hide providers (submenu: Fable, Hardcover, Goodreads, StoryGraph; all off by default) — hiding one removes it from the Providers menu and stops it from running. Reopen the book or file browser to update the menu.
+	•	Moved menus: plugins listed in MOVE at the top of the file move in, currently SimpleUI, ReadMastery, ShelfSync and Shortcuts Toolbar. Edit the list and restart to change it. Ids that aren't installed are skipped.
+	•	Patch settings: patches that support it add their settings automatically. SimpleUI Mod does.
+	•	Nothing is saved: each menu build works on a copy of KOReader's menu order. Delete the file and every menu is back where it was.
+	•	Menu Disabler: items hidden with a menu-order file or Menu Disabler stay hidden.
+	•	Empty submenus: a built-in submenu emptied by moving its items out is hidden instead of shown empty.
 
-Link & Update (ShelfSync menu, between Providers and Settings) — every enabled provider's Link book and Update status in one place, labelled by provider. These are copies; each provider's own menu is untouched.
-New gesture/Dispatcher actions to jump straight there: "ShelfSync: Link & Update menu", "ShelfSync: Link book (all providers)", "ShelfSync: Update status (all providers)".
-ShelfSync All: Update progress (gesture/Dispatcher action) — turns Wi-Fi on if needed and waits for a connection, syncs progress straight away (no menu), to every enabled provider the book is linked to, then lists any enabled providers the book still isn't linked on. Unlike ShelfSync's built-in "Update progress for all linked books", it skips disabled and hidden providers. Any provider that fails gets one automatic retry. If it had to turn Wi-Fi on, it turns it back off when done (or after 2 minutes at most). The Link & Update shortcuts, and ShelfSync's built-in "Update progress for all linked books" action, also connect Wi-Fi first.
-Autolink retry on connect — if you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. When Wi-Fi connects, any enabled provider still unlinked for the open book tries again automatically, no need to reopen the book. Toggle: ShelfSync > Settings > "Retry autolink when Wi-Fi connects" (on by default).
-Auto re-login — when a Goodreads or StoryGraph session expires and you've saved your login, it signs in again once and re-sends your progress. Goodreads verification codes/captchas still prompt you. Max one attempt per provider per 30 minutes; if it fails you get ShelfSync's normal "log in again" warning. Toggle: ShelfSync > Settings > "Auto re-login when session expires" (on by default).
-Saved logins & security — saved emails and passwords stay on the device only, in koreader/settings/shelfsync_goodreads_login.lua and shelfsync_storygraph_login.lua. They're never uploaded anywhere; the password is only sent to Goodreads' or StoryGraph's own sign-in page. Passwords are encrypted with a key stored on the same device (koreader/settings/goodreadskosync_keyring.lua), which protects against casual file browsing, not against someone with full access to the e-reader. Remove them anytime with Account > Forget saved login.
+For patch authors: register with the shared table at package.loaded.tweaks_mods. The format is documented at the top of the file. Return an item with sub_item_table_func so large menus are only built when opened.
 
-# ReadMastery Notify
+ShelfSync Tweaks
 
-A KOReader patch that adds a customizable notification system to ReadMastery. It provides visual feedback for events such as earning XP, completing quests, leveling up, and making reading progress.
+	•	Goodreads login on device: a Log in button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. The login code is bundled from goodreadskosync (MIT, license in the file), so that plugin isn't needed.
+	•	Remember login for Goodreads and StoryGraph:
+	•	tap Log in as… to sign in with the saved login
+	•	long-press it to edit
+	•	Forget saved login removes it
+	•	Goodreads WAF fix: search and security-token requests use /book/auto_complete and /review/list to get around Amazon's bot check, falling back to the originals if they fail.
+	•	New toggles in ShelfSync → Settings:
+	•	Exclude WikiReader articles (on): stops koreader/cache/wikireader/ articles being auto-linked to random books.
+	•	Hide providers (Fable, Hardcover, Goodreads, StoryGraph; all off): removes a provider from the menu and stops it running.
+	•	Link & Update: every enabled provider's Link book and Update status in one menu, with gesture actions for each.
+	•	ShelfSync All: Update progress (gesture), in order:
+	1.	turns Wi-Fi on if needed
+	2.	syncs to every linked, enabled provider (one retry each)
+	3.	lists providers still unlinked
+	4.	turns Wi-Fi back off if it turned it on
+	•	Autolink retry on connect: books opened offline get linked when Wi-Fi connects.
+	•	Auto re-login: if a saved-login session expires, it signs in again and re-sends progress, at most once per provider per 30 minutes.
+	•	Security: logins stay on the device (koreader/settings/shelfsync_*_login.lua), encrypted with a device-local key. That protects against casual browsing, not full device access.
 
-The goal is to make ReadMastery's progression system feel more rewarding while keeping notifications clean, lightweight, and unobtrusive during reading.
+ReadMastery Notify
 
-# ReadMastery Quests
+A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. It offers full, compact or banner styles, a position and duration setting, and an optional custom font. It's designed to feel rewarding without getting in the way while reading.
 
-A KOReader patch that adds a quest and challenge system to ReadMastery. It introduces daily reading goals, progress-based quests, seasonal challenges, and special reading challenges that reward XP when completed.
+ReadMastery Quests
 
-The goal is to give reading more structure and variety while encouraging consistent reading without making the system overly complicated or distracting.
+Adds quests and challenges to ReadMastery:
 
-# Kobo Style Sleep Screen Banner
+	•	daily reading goals
+	•	progress-based quests
+	•	seasonal and special challenges
 
-Download and ADD Famous Quotes.txt to file_path = "/mnt/onboard/.adds/Famous Quotes.txt"
+All of them reward XP. Toggle Quests (Enhanced) in the ReadMastery menu. When it's off, the patch does nothing. Works with or without ReadMastery Notify, which styles the quest popups when installed.
 
-Changes from the original
-Custom quote fallback — if the current book has no eligible highlights, the patch automatically displays a random quote from a custom txt file.
-No-repeat system — highlights and custom quotes have separate no-repeat windows to avoid seeing the same ones repeatedly.
-Seeded randomization — improves random selection between KOReader restarts.
-Automatic quote reloading — changes to quotes.txt are detected and the file is reloaded without needing to restart KOReader.
-Removed unnecessary Sidecar:flush() — the patch only reads highlight data, so it no longer performs a flush every time the sleep screen appears.
+Kobo Style Sleep Screen Banner
 
-# 2-Tweaks-Meny
+Redesigns KOReader's banner sleep screen message to look like the Kobo lock screen tag, showing a random highlight from the current book.
 
-To declutter tools menu and keep all plugins settings in on place
+	•	Quote fallback: books with no highlights show a random quote from a text file. Put Famous Quotes.txt at /mnt/onboard/.adds/Famous Quotes.txt, or change file_path at the top of the patch.
+	•	No repeats: highlights and quotes each have their own no-repeat window.
+	•	Seeded randomness: picks stay varied across restarts.
+	•	Live quote file: edits to the quote file are picked up without restarting.
+	•	Lighter sleep: it only reads highlights, so there's no settings flush on every sleep.
 
-# 2 Track Reading Location
+Credits: written with Discord user @sandcastles, with design cues from a patch by u/juancoquet.
 
-Forward popup now auto-dismisses after a configurable delay (Off/15s/20s/30s/50s, default 20s) if you never act on it — new setting, right after "Show shadow." The next real page turn after it dismisses becomes the new anchor. Backward popup is untouched — still persistent, no timeout.
-Several quick forward taps in a row (skimming ahead) now trigger the popup even when no single tap was a big jump — a "burst" of 3+ pages within 1.5s counts as one jump.
-Button now docks above KOReader's own footer bar instead of potentially overlapping it (and correctly skips that offset when you have "Overlap status bar" on).
+Track Reading Location
 
-Correctness fixes (silent — nothing to notice, just fewer edge-case bugs)
+Remembers the furthest page you've actually read. If you page back, or jump ahead through the table of contents, a small floating button takes you back. Settings are under Reader menu → Navigation.
 
-Reflowable docs (EPUB/FB2) track position by xpointer, not just raw page number, so a font-size/margin change mid-session can't leave "go back" pointing at the wrong page.
-Anchor and popup visibility now always resolve through that xpointer, everywhere they're checked — not just right after a page turn.
-Stale on-disk xpointer data gets cleared instead of lingering and getting wrongly reloaded later.
-A bug where the forward-dismiss timer stopped rescheduling itself after the first cycle (only fixed itself once, then silently broke) — fixed.
+	•	Backward: paging back more than one page shows a persistent button.
+	•	Forward: jumping ahead more than two pages, or skimming 3+ pages within 1.5 s, shows a mirrored button. It auto-dismisses after Off, 15, 20 (default), 30 or 50 s, and your next page turn becomes the new anchor.
+	•	Layout: the button docks above KOReader's footer.
+	•	Position: EPUB/FB2 track position by xpointer, so font or margin changes don't point "go back" at the wrong page.
+	•	Saving:
+	•	saves when you accept a page and on suspend
+	•	skips the disk write when nothing changed
+	•	cleans up timers on close
 
-Reliability / resource use
+Shortcuts Toolbar Icon Tweaks
 
-Anchor is saved immediately (not just on KOReader's periodic autosave) when you explicitly accept a page, and on device suspend.
-Suspend no longer writes to disk if nothing's actually changed since the last save.
-Pending timers get cleaned up on document close and when you disable the floating button, so nothing fires against a closed book or a feature you've turned off.
+Adds Shortcuts toolbar → Icon tweaks for Shortcuts Toolbar:
 
-Untouched: menu structure, dispatcher/gesture actions, the core anchor concept, and every other existing setting.
+	•	Custom icons: swap any icon for your own SVG/PNG, or restore the original.
+	•	Colour mode, globally or per icon:
+	•	Default: follows Night Mode
+	•	Keep original: true colours in Night Mode
+	•	Inverted
+	•	On/off indicators: optional per icon, following Wi-Fi, frontlight or Night Mode.
 
-# Shortcutstoolbar Patch
+Custom Quotes for SimpleUI
 
-Create custom icons for the original icons and choose between how it behave on night/daymode.
+Quotes.lua has 300 famous quotes for SimpleUI's Quote of the Day module.
 
-# Custom Quotes for SimpleUI
-
-300 famous quotes to use with simple ui, add it to <KOReader settings dir>/simpleui/sui_quotes/
-then set Source → Custom on the module
-
+	1.	Copy it to koreader/settings/simpleui/sui_quotes/, creating the folders if needed.
+	2.	In the module's settings, set Source → Custom and pick the file.
