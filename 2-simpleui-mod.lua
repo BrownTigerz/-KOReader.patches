@@ -1,19 +1,12 @@
 --[[
-2-simpleui-mod.lua
-KOReader user patch for SimpleUI (simpleui.koplugin).
+2-simpleui-mod.lua - KOReader user patch for SimpleUI (simpleui.koplugin)
 
-Settings: Tools > SimpleUI Mod
+Colours, bold, section title styling and Night Mode "day look" for the
+SimpleUI home screen, nav bar and status bar.
+Settings: Tools > SimpleUI Mod (or Tools > Tweaks & Mods > SimpleUI Mod when
+2-tweaks-menu.lua is installed). Install: koreader/patches/, then restart.
 
-- Module text colour (normal and Night Mode)
-- Progress bar / ring / border colours for chosen modules
-- Nav bar labels black in Night Mode
-- Nav bar icons in Night Mode: keep original colours, black, or normal
-
-Colours are how things look ON SCREEN. Night Mode inverts the screen,
-so the patch pre-inverts where needed to get the colour you picked.
-
-Install: koreader/patches/2-simpleui-mod.lua, then restart.
-(Remove the older 2-simpleui-module-text-color.lua if you have it.)
+Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 ]]
 
 -- ---- Defaults (change in Tools > SimpleUI Mod) -----------------------------
@@ -26,7 +19,7 @@ local DEFAULTS = {
     track            = "#CCCCCC",   -- unfilled part of bars/rings
     accent_modules   = { reading_goals = true, reading_stats = true, currently = false },
     nav_labels_black = true,        -- nav labels show black in Night Mode
-    nav_icon_night   = "original",  -- "original" | "black" | "off"
+    nav_icons_original = true,      -- nav icons keep their real colours in Night Mode
     titles_day_night = true,        -- section titles look the same in Night Mode
     topbar_day_night = true,        -- status bar looks the same in Night Mode
     bold = {                        -- bold text (applies after restart,
@@ -37,13 +30,7 @@ local DEFAULTS = {
     },
     title_size       = 100,         -- section title size, % (x SimpleUI's own label scale)
     titles           = {},          -- per-section overrides: [module id] = { color, bold, size }
-    show_popup       = false,       -- status popup on startup
 }
-
--- Per-module text overrides (file only), e.g. quote = "#333333"
-local PER_MODULE = {
-}
--- ---------------------------------------------------------------------------
 
 local userpatch  = require("userpatch")
 local Blitbuffer = require("ffi/blitbuffer")
@@ -52,7 +39,6 @@ local logger     = require("logger")
 
 local TAG = "simpleui-mod:"
 local SETTINGS_KEY = "simpleui_mod"
-local status = {}
 
 -- ---- settings ----------------------------------------------------------------
 local cfg = {}
@@ -81,11 +67,11 @@ end
 local function loadConfig()
     local saved = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
     local m = merged(DEFAULTS, saved)
-    -- migrate the old single "status bar bold" switch
-    if type(saved.bold) ~= "table" and type(saved.topbar_bold) == "boolean" then
-        m.bold.topbar = saved.topbar_bold
+    -- the old 3-way nav icon setting became an on/off switch
+    if saved.nav_icons_original == nil and saved.nav_icon_night == "off" then
+        m.nav_icons_original = false
     end
-    m.topbar_bold = nil
+    m.topbar_bold, m.show_popup, m.nav_icon_night = nil, nil, nil   -- retired settings
     for k in pairs(cfg) do cfg[k] = nil end
     for k, v in pairs(m) do cfg[k] = v end
 end
@@ -142,21 +128,17 @@ local function invColor(c)
 end
 
 -- ---- derived colours (recomputed when settings change) -------------------------
-local TEXT_C, NIGHT_C, LABEL_C
+local TEXT_C, NIGHT_C
 local ACC_DAY, ACC_NIGHT, TRK_DAY, TRK_NIGHT
-local PER_C = {}
 local onConfigApplied  -- set further down (rebuilds cached accent tables)
 
 local function applyConfig()
     TEXT_C    = colorOf(cfg.module_text)
     NIGHT_C   = colorOf(cfg.night_text, true)   -- pre-inverted for Night Mode
-    LABEL_C   = colorOf(cfg.section_titles)
     ACC_DAY   = colorOf(cfg.accent)
     ACC_NIGHT = colorOf(cfg.accent, true)
     TRK_DAY   = colorOf(cfg.track)
     TRK_NIGHT = colorOf(cfg.track, true)
-    PER_C = {}
-    for id, hex in pairs(PER_MODULE) do PER_C[id] = colorOf(hex) end
     if onConfigApplied then onConfigApplied() end
 end
 applyConfig()
@@ -168,13 +150,8 @@ local function shouldRecolor(c)
     return v == 0
 end
 
-local function colorForModule(id)
+local function colorForModule()
     if Screen.night_mode and NIGHT_C then return NIGHT_C end
-    if type(id) == "string" then
-        for key, c in pairs(PER_C) do
-            if id == key or id:sub(1, #key) == key then return c end
-        end
-    end
     return TEXT_C
 end
 
@@ -184,7 +161,6 @@ local cur_bold  = false -- bold applied to text built right now (modules)
 local suspended = 0    -- > 0: don't recolour (mask internals)
 local flip_kind = nil  -- "nav" | "title" | "topbar" while building those
 local in_mask   = 0    -- > 0: painting through an alpha mask
-local UIcore           -- infra/sui_core once loaded
 
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -266,7 +242,7 @@ end
 -- Is the Night Mode "look like day" flip on for this kind of element?
 local function flipOn(kind)
     if kind == "nav"      then return cfg.nav_labels_black end
-    if kind == "nav_icon" then return cfg.nav_icon_night ~= "off" end
+    if kind == "nav_icon" then return cfg.nav_icons_original end
     if kind == "title"    then return cfg.titles_day_night end
     if kind == "topbar"   then return cfg.topbar_day_night end
     return false
@@ -310,8 +286,6 @@ local function makeNightAwareMask(w, kind)
     end
 end
 
-local WHITE = Blitbuffer.Color8(255)
-
 local function paintIconOriginal(self, orig, bb, x, y)
     -- Draw a private inverted COPY of the icon (alpha untouched); the
     -- screen-wide inversion flips it back to the real colours. The source
@@ -335,33 +309,16 @@ local function paintIconOriginal(self, orig, bb, x, y)
     return true
 end
 
-local function paintIconBlack(self, orig, bb, x, y)
-    if not (UIcore and UIcore.paintWithAlphaMask) then return false end
-    local sz = self:getSize()
-    local w, h = sz.w, sz.h
-    if w <= 0 or h <= 0 then return false end
-    if not self._sui_tmp_bb or self._sui_tmp_bb:getWidth() ~= w
-       or self._sui_tmp_bb:getHeight() ~= h then
-        if self._sui_tmp_bb then self._sui_tmp_bb:free() end
-        self._sui_tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
-    end
-    UIcore.paintWithAlphaMask(self, bb, x, y, w, h, WHITE, orig, self._sui_tmp_bb)
-    return true
-end
-
 local function makeNightAwareIcon(iw, kind)
     if iw._sui_nav_night then return end
     iw._sui_nav_night = true
     local orig = iw.paintTo
     iw.paintTo = function(self, bb, x, y)
         if Screen.night_mode and in_mask == 0 then
-            local mode
-            if kind == "nav" then mode = cfg.nav_icon_night
-            else mode = flipOn(kind) and "original" or "off" end
-            local painter = (mode == "original" and paintIconOriginal)
-                         or (mode == "black" and paintIconBlack)
-            if painter then
-                local ok, done = pcall(painter, self, orig, bb, x, y)
+            local on
+            if kind == "nav" then on = cfg.nav_icons_original else on = flipOn(kind) end
+            if on then
+                local ok, done = pcall(paintIconOriginal, self, orig, bb, x, y)
                 if ok and done then return end
                 if not ok then logger.warn(TAG, "icon paint failed", done) end
             end
@@ -370,7 +327,6 @@ local function makeNightAwareIcon(iw, kind)
     end
     local orig_free = iw.free
     iw.free = function(self, ...)
-        if self._sui_tmp_bb then self._sui_tmp_bb:free(); self._sui_tmp_bb = nil end
         if self._sui_inv_bb then self._sui_inv_bb:free(); self._sui_inv_bb = nil end
         self._sui_inv_src = nil
         if orig_free then return orig_free(self, ...) end
@@ -470,12 +426,15 @@ local function hookTextInit(modname)
     -- All work happens before init (it only touches fgcolor/paintTo), then a
     -- tail call - no table allocations per widget.
     W.init = function(self, ...)
-        if cur_color and suspended == 0 and shouldRecolor(self.fgcolor) then
-            self.fgcolor = cur_color
+        -- Fast path: outside SimpleUI builds this is a single check.
+        if cur_color or cur_bold or flip_kind then
+            if cur_color and suspended == 0 and shouldRecolor(self.fgcolor) then
+                self.fgcolor = cur_color
+            end
+            -- bold also applies inside masks (the mask shape IS the glyphs)
+            if cur_bold or (flip_kind and boldForKind(flip_kind)) then self.bold = true end
+            if flip_kind and suspended == 0 then makeNightAwareText(self, flip_kind) end
         end
-        -- bold also applies inside masks (the mask shape IS the glyphs)
-        if cur_bold or (flip_kind and boldForKind(flip_kind)) then self.bold = true end
-        if flip_kind and suspended == 0 then makeNightAwareText(self, flip_kind) end
         if orig_init then return orig_init(self, ...) end
     end
 end
@@ -490,13 +449,9 @@ do
         IW.init = function(self, ...)
             if flip_kind and self.is_icon then
                 makeNightAwareIcon(self, flip_kind)
-                status.icons = "ok"
             end
             if orig_init then return orig_init(self, ...) end
         end
-        status.icons = "waiting (no nav icon built yet)"
-    else
-        status.icons = "FAILED (imagewidget not found)"
     end
     local ok2, IcW = pcall(require, "ui/widget/iconwidget")
     if ok2 and type(IcW) == "table" and rawget(IcW, "init") then
@@ -504,7 +459,6 @@ do
         IcW.init = function(self, ...)
             if flip_kind then
                 makeNightAwareIcon(self, flip_kind)   -- guarded against double-wrapping
-                status.icons = "ok"
             end
             return orig_icon_init(self, ...)
         end
@@ -564,16 +518,14 @@ local function wrapDescriptor(m, fallback_id)
         end
         if ok then
             -- nil is a legitimate result (e.g. no book / no data yet)
-            if w ~= nil and accent then pcall(makeAccentPaint, w, id); status.accents = "ok" end
+            if w ~= nil and accent then pcall(makeAccentPaint, w, id) end
             return w
         end
         -- Error: build once more without recolouring so the module doesn't
         -- disappear. (Runs build() a second time, but only on this error path.)
-        status["error " .. tostring(id)] = tostring(w)
         logger.warn(TAG, "build failed for", id, w)
         return orig(...)
     end
-    status.modules = "ok"
 
     -- In-place refreshes (e.g. stats after returning from the reader) rebuild
     -- parts of the module outside build(): give them the same colours.
@@ -590,7 +542,6 @@ local function wrapDescriptor(m, fallback_id)
                     res = pack(pcall(withBold, bold, withColor, colorForModule(id), orig_upd, ...))
                 end
                 if res[1] then return unpack(res, 2, res.n) end
-                status["error " .. tostring(id) .. " " .. fname] = tostring(res[2])
                 logger.warn(TAG, fname, "failed for", id, res[2])
                 return orig_upd(...)
             end
@@ -628,7 +579,6 @@ end
 
 local function patchCore(UI)
     if type(UI) ~= "table" then return end
-    UIcore = UI
 
     local function wrapMaskMaker(fname)
         local orig = UI[fname]
@@ -654,7 +604,7 @@ local function patchCore(UI)
         end)
         return true
     end
-    status.coloredtext = wrapMaskMaker("makeColoredText") and "ok" or "FAILED"
+    local core_ok = wrapMaskMaker("makeColoredText")
     wrapMaskMaker("makeAlphaTextBox")
 
     -- Framed nav bar style draws SVG icons through an alpha mask (one colour).
@@ -689,7 +639,7 @@ local function patchCore(UI)
             return unpack(res, 2, res.n)   -- keep the original return values
         end)
     end
-    return status.coloredtext == "ok"
+    return core_ok
 end
 
 local function patchEngine(E)
@@ -730,20 +680,17 @@ local function patchEngine(E)
             end
         end
     end
-    status.titles = done and "ok" or "unavailable"
     return done
 end
 
 local function patchTopbar(T)
     if type(T) ~= "table" or type(T.buildTopbarWidget) ~= "function" then
-        status.topbar = "FAILED"
         return
     end
     local orig = T.buildTopbarWidget
     if not ours[orig] then
         T.buildTopbarWidget = mine(function(...) return flipScope("topbar", orig, ...) end)
     end
-    status.topbar = "ok"
     return true
 end
 
@@ -833,7 +780,6 @@ end
 -- which only the section-title builder uses; multiply it by our setting.
 local function patchConfig(Cf)
     if type(Cf) ~= "table" or type(Cf.getLabelScale) ~= "function" then
-        status.title_size = "FAILED"
         return false
     end
     local orig = Cf.getLabelScale
@@ -845,7 +791,6 @@ local function patchConfig(Cf)
             return v
         end)
     end
-    status.title_size = "ok"
     return true
 end
 
@@ -873,7 +818,6 @@ local function patchBottombar(B)
             n = n + 1
         end
     end
-    status.navbar = n > 0 and "ok" or "FAILED"
     return n > 0
 end
 
@@ -1220,6 +1164,11 @@ local function buildMenu()
                       function() return cfg.title_size end,
                       function(v) set("title_size", v or 100, true) end) },
             },
+        },
+        {
+            text = _("Day look in Night Mode"),
+            checked_func = function() return cfg.titles_day_night end,
+            callback = function() set("titles_day_night", not cfg.titles_day_night) end,
             separator = true,
         },
     }
@@ -1265,30 +1214,24 @@ local function buildMenu()
         text = _("SimpleUI Mod"),
         sub_item_table = {
             {
-                text = _("Colours"),
+                text = _("Modules"),
                 sub_item_table = {
-                    { text = _("Module text"),
+                    { text = _("Text colour"),
                       sub_item_table = colorMenu("module_text", true) },
-                    { text = _("Module text in Night Mode"),
+                    { text = _("Text colour in Night Mode"),
                       sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")) },
                     { text = _("Also recolour grey text"),
                       checked_func = function() return cfg.recolor_all end,
                       callback = function() set("recolor_all", not cfg.recolor_all, true) end,
                       separator = true },
-                    { text = _("Progress & borders"),
+                    { text = _("Progress & borders colour"),
                       sub_item_table = colorMenu("accent", true) },
-                    { text = _("Progress track"),
+                    { text = _("Progress track colour"),
                       sub_item_table = colorMenu("track", true) },
                     { text = _("Use progress colours in"),
-                      sub_item_table = accent_items },
-                },
-            },
-            {
-                text = _("Bold"),
-                sub_item_table = {
-                    item(_("Status bar"), toggle(boldTbl, "topbar", refreshTopbarNow)),
-                    item(_("Nav bar labels"), toggle(boldTbl, "nav", askRestart)),
-                    { text = _("Modules"), sub_item_table = bold_module_items },
+                      sub_item_table = accent_items,
+                      separator = true },
+                    { text = _("Bold"), sub_item_table = bold_module_items },
                 },
             },
             {
@@ -1296,36 +1239,26 @@ local function buildMenu()
                 sub_item_table = titles_items,
             },
             {
-                text = _("Night Mode"),
+                text = _("Nav bar"),
                 sub_item_table = {
-                    { text = _("Nav bar: day look"),
+                    item(_("Bold labels"), toggle(boldTbl, "nav", askRestart)),
+                    { text = _("Day look in Night Mode"),
                       checked_func = function() return cfg.nav_labels_black end,
                       callback = function() set("nav_labels_black", not cfg.nav_labels_black) end },
-                    { text = _("Nav icons"),
-                      sub_item_table = {
-                        { text = _("Keep original colours"), radio = true,
-                          checked_func = function() return cfg.nav_icon_night == "original" end,
-                          callback = function() set("nav_icon_night", "original") end },
-                        { text = _("Solid black"), radio = true,
-                          checked_func = function() return cfg.nav_icon_night == "black" end,
-                          callback = function() set("nav_icon_night", "black") end },
-                        { text = _("Off (invert normally)"), radio = true,
-                          checked_func = function() return cfg.nav_icon_night == "off" end,
-                          callback = function() set("nav_icon_night", "off") end },
-                      } },
-                    { text = _("Section titles: day look"),
-                      checked_func = function() return cfg.titles_day_night end,
-                      callback = function() set("titles_day_night", not cfg.titles_day_night) end },
-                    { text = _("Status bar: day look"),
+                    { text = _("Icons keep original colours in Night Mode"),
+                      checked_func = function() return cfg.nav_icons_original end,
+                      callback = function() set("nav_icons_original", not cfg.nav_icons_original) end },
+                },
+            },
+            {
+                text = _("Status bar"),
+                sub_item_table = {
+                    item(_("Bold"), toggle(boldTbl, "topbar", refreshTopbarNow)),
+                    { text = _("Day look in Night Mode"),
                       checked_func = function() return cfg.topbar_day_night end,
                       callback = function() set("topbar_day_night", not cfg.topbar_day_night) end },
                 },
                 separator = true,
-            },
-            {
-                text = _("Show status popup on startup"),
-                checked_func = function() return cfg.show_popup end,
-                callback = function() set("show_popup", not cfg.show_popup) end,
             },
             {
                 text = _("Reset to defaults"),
@@ -1350,6 +1283,23 @@ local function buildMenu()
     }
 end
 
+-- The top-level entry is cheap; the ~475-item submenu is only built when it's
+-- opened (sub_item_table_func), not every time KOReader's main menu is built.
+local function lazyMenu()
+    return {
+        text = _("SimpleUI Mod"),
+        sub_item_table_func = function()
+            -- a menu bug must never take KOReader down: show a stub instead
+            local ok, menu = pcall(buildMenu)
+            if ok and type(menu) == "table" and type(menu.sub_item_table) == "table" then
+                return menu.sub_item_table
+            end
+            logger.warn(TAG, "menu build failed:", menu)
+            return { { text = _("Couldn't load settings (see crash.log)"), enabled = false } }
+        end,
+    }
+end
+
 local function addToOrder(order_mod)
     local ok, order = pcall(orig_require, order_mod)
     if not ok or type(order) ~= "table" or type(order.tools) ~= "table" then return end
@@ -1361,53 +1311,36 @@ local function addToOrder(order_mod)
     table.insert(order.tools, pos, "simpleui_mod")
 end
 
+-- ---- Tweaks & Mods menu (2-tweaks-menu.lua) -------------------------------------------------
+-- With that patch installed, our settings live under Tools > Tweaks & Mods
+-- (file browser only). Without it, we add our own Tools > SimpleUI Mod entry.
+local TM = package.loaded.tweaks_mods or {}
+package.loaded.tweaks_mods = TM
+TM.entries = TM.entries or {}
+TM.entries.simpleui_mod = {
+    text  = "SimpleUI Mod",
+    where = "filemanager",
+    build = lazyMenu,
+}
+
 local function hookMenu(menu_mod, order_mod)
     local ok, Menu = pcall(orig_require, menu_mod)
     if not ok or type(Menu) ~= "table" or type(Menu.setUpdateItemTable) ~= "function" then return end
-    addToOrder(order_mod)
     local orig = Menu.setUpdateItemTable
     if ours[orig] then return end
     Menu.setUpdateItemTable = mine(function(self, ...)
-        if self.menu_items then
-            -- a menu bug must never take KOReader down: skip the entry instead
-            local ok, menu = pcall(buildMenu)
-            if ok then
-                self.menu_items.simpleui_mod = menu
-            else
-                logger.warn(TAG, "menu build failed:", menu)
-                status.menu = "ERROR " .. tostring(menu)
-            end
+        -- checked at menu build time, so patch load order doesn't matter
+        if self.menu_items and not TM.active then
+            addToOrder(order_mod)
+            local menu = lazyMenu()
+            menu.sorting_hint = "tools"   -- still lands in Tools if a custom menu order replaces the list
+            self.menu_items.simpleui_mod = menu
         end
         return orig(self, ...)
     end)
 end
 
 pcall(hookMenu, "apps/filemanager/filemanagermenu", "ui/elements/filemanager_menu_order")
-pcall(hookMenu, "apps/reader/modules/readermenu", "ui/elements/reader_menu_order")
 
--- ---- status popup (optional) -----------------------------------------------------------------
-local shown = false
-userpatch.registerPatchPluginFunc("simpleui", function(plugin)
-    sui_plugin = plugin
-    if shown then return end
-    shown = true
-    local UIManager = orig_require("ui/uimanager")
-    UIManager:scheduleIn(1.5, function()
-        for name, mod in pairs(package.loaded) do handle(name, mod) end
-        status.modules = status.modules or "waiting (no module loaded yet)"
-        local ver = "?"
-        pcall(function()
-            local meta = dofile(plugin.path .. "/_meta.lua")
-            ver = meta and meta.version or "?"
-        end)
-        local lines = {}
-        for k, v in pairs(status) do lines[#lines + 1] = k .. ": " .. v end
-        table.sort(lines)
-        table.insert(lines, 1, "SimpleUI " .. tostring(ver))
-        local msg = "SimpleUI Mod\n" .. table.concat(lines, "\n")
-        logger.info(TAG, msg)
-        if cfg.show_popup then
-            UIManager:show(orig_require("ui/widget/infomessage"):new{ text = msg })
-        end
-    end)
-end)
+-- Remember SimpleUI's plugin instance (used to refresh the status bar).
+userpatch.registerPatchPluginFunc("simpleui", function(plugin) sui_plugin = plugin end)
