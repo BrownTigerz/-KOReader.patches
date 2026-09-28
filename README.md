@@ -98,6 +98,10 @@ Pending timers get cleaned up on document close and when you disable the floatin
 
 Untouched: menu structure, dispatcher/gesture actions, the core anchor concept, and every other existing setting.
 
+# Shortcutstoolbar Patch
+
+Create custom icons for the original icons and choose between how it behave on night/daymode.
+
 # Custom Quotes for SimpleUI
 
 300 famous quotes to use with simple ui, add it to <KOReader settings dir>/simpleui/sui_quotes/
