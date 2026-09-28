@@ -8,9 +8,13 @@
     jump (progress bar, etc.) - a small floating pill-shaped button appears at
     the bottom-right of the screen. If you jump forward more than two pages at
     once (e.g. tapping a table of contents entry that lands you in the
-    appendix), the same button appears mirrored at the bottom-left. What it
-    shows is configurable independently (Reader menu -> Navigation -> hold "Go
-    to furthest reading location"):
+    appendix) - or several smaller forward taps land close enough together in
+    time to add up to the same thing - the same button appears mirrored at the
+    bottom-left. A slow, single 2-page forward move stays silent on purpose
+    (skipping a blank/illustration page, a "skip ahead" gesture); only
+    backward drift is held to that tighter 1-page tolerance. What it shows is
+    configurable independently (Reader menu -> Navigation -> hold "Go to
+    furthest reading location"):
 
     - "Show full text": include the "Go back to page" wording.
     - "Show location/page number": include the page number (or percentage, in
@@ -19,6 +23,11 @@
     - "Mode: Page number/Percentage": show the reference point as a page
       number (default) or as a percentage of the book, both on the button
       and in the "Go back to..." wording.
+    - "Forward popup auto-dismiss" (Off/15s/20s/30s/50s, default 20s): the
+      forward popup only - never backward - hides itself if you never act on
+      it within this window, treating an unreturned skim-ahead (table of
+      contents, a picture page, checking something) as intentional. The next
+      real page turn after it hides becomes the new anchor.
 
     With everything off, the button shrinks to just a small circular arrow.
 
@@ -32,7 +41,9 @@
 
     The button is drawn as an overlay on top of the page (like KOReader's own
     footer/progress bar), so it never blocks taps anywhere else on the screen -
-    you can keep turning pages or open menus while it's showing.
+    you can keep turning pages or open menus while it's showing. It docks
+    above KOReader's own footer bar when the footer is visible and actually
+    reserving its own space (not when "Overlap status bar" is on).
 
     A "Go to furthest reading location (hold for settings)" menu entry (Reader menu ->
     Navigation, right below "Go forward to next location") lets you jump to
@@ -40,12 +51,12 @@
     gesture via the gesture manager. Holding the same menu entry opens a
     settings submenu with a "Show button on screen" checkbox (to turn the
     floating button off entirely if you'd rather only use the menu/gesture),
-    the three display checkboxes described above, a "Show shadow" checkbox
-    (toggles the button's drop shadow), "Bottom offset"/"Side offset"
-    settings to adjust how far the button is docked from the bottom and side
-    edges of the screen (applied the same way to both corners), and a
-    "Button radius" setting to adjust how rounded its corners are, from 0
-    (square) up to fully rounded (pill/circle, the default).
+    the display checkboxes described above, a "Show shadow" checkbox (toggles
+    the button's drop shadow), "Bottom offset"/"Side offset" settings to
+    adjust how far the button is docked from the bottom and side edges of the
+    screen (applied the same way to both corners), and a "Button radius"
+    setting to adjust how rounded its corners are, from 0 (square) up to
+    fully rounded (pill/circle, the default).
 
     A second, standalone "Set current page as reading location" action is
     also available, both as its own menu entry (right below "Go to furthest
@@ -55,81 +66,11 @@
     active prompt to dismiss first.
 
     The reference page is saved per book, so a pending prompt will still be there
-    if you close the book and reopen it later.
-
-    This patch works for both paginated documents (PDF, CBZ, DjVu...) and
-    reflowable documents (EPUB, FB2...).
-
-    v1.2.0:
-    - On reflowable documents, the reference point is now tracked by an
-      internal xpointer alongside its page number, so a font size/margin/
-      line-spacing change made while a prompt is pending (or between
-      sessions) no longer leaves "go back" pointing at the wrong page.
-      Paginated documents can't reflow, so this doesn't affect them.
-    - Explicitly accepting a page (dismissing a prompt, or "Set current page
-      as reading location") now writes straight to disk immediately, rather
-      than waiting for KOReader's own periodic/on-close save.
-    - The floating button's touch zones are now also set up from
-      onReaderReady (in addition to the first page turn), matching when
-      KOReader's own modules set up theirs, so the button is less likely to
-      lose a priority race to a zone registered after this patch loaded.
-
-    v1.3.0:
-    - The button now docks above KOReader's own footer bar when it's
-      visible (whichever mode - full bar or mini progress bar), instead of
-      always sitting a fixed distance from the raw screen edge and
-      potentially overlapping it.
-
-    v1.4.0:
-    - Several small forward page turns landing in a tight burst (riffling/
-      skimming ahead quickly) are now treated like a single jump-ahead, even
-      though no individual step in the burst was big enough to trigger it
-      on its own - see FAST_TURN_MAX_INTERVAL_MS (1500ms)/
-      FAST_FORWARD_BURST_PAGES (3 pages). The plain (non-burst) forward
-      tolerance is deliberately left wider than backward's - a slow single
-      2-page forward move is common, ordinary browsing (skipping a blank/
-      illustration page, a "skip ahead" gesture), not a skim-check.
-    - The anchor is now saved immediately on device suspend, not just on
-      KOReader's own periodic/on-close settings flush.
-    - A reflowable document's xpointer is now more strictly validated
-      (rejects nil/empty results) before being trusted as the anchor's
-      canonical position.
-
-    v1.5.0:
-    - Fixed a stale-data bug: the persisted xpointer for a reflowable
-      document wasn't being cleared when a new anchor's xpointer came back
-      empty, so an old one could wrongly outlive the anchor it belonged to
-      and get resolved on a later load.
-    - isAtReadingLocation and refreshOverlayVisibility now both go through
-      resolveAnchorPage instead of reading the raw anchor field directly,
-      so they can't act on a stale pre-reflow page number regardless of
-      when they're called relative to the last page turn.
-    - persistAnchor now skips writing/flushing entirely when nothing has
-      actually changed since the last save, instead of touching disk on
-      every single onSuspend call regardless.
-
-    v1.6.0:
-    - New setting, "Forward popup auto-dismiss" (Off/15s/20s/30s/50s,
-      default 20s): the forward ("jumped ahead") popup now hides itself if
-      you never act on it within the configured window - a genuine skim
-      ahead (table of contents, a picture page, checking something) that you
-      don't return from is treated as intentional, and the next real page
-      turn after it hides becomes the new anchor. The backward popup is
-      unaffected - it still never times out.
-
-    v1.6.1:
-    - Fixed a bug where the forward-dismiss timer stopped being scheduled
-      after the first auto-dismiss cycle completed - overlay.side wasn't
-      being reset when the popup hid, so a stale "already showing" check
-      silently skipped rescheduling it on every subsequent forward jump.
-    - The button no longer counts the footer's height when
-      footer.reclaim_height ("Overlap status bar") is on, matching
-      KOReader's own margin calculation - previously it always added the
-      footer's height whenever it was visible, even when the footer wasn't
-      actually reserving separate space.
-    - Turning the floating button off now also cancels any pending forward-
-      dismiss timer/promotion, so a background timer that started before it
-      was disabled can't dismiss or promote anything after the fact.
+    if you close the book and reopen it later. On reflowable documents (EPUB,
+    FB2...) it's tracked by an internal xpointer alongside its page number, so
+    a font size/margin/line-spacing change doesn't leave "go back" pointing at
+    the wrong page - paginated documents (PDF, CBZ, DjVu...) can't reflow, so
+    this doesn't apply to them.
 --]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -183,7 +124,7 @@ local SETTING_MODE_PERCENTAGE = "readingloc_mode_percentage"
 -- cover before it's treated as a jump instead of quick reading. Both are
 -- heuristic, chosen without on-device testing - adjust if they feel off.
 local FAST_TURN_MAX_INTERVAL_MS = 1500
-local FAST_FORWARD_BURST_PAGES = 4
+local FAST_FORWARD_BURST_PAGES = 3
 
 -- The button is always docked to its fixed bottom-left/bottom-right corner.
 -- Its distance from the bottom edge, and from whichever side edge (left or
@@ -1163,12 +1104,17 @@ end
 -- done previewing - see the "hold for settings" hold_callback below, which
 -- forces the button visible so its appearance can be previewed even when
 -- you're already at the furthest reading location).
-function ReadingLocationTracker.refreshOverlayVisibility(ui)
+-- known_anchor: pass the anchor page if the caller already resolved it
+-- moments ago (onPageUpdate does, right after setAnchor) - avoids a second,
+-- redundant xpointer resolve for the same value. Left nil, this resolves it
+-- itself (needed for the other caller, restoring the real display after a
+-- settings preview, which doesn't already have a fresh one on hand).
+function ReadingLocationTracker.refreshOverlayVisibility(ui, known_anchor)
     local overlay = ui._rlt_overlay
     if not overlay then
         return
     end
-    local anchor = ReadingLocationTracker.resolveAnchorPage(ui)
+    local anchor = known_anchor or ReadingLocationTracker.resolveAnchorPage(ui)
     local current = ui._rlt_current_page
     local new_side = nil
     if anchor and current then
@@ -1288,7 +1234,11 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
         anchor = new_page_no
         ui._rlt_forward_dismiss_pending = false
     elseif anchor - new_page_no <= 1 and new_page_no - anchor <= 2 then
-        if burst_forward_span >= FAST_FORWARD_BURST_PAGES then
+        -- A real fast skim is many small steps; one big jump (the go-back
+        -- tap, progress bar, TOC) that happens to land near the anchor is
+        -- a return, not a skim, so it must not roll the anchor back.
+        local step = new_page_no - (previous_page or new_page_no)
+        if burst_forward_span >= FAST_FORWARD_BURST_PAGES and step <= 2 then
             -- Each individual step here was small enough to silently
             -- advance on its own, but this many of them this close
             -- together add up to more page-flipping than anyone reads at.
@@ -1306,7 +1256,7 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
     end
     ReadingLocationTracker.setAnchor(ui, anchor)
 
-    ReadingLocationTracker.refreshOverlayVisibility(ui)
+    ReadingLocationTracker.refreshOverlayVisibility(ui, anchor)
 end
 
 --[[ ---------------------------------------------------------------------
