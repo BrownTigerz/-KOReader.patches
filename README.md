@@ -1,4 +1,4 @@
-KOReader Patches
+# KOReader Patches
 
 User patches for KOReader, mostly for Kobo. Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
