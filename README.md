@@ -25,7 +25,7 @@ Create the folder if it doesn't exist. The 2- prefix is required, because KORead
 
 All patches work independently and together. If one fails to attach (for example, after a plugin update), it logs to koreader/crash.log and leaves things as they were.
 
-SimpleUI Mod
+# SimpleUI Mod
 
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
@@ -52,7 +52,7 @@ Notes
 
 Uninstall: use Reset to defaults if you want the saved settings (simpleui_mod in settings.reader.lua) removed. Then delete the file and restart.
 
-Tweaks & Mods menu
+# Tweaks & Mods menu
 
 Declutters Tools by gathering plugin menus and patch settings into one Tools → Tweaks & Mods submenu.
 
@@ -64,7 +64,7 @@ Declutters Tools by gathering plugin menus and patch settings into one Tools →
 
 For patch authors: register with the shared table at package.loaded.tweaks_mods. The format is documented at the top of the file. Return an item with sub_item_table_func so large menus are only built when opened.
 
-ShelfSync Tweaks
+# ShelfSync Tweaks
 
 	•	Goodreads login on device: a Log in button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. The login code is bundled from goodreadskosync (MIT, license in the file), so that plugin isn't needed.
 	•	Remember login for Goodreads and StoryGraph:
@@ -85,11 +85,11 @@ ShelfSync Tweaks
 	•	Auto re-login: if a saved-login session expires, it signs in again and re-sends progress, at most once per provider per 30 minutes.
 	•	Security: logins stay on the device (koreader/settings/shelfsync_*_login.lua), encrypted with a device-local key. That protects against casual browsing, not full device access.
 
-ReadMastery Notify
+# ReadMastery Notify
 
 A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. It offers full, compact or banner styles, a position and duration setting, and an optional custom font. It's designed to feel rewarding without getting in the way while reading.
 
-ReadMastery Quests
+# ReadMastery Quests
 
 Adds quests and challenges to ReadMastery:
 
@@ -124,7 +124,7 @@ Remembers the furthest page you've actually read. If you page back, or jump ahea
 	•	skips the disk write when nothing changed
 	•	cleans up timers on close
 
-Shortcuts Toolbar Icon Tweaks
+# Shortcuts Toolbar Icon Tweaks
 
 Adds Shortcuts toolbar → Icon tweaks for Shortcuts Toolbar:
 
@@ -135,9 +135,53 @@ Adds Shortcuts toolbar → Icon tweaks for Shortcuts Toolbar:
 	•	Inverted
 	•	On/off indicators: optional per icon, following Wi-Fi, frontlight or Night Mode.
 
-Custom Quotes for SimpleUI
+# Custom Quotes for SimpleUI
 
 Quotes.lua has 300 famous quotes for SimpleUI's Quote of the Day module.
 
 	1.	Copy it to koreader/settings/simpleui/sui_quotes/, creating the folders if needed.
 	2.	In the module's settings, set Source → Custom and pick the file.
+
+# Reading Insights Tweaks
+
+A KOReader user patch that enhances Reading Insights and the built-in Statistics calendar by adding visual book covers, dynamic goal shading, customizable cell layouts, and sleep screen overlays.
+
+Features
+Streak Calendar Covers: Displays the top read book's cover inside each calendar cell, along with time badges shaded according to daily goal progress. Stacked covers indicate reading multiple books in a single day (+N indicator for 3+ books).
+
+Taller Cover Cells: Formats calendar cells to a 2:3 ratio so covers fill the frame completely.
+
+Interactive Day Tap: Tap any day in the streak calendar to open a detailed breakdown of books read, time spent, and pages completed. Tap a book directly from the menu to open it.
+
+Book Progress Header: Adds the cover image, title, and author directly beneath the month title in the Book Progress calendar view.
+
+Heatmap Goal Shading: Recalculates calendar heatmap intensities relative to your personal daily reading goal rather than comparing against your highest activity day.
+
+Record Covers: Displays cover art for your reading achievements (most time spent in a day, most pages read, and best reading streak).
+
+Sleep Screen Card: Displays a "Now Reading" overlay card (featuring cover art, reading progress, and daily goal progress) above the Reading Insights sleep screen.
+
+Built-in Statistics Calendar Covers: Enhances KOReader’s native Statistics calendar by replacing standard title bars with book covers and time badges.
+
+Installation
+Copy 2-readinginsights-tweaks.lua into your KOReader patches directory:
+
+Kobo: .adds/koreader/patches/
+
+Other Platforms: koreader/patches/
+
+Restart KOReader.
+
+Requirements
+Reading Insights Plugin: peterboda236/readinginsights.koplugin must be installed.
+
+CoverBrowser: Keep the CoverBrowser plugin enabled so covers can be cached and rendered.
+
+Configuration
+Access settings and toggles via the KOReader menu:
+
+With 2-tweaks-menu.lua: Tools > Tweaks & Mods > Reading Insights tweaks
+
+Standalone: Tools > Reading Insights tweaks
+
+Each feature can be independently toggled on or off without restarting. You can also adjust your Daily Reading Goal directly within the settings menu.
