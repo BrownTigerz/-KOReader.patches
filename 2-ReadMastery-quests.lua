@@ -46,7 +46,7 @@ exactly what it needs and your current progress toward it.
 
 Quests included:
 
-  Daily (reset at local midnight): Daily Chapter (25 pages) and
+  Daily (reset at 3 AM): Daily Chapter (25 pages) and
   Focused Reader (20 min) are always active, plus ONE more quest
   that rotates in from a pool (chosen the same way every day, so
   it's fair over a week, not random): Deep Dive, Night Owl, First
@@ -141,6 +141,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Menu        = require("ui/widget/menu")
 local Screen      = require("device").screen
 local util        = require("util")
+local logger      = require("logger")
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -321,6 +322,17 @@ local YEARLY_QUESTS = {
 local QUEST_BY_ID = {}
 local function registerQuestIds(list)
     for _, q in ipairs(list) do
+        -- findQuest() below ignores its `list` argument and just
+        -- indexes this table directly, which is only correct as long
+        -- as every id is unique across ALL lists combined. If a
+        -- future quest ever reuses an existing id from a different
+        -- list, this would otherwise silently serve the wrong
+        -- quest's data everywhere with no error - warn loudly here
+        -- instead, at load time, so that mistake can't hide.
+        if QUEST_BY_ID[q.id] then
+            logger.warn("ReadMastery quests patch: duplicate quest id '" .. tostring(q.id)
+                .. "' - the earlier definition will be silently shadowed everywhere findQuest() is used.")
+        end
         QUEST_BY_ID[q.id] = q
     end
 end
@@ -562,7 +574,7 @@ end
 -- Patch the plugin
 -- =================================================================
 
-userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
+local function patchReadMastery(plugin)
   local ok, err = pcall(function()
     local MainMenu = require("ui/mainmenu")
     local Icons = require("icons")
@@ -725,7 +737,11 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         if level_after > level_before and instance.notifications then
             instance.notifications:showLevelUp(level_after, nil)
         end
-        persist(true)
+        -- No persist() here - trackEndOfBook's own final persist(true)
+        -- already covers this (it's the only caller), same pattern
+        -- completeQuests uses. Used to flush here too, meaning a book
+        -- that was both a new genre AND a new author could trigger 3
+        -- separate disk writes for one EndOfBook event instead of 1.
     end
 
     -- ---------------------------------------------------------------
@@ -1302,12 +1318,6 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             plugin.onCloseDocument = function(instance, ...)
                 local ret = orig_onCloseDocument(instance, ...)
                 if Quest.enabled then trackReading(instance) end
-                -- Clear any still-queued notifications on book close,
-                -- so one from this book doesn't pop up later while
-                -- looking at a different book/screen. Whatever's
-                -- currently ON screen still finishes out naturally.
-                local bridge = _G.ReadMasteryNotify
-                if bridge and bridge.clearQueue then bridge.clearQueue() end
                 return ret
             end
         end
@@ -1479,4 +1489,10 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
           timeout = 8,
       })
   end
-end)
+end
+
+-- KOReader names a plugin after its folder (ReadMastery.koplugin -> "ReadMastery",
+-- readmastery.koplugin -> "readmastery"), so register under both. Only the one
+-- matching your folder ever runs.
+userpatch.registerPatchPluginFunc("ReadMastery", patchReadMastery)
+userpatch.registerPatchPluginFunc("readmastery", patchReadMastery)
