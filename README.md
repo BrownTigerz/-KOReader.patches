@@ -1,6 +1,6 @@
 # KOReader Patches
 
-User patches for KOReader, mostly for Kobo. Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
+User patches for KOReader, mostly tested for Kobo Clara Color.  Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
 Patch	For	What it does
 2-simpleui-mod.lua	SimpleUI	Home screen colours, bold, per-section titles, Night Mode day look
