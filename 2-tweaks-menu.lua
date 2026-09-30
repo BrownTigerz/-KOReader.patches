@@ -1,30 +1,64 @@
 --[[
 2-tweaks-menu.lua
-KOReader user patch: one "Tweaks & Mods" menu under Tools.
+KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-It collects two things:
-  1. Other menus you list in MOVE below (plugins, built-in items). They work
-     exactly the same, they're just shown here instead of their usual spot.
-  2. Settings from patches that support it (e.g. 2-simpleui-mod.lua).
+  Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
+                    settings from patches that support it (e.g. 2-simpleui-mod.lua),
+                    groups split by separators
+
+Moved plugins work exactly the same, they're just shown here instead of their
+usual spot. "Choose what's in Add-ons" (bottom of the list) turns each one on or
+off: off puts it back where it originally was (after a restart). Plugins you install later that aren't in PLUGINS are picked up
+automatically under "Other" (AUTO_COLLECT).
 
 Nothing is changed or saved: each menu build works on a copy of KOReader's
 menu order, so delete this file and restart, and every menu goes back where it
-was. A MOVE id that doesn't exist (not installed, renamed by an update) is
-skipped and that item stays in its normal spot. Items hidden with a menu-order
-file / Menu Disabler ("KOMenu:disabled") stay hidden. A built-in submenu left
-empty by moving all its items out is hidden instead of shown empty.
+was. An id that doesn't exist (not installed, renamed by an update) is skipped.
+Items hidden with a menu-order file / Menu Disabler ("KOMenu:disabled") stay
+hidden. A built-in submenu left empty by moving all its items out is hidden.
 
 Install: koreader/patches/2-tweaks-menu.lua (Kobo: .adds/koreader/patches/), then restart.
 ]]
 
--- ---- Menus to move into Tweaks & Mods (shown in this order) -----------------------
--- An id is the key a plugin uses in addToMainMenu (menu_items.<id>), or a built-in
--- id from KOReader's frontend/ui/elements/*_menu_order.lua.
-local MOVE = {
-    "simpleui",          -- SimpleUI
-    "readmastery",       -- ReadMastery
-    "shelfsync",         -- ShelfSync
-    "shortcutstoolbar",  -- Shortcuts Toolbar
+-- ---- Settings ---------------------------------------------------------------------
+local MENU_TEXT    = "Add-ons"   -- name shown in Tools
+local SHOW_HEADERS = true        -- group names above each group (false = separators only)
+local AUTO_COLLECT = true        -- put other plugins' Tools entries under "Other"
+
+-- Plugins, by group, shown in this order. An id is the key a plugin uses in
+-- addToMainMenu (menu_items.<id>), or a built-in id from KOReader's
+-- frontend/ui/elements/*_menu_order.lua. Move lines between groups, add or
+-- remove ids, or add groups - then restart.
+local PLUGINS = {
+    { header = "Home & library",
+        "simpleui",               -- SimpleUI
+        "bookshelf_tab",          -- Bookshelf (its whole menu tab moves here)
+        "shortcutstoolbar",       -- Shortcuts Toolbar
+    },
+    { header = "Reading",
+        "xray",                   -- X-Ray
+        "page_scrubber",          -- Page Scrubber
+        "glimpse",                -- Glimpse
+        "foot_cream",             -- Footcream
+    },
+    { header = "Stats & progress",
+        "readmastery",            -- ReadMastery
+        "reading_insights_popup", -- Reading Insights
+        "bookcard",               -- Book Card
+        "shelfsync",              -- ShelfSync
+    },
+    { header = "System",
+        "Storefront",             -- Storefront
+        "backup",                 -- Backup & Restore
+        "menu_disabler",          -- Menu Disabler (Menu customizer)
+    },
+}
+
+-- Menus added by patches (not plugins), shown in the "Patches" group together
+-- with settings from patches that register themselves (e.g. SimpleUI Mod).
+-- Same ids as above: the key the patch uses in menu_items.<id>.
+local PATCH_MENUS = {
+    "go_to_furthest_reading_location", -- Track Reading Location (reader only)
 }
 
 --[[ For patch authors - shared registry at package.loaded.tweaks_mods:
@@ -37,8 +71,11 @@ local MOVE = {
         where = "filemanager",            -- optional: "filemanager" or "reader" only (default: both)
         build = function(where) return { text = "My Patch", sub_item_table = {...} } end,
     }
-  build() runs every time the menu is built, so keep it cheap: return an item
-  with sub_item_table_func to build the submenu only when it's opened.
+  Entries show at the end of Add-ons, under "Patches". build() runs every time the menu is
+  built, so keep it cheap: return an item with sub_item_table_func to build the
+  submenu only when it's opened.
+  TM.shows(id) is false when the user turned your entry off in "Choose what's in
+  Add-ons": show your own menu entry then, as if this patch weren't installed.
   TM.active is true once this patch has loaded. Check it inside your own menu hook
   (menu build time), not at load time, so patch file order doesn't matter.
 ]]
@@ -46,10 +83,10 @@ local MOVE = {
 local logger = require("logger")
 local _ = require("gettext")
 
-local MENU_ID   = "tweaks_mods"
-local MENU_TEXT = _("Tweaks & Mods")
-local SEPARATOR = "----------------------------"
-local TAG       = "tweaks-menu:"
+local MENU_ID    = "tweaks_mods"             -- kept for compatibility with other patches
+local ENTRY_ID   = MENU_ID .. ":"            -- prefix for rows we create
+local SEPARATOR  = "----------------------------"
+local TAG        = "tweaks-menu:"
 
 -- shared registry (other patches may have created it already)
 local TM = package.loaded.tweaks_mods or {}
@@ -58,7 +95,69 @@ TM.entries = TM.entries or {}
 TM.active  = true
 TM.menu_id = MENU_ID
 
+-- Items turned off in "Choose what's in Add-ons" (kept in their original spot).
+-- Plugins by menu id, patches as "patch:<id>".
+local SETTINGS_KEY = "addons_menu_excluded"
+local excluded = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
+
+function TM.shows(id)
+    return not excluded["patch:" .. tostring(id)]
+end
+
+-- what the last menu build found, per menu ("filemanager" / "reader"), for the
+-- chooser: { { key = ..., label = ..., header = ... }, ... }
+local seen = {}
+
 local function pack(...) return { n = select("#", ...), ... } end
+
+-- ---- "Choose what's in Add-ons" ---------------------------------------------------
+-- KOReader builds its main menu once per file browser / book and can't safely
+-- rebuild it in place (the base entries are used up by the first build), so a
+-- change applies after a restart.
+local function askRestart()
+    local ok, UIManager = pcall(require, "ui/uimanager")
+    if not ok or type(UIManager) ~= "table" then return end
+    if UIManager.askForRestart then
+        UIManager:askForRestart(_("Restart KOReader to apply your Add-ons choices."))
+    else
+        local okm, InfoMessage = pcall(require, "ui/widget/infomessage")
+        if okm then UIManager:show(InfoMessage:new{ text = _("Restart KOReader to apply.") }) end
+    end
+end
+
+local restart_asked = false   -- one prompt per visit to the chooser
+
+local function chooserItems(where)
+    restart_asked = false
+    local out, last_header = {}, nil
+    for _i, c in ipairs(seen[where] or {}) do
+        if c.header ~= last_header then
+            if #out > 0 then out[#out].separator = true end
+            if SHOW_HEADERS and c.header then
+                out[#out + 1] = { text = c.header, enabled = false }
+            end
+            last_header = c.header
+        end
+        out[#out + 1] = {
+            text = c.label,
+            checked_func = function() return not excluded[c.key] end,
+            keep_menu_open = true,
+            callback = function()
+                excluded[c.key] = (not excluded[c.key]) or nil
+                if G_reader_settings then
+                    G_reader_settings:saveSetting(SETTINGS_KEY, excluded)
+                    if G_reader_settings.flush then G_reader_settings:flush() end
+                end
+                if not restart_asked then
+                    restart_asked = true
+                    askRestart()
+                end
+            end,
+        }
+    end
+    if #out == 0 then out[1] = { text = _("Nothing to choose yet"), enabled = false } end
+    return out
+end
 
 local function isSeparator(v)
     return type(v) == "string" and v:find("^%-%-%-") ~= nil
@@ -75,12 +174,26 @@ local function hasRealItems(list)
     return false
 end
 
--- patch entries for this menu, sorted: { { id = ..., item = ... }, ... }
+local function itemLabel(item, id)
+    if type(item) ~= "table" then return tostring(id) end
+    if type(item.text) == "string" then return item.text end
+    if type(item.text_func) == "function" then
+        local ok, t = pcall(item.text_func)
+        if ok and type(t) == "string" then return t end
+    end
+    return tostring(id)
+end
+
+-- patch entries, sorted: { { id = ..., item = ... }, ... }
 local function buildEntries(where)
     local list = {}
     for id, e in pairs(TM.entries) do
         if type(e) == "table" and type(e.build) == "function"
            and (e.where == nil or e.where == where) then
+          if excluded["patch:" .. id] then
+            -- turned off: listed in the chooser only, not built
+            list[#list + 1] = { id = id, order = e.order or 100, text = e.text or id, off = true }
+          else
             -- one broken patch must not take the whole menu (or KOReader) down
             local ok, item = pcall(e.build, where)
             if ok and type(item) == "table" then
@@ -90,6 +203,7 @@ local function buildEntries(where)
             elseif not ok then
                 logger.warn(TAG, "menu build failed for", id, item)
             end
+          end
         end
     end
     table.sort(list, function(a, b)
@@ -100,7 +214,7 @@ local function buildEntries(where)
 end
 
 -- Builds the order KOReader should sort with: a copy of `order` with the moved
--- items taken out and the Tweaks & Mods submenu added. `order` itself is never
+-- items taken out and the Add-ons submenus added. `order` itself is never
 -- modified (only lists that change are copied). Returns nil to leave it as is.
 local function inject(where, items, order)
     if type(order.tools) ~= "table" then return nil end
@@ -110,23 +224,96 @@ local function inject(where, items, order)
         for _i, id in ipairs(order["KOMenu:disabled"]) do disabled[id] = true end
     end
 
-    local list, moved = {}, {}
-    for _i, id in ipairs(MOVE) do
-        if type(id) == "string" and id ~= MENU_ID and items[id] ~= nil
-           and not disabled[id] and not moved[id] then
-            moved[id] = true
-            list[#list + 1] = id
-        end
+    local moved, claimed, found = {}, {}, {}
+    local function usable(id)
+        return type(id) == "string" and id:sub(1, #MENU_ID) ~= MENU_ID
+           and items[id] ~= nil and not disabled[id] and not claimed[id]
+    end
+    -- record a candidate for the chooser; true if it should go in Add-ons
+    local function claim(key, id, header)
+        claimed[id] = true
+        found[#found + 1] = { key = key, label = itemLabel(items[id], id), header = header }
+        return not excluded[key]
     end
 
-    local entries = buildEntries(where)
-    if #list == 0 and #entries == 0 then return nil end
-    if #list > 0 and #entries > 0 then list[#list + 1] = SEPARATOR end
-    for _i, e in ipairs(entries) do
-        local cid = MENU_ID .. ":" .. e.id
-        items[cid] = e.item
-        list[#list + 1] = cid
+    -- Plugins: the configured groups
+    local plist = {}
+    local function addGroup(header, ids)
+        if #ids == 0 then return end
+        if #plist > 0 then plist[#plist + 1] = SEPARATOR end
+        if SHOW_HEADERS and header then
+            local hid = ENTRY_ID .. "h:" .. header
+            items[hid] = { text = header, enabled = false }
+            plist[#plist + 1] = hid
+        end
+        for _i, id in ipairs(ids) do plist[#plist + 1] = id end
     end
+    for _i, g in ipairs(PLUGINS) do
+        local ids = {}
+        for _j, id in ipairs(g) do
+            if usable(id) and claim(id, id, g.header) then
+                moved[id] = true
+                ids[#ids + 1] = id
+            end
+        end
+        addGroup(g.header, ids)
+    end
+
+    -- Plugins: anything else placed by sorting_hint that KOReader's order doesn't
+    -- know about (i.e. a plugin not listed above) goes under "Other"
+    if AUTO_COLLECT then
+        local in_order = {}
+        for _k, l in pairs(order) do
+            if type(l) == "table" then
+                for _i, v in ipairs(l) do in_order[v] = true end
+            end
+        end
+        local others = {}
+        for id, item in pairs(items) do
+            if usable(id) and not in_order[id] and type(item) == "table"
+               and (item.sorting_hint == "tools" or item.sorting_hint == "more_tools") then
+                others[#others + 1] = id
+            end
+        end
+        table.sort(others, function(a, b) return itemLabel(items[a], a) < itemLabel(items[b], b) end)
+        local ids = {}
+        for _i, id in ipairs(others) do
+            if claim(id, id, _("Other")) then
+                moved[id] = true
+                ids[#ids + 1] = id
+            end
+        end
+        addGroup(_("Other"), ids)
+    end
+
+    -- Patches, as the last group: menus added by patches, then registered entries
+    local xids = {}
+    for _i, id in ipairs(PATCH_MENUS) do
+        if usable(id) and claim(id, id, _("Patches")) then
+            moved[id] = true
+            xids[#xids + 1] = id
+        end
+    end
+    for _i, e in ipairs(buildEntries(where)) do
+        local cid = ENTRY_ID .. "p:" .. e.id
+        items[cid] = e.item
+        claimed[cid] = true
+        found[#found + 1] = { key = "patch:" .. e.id, label = e.text, header = _("Patches") }
+        if not excluded["patch:" .. e.id] then xids[#xids + 1] = cid end
+    end
+    addGroup(_("Patches"), xids)
+
+    if #found == 0 then return nil end
+    seen[where] = found
+
+    -- the chooser, always last, so turned-off items can be turned back on
+    local cid = ENTRY_ID .. "choose"
+    items[cid] = {
+        text = _("Choose what's in Add-ons"),
+        sub_item_table_func = function() return chooserItems(where) end,
+    }
+    if #plist > 0 then plist[#plist + 1] = SEPARATOR end
+    plist[#plist + 1] = cid
 
     -- shallow copy; lists are copied only when we change them
     local new = {}
@@ -134,7 +321,7 @@ local function inject(where, items, order)
 
     local function without(remove)
         for key, l in pairs(new) do
-            if key ~= MENU_ID and key ~= "KOMenu:disabled" and type(l) == "table" then
+            if key ~= "KOMenu:disabled" and type(l) == "table" then
                 local copy
                 for i, v in ipairs(l) do
                     if remove[v] then
@@ -151,7 +338,7 @@ local function inject(where, items, order)
         end
     end
 
-    -- take moved menus out of their usual spot (only ones that exist, see above)
+    -- take moved menus out of their usual spot
     without(moved)
 
     -- hide built-in submenus we emptied (repeat: hiding one can empty its parent)
@@ -163,7 +350,7 @@ local function inject(where, items, order)
     while true do
         local emptied = {}
         for key, l in pairs(new) do
-            if not hidden[key] and not top[key] and key ~= MENU_ID
+            if not hidden[key] and not top[key] and not moved[key]
                and key ~= "KOMenu:menu_buttons" and key ~= "KOMenu:disabled"
                and type(l) == "table" and not hasRealItems(l)
                and type(order[key]) == "table" and hasRealItems(order[key]) then
@@ -184,8 +371,9 @@ local function inject(where, items, order)
         new["KOMenu:disabled"] = dis
     end
 
-    new[MENU_ID] = list
+    new[MENU_ID] = plist
     items[MENU_ID] = { text = MENU_TEXT }
+
     if not indexOf(new.tools, MENU_ID) then
         -- above the separator, next to the built-in tools
         local tools = {}
