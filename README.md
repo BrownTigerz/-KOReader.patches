@@ -3,14 +3,23 @@
 User patches for KOReader, mostly tested for Kobo Clara Color.  Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
 Patch	For	What it does
+
 2-simpleui-mod.lua	SimpleUI	Home screen colours, bold, per-section titles, Night Mode day look
+
 2-tweaks-menu.lua	KOReader	One Tools menu for plugin and patch settings
+
 2-shelfsync-tweaks.lua	ShelfSync	Goodreads login, saved logins, WAF fix, one-tap sync
+
 2-ReadMastery-notify.lua	ReadMastery	Custom notification styles
+
 2-ReadMastery-quests.lua	ReadMastery	Quests and challenges
+
 2-kobo-style-sleepscreen-banner.lua	KOReader	Kobo-style sleep screen banner with highlights or quotes
+
 2-track-reading-location.lua	KOReader	"Go back to where you were" button
+
 2-shortcutstoolbar-icon-tweaks.lua	Shortcuts Toolbar	Custom icons and Night Mode colour modes
+
 Quotes.lua / Famous Quotes.txt	SimpleUI / sleep screen	Quote collections
 
 Install
