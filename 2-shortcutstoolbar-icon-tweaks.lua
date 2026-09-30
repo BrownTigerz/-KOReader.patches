@@ -66,7 +66,42 @@ local STATES = {
     { id = "night_mode", text = "Night mode", get = function()
         return require("device").screen.night_mode or G_reader_settings:isTrue("night_mode")
     end },
+    -- Same check KOReader's own SSH menu uses for its checkmark.
+    { id = "ssh", text = "SSH server", get = function()
+        return require("libs/libkoreader-lfs").attributes("/tmp/dropbear_koreader.pid", "mode") == "file"
+    end },
+    -- Calibre plugin's wireless client: its socket exists only while
+    -- connected (it's cleared on disconnect or a failed connect).
+    { id = "calibre", text = "Calibre connection", get = function()
+        local W = package.loaded["wireless"]
+        return type(W) == "table" and W.calibre_socket ~= nil
+    end },
 }
+
+-- Tap-toggle state is shared by shortcut NAME, so the same shortcut set up
+-- in the reader and the library (which get different internal keys) stays
+-- in sync.
+local function toggleId(key)
+    local ok_m, Manager = pcall(require, "custom_shortcut_manager")
+    if ok_m then
+        for _i, view in ipairs({ "reader", "fb", "simpleui" }) do
+            for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
+                if it.key == key then return "label:" .. tostring(it.label or key) end
+            end
+        end
+    end
+    return "key:" .. key
+end
+
+local function getToggled(key)
+    local t = (G_reader_settings:readSetting(SETTINGS_KEY) or {}).toggles
+    return t and t[toggleId(key)] == true
+end
+-- Not a real device state: flips each time the icon is tapped and is
+-- remembered across restarts. For custom shortcuts that toggle something
+-- KOReader can't report on.
+table.insert(STATES, 1, { id = "tap", text = "Tap toggle", get = getToggled })
+
 local STATE_BY_ID = {}
 for _, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
 
@@ -87,7 +122,7 @@ end
 -- The icon keeps its transparency (alpha), so flipping is done as:
 -- invert area -> blend icon -> invert area. The background gets inverted
 -- twice (unchanged); only the icon pixels end up inverted. No tile.
-local function installPaint(img, mode, state, off_img, style)
+local function installPaint(img, mode, state, off_img, style, key)
     local base = img.paintTo
     img.paintTo = function(self, bb, x, y)
         local night = require("device").screen.night_mode and true or false
@@ -95,13 +130,16 @@ local function installPaint(img, mode, state, off_img, style)
 
         local on = true
         if state then
-            local ok, v = pcall(state.get)
+            local ok, v = pcall(state.get, key)
             on = (not ok) or (v and true or false)
         end
 
         local src, paint = self, base
         if not on and off_img then src, paint = off_img, off_img.paintTo end
         local sz = src:getSize()
+        -- Deliberate: this patch owns inversion for tweaked icons (via the
+        -- invertRect pairs below), so ImageWidget's own flag must stay off
+        -- or the two would stack.
         src.invert = nil
 
         if flip then bb:invertRect(x, y, sz.w, sz.h) end
@@ -132,9 +170,14 @@ local function tweakButton(btn, key)
     local alpha = mode ~= "default"
     local img = newIcon(btn, file, alpha)
     local style = k.off_style or (k.off_file and "icon") or "dim"
+    -- Release the previous off-state widget before making a new one.
+    -- (Its bitmap lives in KOReader's shared icon cache, so this is tidiness
+    -- rather than a real leak, but it keeps ownership explicit.)
+    if btn._stb_off_img then pcall(btn._stb_off_img.free, btn._stb_off_img) end
     local off_img = (state and style == "icon" and fileExists(k.off_file))
         and newIcon(btn, k.off_file, alpha) or nil
-    installPaint(img, mode, state, off_img, style)
+    btn._stb_off_img = off_img
+    installPaint(img, mode, state, off_img, style, key)
 
     local old = btn.image
     local hg = btn.horizontal_group
@@ -152,14 +195,23 @@ local function tweakButton(btn, key)
 end
 
 -- After a tap, re-draw a few times so async state (Wi-Fi) catches up.
-local function addStateRefresh(btn)
+local function addStateRefresh(btn, key)
     local UIManager = require("ui/uimanager")
     local cb = btn.callback
     if not cb then return end
     btn.callback = function(...)
         local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
+        local s = loadSettings()
+        local k = s.keys[key]
+        if k and k.state == "tap" then
+            local id = toggleId(key)
+            s.toggles = s.toggles or {}
+            s.toggles[id] = (not s.toggles[id]) or nil
+            saveSettings(s)
+            if top and btn.dimen then UIManager:setDirty(top, "ui", btn.dimen) end
+        end
         cb(...)
-        for _, d in ipairs({ 1, 3, 6 }) do
+        for _, d in ipairs({ 1, 3, 6, 10 }) do
             UIManager:scheduleIn(d, function()
                 if top and btn.dimen and UIManager:getTopmostVisibleWidget() == top then
                     UIManager:setDirty(top, "ui", btn.dimen)
@@ -211,6 +263,7 @@ local function withCapture(config, fn, ...)
 
     building = true
     IconButton.new = function(cls, o)
+        local icon_arg = o and rawget(o, "icon")
         local btn = orig_new(cls, o)
         -- Only consider buttons shaped like toolbar shortcuts.
         if desynced or not o or #queue == 0 or o.width ~= icon_size
@@ -218,7 +271,7 @@ local function withCapture(config, fn, ...)
             return btn
         end
         local want = queue[1]
-        if want.icons[o.icon or "__nil__"] then
+        if want.icons[icon_arg or "__nil__"] then
             table.remove(queue, 1)
             table.insert(captured, { btn = btn, key = want.key })
         else
@@ -240,7 +293,7 @@ local function withCapture(config, fn, ...)
         local btn, key = c.btn, c.key
         tweakButton(btn, key)
         local k = settings.keys[key]
-        if k and k.state then addStateRefresh(btn) end
+        if k and k.state then addStateRefresh(btn, key) end
         -- Wi-Fi toggles rebuild the image via setIcon(); re-apply after.
         local orig_set = btn.setIcon
         btn.setIcon = function(self, icon)
@@ -295,11 +348,13 @@ local function allShortcuts()
     end
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     if ok_m then
+        local where = { reader = _("reader"), fb = _("library"), simpleui = _("home") }
         for _i, view in ipairs({ "reader", "fb", "simpleui" }) do
             for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
                 if not seen[it.key] then
                     seen[it.key] = true
-                    table.insert(items, { key = it.key, label = (it.label or it.key) .. " " .. _("(custom)") })
+                    table.insert(items, { key = it.key,
+                        label = (it.label or it.key) .. " (" .. where[view] .. ")" })
                 end
             end
         end
@@ -413,12 +468,24 @@ local function perIconMenu(key)
                 }
                 for _i, st in ipairs(STATES) do
                     table.insert(t, {
-                        text = T(_("Follow %1"), st.text),
+                        text = st.id == "tap" and _("Tap toggle (flips on each tap)")
+                            or T(_("Follow %1"), st.text),
                         radio = true,
                         checked_func = function() local _s, k = getK(); return k.state == st.id end,
                         callback = function() local s, k = getK(); k.state = st.id; putK(s, k) end,
                     })
                 end
+                table.insert(t, {
+                    text = _("Reset tap toggle to off"),
+                    enabled_func = function() local _s, k = getK(); return k.state == "tap" and getToggled(key) end,
+                    keep_menu_open = true,
+                    callback = function(touchmenu)
+                        local s = loadSettings()
+                        if s.toggles then s.toggles[toggleId(key)] = nil end
+                        saveSettings(s); refreshViews()
+                        if touchmenu then touchmenu:updateItems() end
+                    end,
+                })
                 t[#t].separator = true
                 local function curStyle(k) return k.off_style or (k.off_file and "icon") or "dim" end
                 local styles = {
