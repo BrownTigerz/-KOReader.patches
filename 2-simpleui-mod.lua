@@ -3,7 +3,7 @@
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
-Settings: Tools > SimpleUI Mod (or Tools > Tweaks & Mods > SimpleUI Mod when
+Settings: Tools > SimpleUI Mod (or Tools > Add-ons > Patches > SimpleUI Mod when
 2-tweaks-menu.lua is installed). Install: koreader/patches/, then restart.
 
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
@@ -196,8 +196,10 @@ end
 
 -- ---- section titles: which module a title belongs to, and its settings --------
 local cur_title_id  = nil  -- module id of the title being built right now
+local in_title      = 0    -- > 0 while a section title is being built
 local last_mod_id   = nil  -- module built most recently (titles follow their module)
 local label_to_id   = {}   -- title text -> module id (learned while building)
+local label_count   = 0
 
 local function titleCfg(id)
     return id and cfg.titles[id] or nil
@@ -503,10 +505,15 @@ local function wrapDescriptor(m, fallback_id)
     m.build = function(...)
         local id = (type(m.id) == "string" and m.id) or fallback_id
         last_mod_id = id
-        if type(m.label) == "string" then label_to_id[m.label] = id end
+        if label_count > 200 then label_to_id, label_count = {}, 0 end   -- stays small
+        if type(m.label) == "string" and not label_to_id[m.label] then
+            label_to_id[m.label] = id; label_count = label_count + 1
+        end
         if type(m.label_func) == "function" then
             local okl, lbl = pcall(m.label_func, select(2, ...))
-            if okl and type(lbl) == "string" then label_to_id[lbl] = id end
+            if okl and type(lbl) == "string" and not label_to_id[lbl] then
+                label_to_id[lbl] = id; label_count = label_count + 1
+            end
         end
         local accent = isAccentModule(id)
         local ok, w
@@ -654,8 +661,10 @@ local function patchEngine(E)
                         or last_mod_id
                 local prev = cur_title_id
                 cur_title_id = id
+                in_title = in_title + 1
                 local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
                                        orig_label, text, w, right_text, page_nav, lf, ...))
+                in_title = in_title - 1
                 cur_title_id = prev
                 if not res[1] then error(res[2], 0) end
                 return unpack(res, 2, res.n)
@@ -776,8 +785,9 @@ local function dayLookNav(w, whole_bar)
     if whole_bar then makeNavPalettePaint(w) end
 end
 
--- Section title size: SimpleUI sizes titles from Config.getLabelScale(),
--- which only the section-title builder uses; multiply it by our setting.
+-- Section title size: SimpleUI sizes titles from Config.getLabelScale().
+-- Only scale while a section title is being built, so any other caller
+-- (none today) is never affected.
 local function patchConfig(Cf)
     if type(Cf) ~= "table" or type(Cf.getLabelScale) ~= "function" then
         return false
@@ -786,6 +796,7 @@ local function patchConfig(Cf)
     if not ours[orig] then
         Cf.getLabelScale = mine(function(...)
             local v = orig(...)
+            if in_title == 0 then return v end
             local pct = titleSize(cur_title_id)
             if type(v) == "number" and pct ~= 100 then return v * pct / 100 end
             return v
@@ -876,13 +887,26 @@ local function isPreset(v)
     return false
 end
 
-local sui_plugin  -- SimpleUI plugin instance (set once it starts)
+local sui_name = "simpleui"   -- SimpleUI's plugin name (= its folder name)
+
+-- The running SimpleUI instance of the file browser, looked up when needed
+-- (never stored, so nothing keeps it alive). Must be the instance, not the
+-- class: SimpleUI keeps its status bar timer on whatever it's given, and a
+-- class would start a second, never-paused minute timer.
+local function suiInstance()
+    local FM = package.loaded["apps/filemanager/filemanager"]
+    local inst = type(FM) == "table" and FM.instance
+    local p = type(inst) == "table" and inst[sui_name]
+    if type(p) == "table" and p.ui ~= nil then return p end
+end
 
 local function refreshTopbarNow()
     local T = package.loaded["screens/sui_topbar"]
-    if sui_plugin and type(T) == "table" and type(T.refresh) == "function" then
-        pcall(T.refresh, sui_plugin)
+    local p = suiInstance()
+    if p and type(T) == "table" and type(T.refresh) == "function" then
+        pcall(T.refresh, p)
     end
+    -- no instance found: the change shows on SimpleUI's next minute tick
 end
 
 local function askRestart()
@@ -1311,8 +1335,8 @@ local function addToOrder(order_mod)
     table.insert(order.tools, pos, "simpleui_mod")
 end
 
--- ---- Tweaks & Mods menu (2-tweaks-menu.lua) -------------------------------------------------
--- With that patch installed, our settings live under Tools > Tweaks & Mods
+-- ---- Add-ons menu (2-tweaks-menu.lua) -------------------------------------------------------
+-- With that patch installed, our settings live under Tools > Add-ons > Patches
 -- (file browser only). Without it, we add our own Tools > SimpleUI Mod entry.
 local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
@@ -1329,8 +1353,10 @@ local function hookMenu(menu_mod, order_mod)
     local orig = Menu.setUpdateItemTable
     if ours[orig] then return end
     Menu.setUpdateItemTable = mine(function(self, ...)
-        -- checked at menu build time, so patch load order doesn't matter
-        if self.menu_items and not TM.active then
+        -- checked at menu build time, so patch load order doesn't matter;
+        -- also shows our own entry when turned off in "Choose what's in Add-ons"
+        local in_addons = TM.active and (type(TM.shows) ~= "function" or TM.shows("simpleui_mod"))
+        if self.menu_items and not in_addons then
             addToOrder(order_mod)
             local menu = lazyMenu()
             menu.sorting_hint = "tools"   -- still lands in Tools if a custom menu order replaces the list
@@ -1342,5 +1368,7 @@ end
 
 pcall(hookMenu, "apps/filemanager/filemanagermenu", "ui/elements/filemanager_menu_order")
 
--- Remember SimpleUI's plugin instance (used to refresh the status bar).
-userpatch.registerPatchPluginFunc("simpleui", function(plugin) sui_plugin = plugin end)
+-- Remember SimpleUI's plugin name (its folder name), for suiInstance().
+userpatch.registerPatchPluginFunc("simpleui", function(plugin)
+    if type(plugin) == "table" and type(plugin.name) == "string" then sui_name = plugin.name end
+end)
