@@ -1,5 +1,5 @@
 --[[
-    Track Reading Location v1.6.1
+    Track Reading Location v1.7.2
 
     This patch remembers the last "confirmed" reading position (the furthest page
     you've actually read) for the book you're currently reading.
@@ -13,8 +13,8 @@
     bottom-left. A slow, single 2-page forward move stays silent on purpose
     (skipping a blank/illustration page, a "skip ahead" gesture); only
     backward drift is held to that tighter 1-page tolerance. What it shows is
-    configurable independently (Reader menu -> Navigation -> hold "Go to
-    furthest reading location"):
+    configurable independently (Reader menu -> Navigation -> Reading location ->
+    Settings):
 
     - "Show full text": include the "Go back to page" wording.
     - "Show location/page number": include the page number (or percentage, in
@@ -45,25 +45,22 @@
     above KOReader's own footer bar when the footer is visible and actually
     reserving its own space (not when "Overlap status bar" is on).
 
-    A "Go to furthest reading location (hold for settings)" menu entry (Reader menu ->
-    Navigation, right below "Go forward to next location") lets you jump to
-    your reference page at any time with a tap, and can also be bound to a
-    gesture via the gesture manager. Holding the same menu entry opens a
-    settings submenu with a "Show button on screen" checkbox (to turn the
-    floating button off entirely if you'd rather only use the menu/gesture),
-    the display checkboxes described above, a "Show shadow" checkbox (toggles
-    the button's drop shadow), "Bottom offset"/"Side offset" settings to
-    adjust how far the button is docked from the bottom and side edges of the
-    screen (applied the same way to both corners), and a "Button radius"
-    setting to adjust how rounded its corners are, from 0 (square) up to
-    fully rounded (pill/circle, the default).
-
-    A second, standalone "Set current page as reading location" action is
-    also available, both as its own menu entry (right below "Go to furthest
-    reading location") and as a system action (gesture manager, profiles,
-    etc.). It accepts the current page as the new reference point on demand -
-    the same thing tapping/holding the button's "X" does - without needing an
-    active prompt to dismiss first.
+    A "Reading location" menu entry (Reader menu -> Navigation, right below
+    "Go forward to next location", by default - a menu-organizing patch may
+    relocate it elsewhere) groups three rows: "Go to furthest reading
+    location" (jump to your reference page with a tap), "Set current page as
+    reading location" (accept the current page as the new reference point on
+    demand - the same thing tapping/holding the button's "X" does - without
+    needing an active prompt to dismiss first), and "Settings", which opens a
+    submenu with a "Show button on screen" checkbox (to turn the floating
+    button off entirely if you'd rather only use the menu/gesture), the
+    display checkboxes described above, a "Show shadow" checkbox (toggles the
+    button's drop shadow), "Bottom offset"/"Side offset" settings to adjust
+    how far the button is docked from the bottom and side edges of the screen
+    (applied the same way to both corners), and a "Button radius" setting to
+    adjust how rounded its corners are, from 0 (square) up to fully rounded
+    (pill/circle, the default). Both actions can also be bound to a gesture
+    via the gesture manager, independently of this menu.
 
     The reference page is saved per book, so a pending prompt will still be there
     if you close the book and reopen it later. On reflowable documents (EPUB,
@@ -1383,270 +1380,290 @@ ReaderLink.addToMainMenu = function(self, menu_items)
 
     local ui = self.ui
     menu_items.go_to_furthest_reading_location = {
-        text = _("Go to furthest reading location (hold for settings)"),
-        callback = function()
-            ReadingLocationTracker.goToFurthestReadingLocation(ui)
-        end,
-        -- Tapping this item must run the jump directly, so the settings
-        -- can't be a normal `sub_item_table` (TouchMenu always opens that
-        -- on tap instead of running `callback`). Holding manually replicates
-        -- what TouchMenu:onMenuSelect does for a `sub_item_table` entry, so
-        -- it opens exactly like a native submenu (back navigation included).
-        hold_callback = function(touchmenu_instance, item)
-            local overlay = ui._rlt_overlay
-            -- Force the button to show while previewing these settings -
-            -- even if you're already at the furthest reading location, where it
-            -- wouldn't normally appear - so changes are visible right away
-            -- without needing an actual pending "go back" prompt to look at.
-            if overlay then
-                overlay.anchor = ui._rlt_current_page or overlay.anchor
-                overlay.side = overlay.side or "bottom_right"
-                overlay.visible = ReadingLocationTracker.isFloatingButtonEnabled()
-                -- Also show the mirrored docking, so both corners can be
-                -- compared while adjusting these settings.
-                overlay.preview_both_sides = true
-                refreshFloatingButtonPreview(ui, true)
-            end
-
-            -- However you leave this settings screen - going back up, or
-            -- closing the whole menu outright - stop forcing the preview
-            -- and let the button go back to reflecting the real page state,
-            -- as if these settings had never been touched.
-            local orig_backToUpperMenu = touchmenu_instance.backToUpperMenu
-            local orig_closeMenu = touchmenu_instance.closeMenu
-            local function exitPreview()
-                touchmenu_instance.backToUpperMenu = orig_backToUpperMenu
-                touchmenu_instance.closeMenu = orig_closeMenu
-                if overlay then
-                    overlay.preview_both_sides = false
-                end
-                ReadingLocationTracker.refreshOverlayVisibility(ui)
-                refreshFloatingButtonPreview(ui, true)
-            end
-            touchmenu_instance.backToUpperMenu = function(self, ...)
-                exitPreview()
-                return orig_backToUpperMenu(self, ...)
-            end
-            touchmenu_instance.closeMenu = function(self, ...)
-                exitPreview()
-                return orig_closeMenu(self, ...)
-            end
-
-            local sub_item_table = {
-                {
-                    text = _("Show button on screen"),
-                    checked_func = function()
-                        return ReadingLocationTracker.isFloatingButtonEnabled()
-                    end,
-                    callback = function()
-                        local enabled = not ReadingLocationTracker.isFloatingButtonEnabled()
-                        ReadingLocationTracker.setFloatingButtonEnabled(enabled)
-                        if not enabled then
-                            -- Nothing left to dismiss/promote on the button's
-                            -- behalf once it's off - stop a still-running
-                            -- timer from doing either later regardless.
-                            ReadingLocationTracker.cancelForwardDismiss(ui)
-                            ui._rlt_forward_dismiss_pending = false
-                        end
-                        -- Directly tied to this setting while previewing, so
-                        -- it appears/disappears the moment you toggle it.
-                        if ui._rlt_overlay then
-                            ui._rlt_overlay.visible = enabled
-                        end
+        text = _("Reading location"),
+        sub_item_table = {
+            {
+                text = _("Go to furthest reading location"),
+                callback = function()
+                    ReadingLocationTracker.goToFurthestReadingLocation(ui)
+                end,
+            },
+            {
+                text = _("Set current page as reading location"),
+                enabled_func = function()
+                    return not ReadingLocationTracker.isAtReadingLocation(ui)
+                end,
+                callback = function()
+                    ReadingLocationTracker.setCurrentPageAsReadingLocation(ui)
+                end,
+            },
+            {
+                text = _("Settings"),
+                -- Fixed id used below instead of deriving one from `item` -
+                -- unlike hold_callback, a plain callback isn't guaranteed to
+                -- receive the menu item table as its second argument (this
+                -- crashed in the field: "attempt to index local 'item' (a
+                -- nil value)" once this became a tap callback in v1.7.0).
+                menu_item_id = "reading_location_settings",
+                -- Without this, TouchMenu closes the whole menu right after
+                -- a plain tap callback returns (unlike hold_callback, which
+                -- doesn't auto-close) - undoing the manual submenu push
+                -- below before it's ever visible. This is why "Settings"
+                -- silently did nothing on tap once this became a plain
+                -- callback in v1.7.0/v1.7.1.
+                keep_menu_open = true,
+                -- A normal `sub_item_table` on this row can't also run the
+                -- preview setup below on tap (TouchMenu always opens
+                -- sub_item_table instead of running callback), so this
+                -- manually replicates what TouchMenu:onMenuSelect does for
+                -- one, to open exactly like a native submenu (back
+                -- navigation included) while still running that setup first.
+                callback = function(touchmenu_instance)
+                    local overlay = ui._rlt_overlay
+                    -- Force the button to show while previewing these settings -
+                    -- even if you're already at the furthest reading location, where it
+                    -- wouldn't normally appear - so changes are visible right away
+                    -- without needing an actual pending "go back" prompt to look at.
+                    if overlay then
+                        overlay.anchor = ui._rlt_current_page or overlay.anchor
+                        overlay.side = overlay.side or "bottom_right"
+                        overlay.visible = ReadingLocationTracker.isFloatingButtonEnabled()
+                        -- Also show the mirrored docking, so both corners can be
+                        -- compared while adjusting these settings.
+                        overlay.preview_both_sides = true
                         refreshFloatingButtonPreview(ui, true)
-                    end,
-                },
-                {
-                    text_func = function()
-                        return T(_("Mode: %1"), ReadingLocationTracker.isPercentageModeEnabled()
-                            and _("Percentage") or _("Page number"))
-                    end,
-                    -- No checked_func on this item (it's a cycling text
-                    -- toggle, not a checkbox), so TouchMenu:onMenuSelect
-                    -- would otherwise close the menu on tap - and, since it
-                    -- also skips the auto-updateItems() it does for checked/
-                    -- checked_func items, the text_func label needs a manual
-                    -- refresh here too, or it'd keep showing the old mode.
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        ReadingLocationTracker.setPercentageModeEnabled(not ReadingLocationTracker.isPercentageModeEnabled())
-                        refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
-                        if touchmenu_instance then
-                            touchmenu_instance:updateItems()
-                        end
-                    end,
-                },
-                {
-                    text = _("Show full text"),
-                    checked_func = function()
-                        return ReadingLocationTracker.isFullTextEnabled()
-                    end,
-                    callback = function()
-                        ReadingLocationTracker.setFullTextEnabled(not ReadingLocationTracker.isFullTextEnabled())
-                        refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
-                    end,
-                },
-                {
-                    text = _("Show location/page number"),
-                    -- "Go back to page"/"Go back to" doesn't make sense
-                    -- without a value next to it, so this is forced on (and
-                    -- locked) while "Show full text" is on - see
-                    -- isPageNumberEnabled().
-                    enabled_func = function()
-                        return not ReadingLocationTracker.isFullTextEnabled()
-                    end,
-                    checked_func = function()
-                        return ReadingLocationTracker.isPageNumberEnabled()
-                    end,
-                    callback = function()
-                        ReadingLocationTracker.setPageNumberEnabled(not ReadingLocationTracker.isPageNumberEnabled())
-                        refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
-                    end,
-                },
-                {
-                    text_func = function()
-                        return _("Show dismiss button") .. (ReadingLocationTracker.isDismissButtonEnabled() and "" or " (hold to dismiss)")
-                    end,
-                    checked_func = function()
-                        return ReadingLocationTracker.isDismissButtonEnabled()
-                    end,
-                    callback = function()
-                        ReadingLocationTracker.setDismissButtonEnabled(not ReadingLocationTracker.isDismissButtonEnabled())
-                        refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
-                    end,
-                },
-                {
-                    text = _("Show shadow"),
-                    checked_func = function()
-                        return ReadingLocationTracker.isShadowEnabled()
-                    end,
-                    callback = function()
-                        ReadingLocationTracker.setShadowEnabled(not ReadingLocationTracker.isShadowEnabled())
-                        refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
-                    end,
-                },
-                {
-                    text_func = function()
-                        local seconds = ReadingLocationTracker.getForwardDismissSeconds()
-                        return T(_("Forward popup auto-dismiss: %1"),
-                            seconds and T(_("%1s"), seconds) or _("Off"))
-                    end,
-                    sub_item_table = {
-                        {
-                            text = _("Off"),
-                            radio = true,
-                            checked_func = function()
-                                return ReadingLocationTracker.getForwardDismissSeconds() == nil
-                            end,
-                            callback = function()
-                                ReadingLocationTracker.setForwardDismissSeconds(nil)
-                            end,
-                        },
-                        {
-                            text = _("15 seconds"),
-                            radio = true,
-                            checked_func = function()
-                                return ReadingLocationTracker.getForwardDismissSeconds() == 15
-                            end,
-                            callback = function()
-                                ReadingLocationTracker.setForwardDismissSeconds(15)
-                            end,
-                        },
-                        {
-                            text = _("20 seconds"),
-                            radio = true,
-                            checked_func = function()
-                                return ReadingLocationTracker.getForwardDismissSeconds() == 20
-                            end,
-                            callback = function()
-                                ReadingLocationTracker.setForwardDismissSeconds(20)
-                            end,
-                        },
-                        {
-                            text = _("30 seconds"),
-                            radio = true,
-                            checked_func = function()
-                                return ReadingLocationTracker.getForwardDismissSeconds() == 30
-                            end,
-                            callback = function()
-                                ReadingLocationTracker.setForwardDismissSeconds(30)
-                            end,
-                        },
-                        {
-                            text = _("50 seconds"),
-                            radio = true,
-                            checked_func = function()
-                                return ReadingLocationTracker.getForwardDismissSeconds() == 50
-                            end,
-                            callback = function()
-                                ReadingLocationTracker.setForwardDismissSeconds(50)
-                            end,
-                        },
-                    },
-                },
-                {
-                    text_func = function()
-                        return T(_("Bottom offset: %1"), ReadingLocationTracker.getBottomOffset())
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        showOffsetSpinWidget(ui, touchmenu_instance,
-                            _("Bottom offset"),
-                            _("Extra distance the button is docked away from the bottom edge of the screen, on top of the footer's own height when it's visible. Applies to both corners."),
-                            ReadingLocationTracker.getBottomOffset,
-                            ReadingLocationTracker.setBottomOffset)
-                    end,
-                },
-                {
-                    text_func = function()
-                        return T(_("Side offset: %1"), ReadingLocationTracker.getSideOffset())
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        showOffsetSpinWidget(ui, touchmenu_instance,
-                            _("Side offset"),
-                            _("Extra distance the button is docked away from the left/right edge of the screen, whichever corner it's currently in. Applies to both corners."),
-                            ReadingLocationTracker.getSideOffset,
-                            ReadingLocationTracker.setSideOffset)
-                    end,
-                },
-                {
-                    text_func = function()
-                        return T(_("Button radius: %1"), ReadingLocationTracker.getButtonRadius())
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        showOffsetSpinWidget(ui, touchmenu_instance,
-                            _("Button radius"),
-                            _("Corner roundness of the button, from 0 (square) up to fully rounded (pill/circle)."),
-                            ReadingLocationTracker.getButtonRadius,
-                            ReadingLocationTracker.setButtonRadius,
-                            { value_max = BUTTON_RADIUS_DEFAULT, default_value = BUTTON_RADIUS_DEFAULT })
-                    end,
-                },
-            }
-            table.insert(touchmenu_instance.item_table_stack, touchmenu_instance.item_table)
-            item.menu_item_id = item.menu_item_id or tostring(item)
-            touchmenu_instance.parent_id = item.menu_item_id
-            touchmenu_instance.item_table = sub_item_table
-            touchmenu_instance:updateItems(1)
-        end,
-    }
+                    end
 
-    menu_items.set_current_page_as_reading_location = {
-        text = _("Set current page as reading location"),
-        enabled_func = function()
-            return not ReadingLocationTracker.isAtReadingLocation(ui)
-        end,
-        callback = function()
-            ReadingLocationTracker.setCurrentPageAsReadingLocation(ui)
-        end,
+                    -- However you leave this settings screen - going back up, or
+                    -- closing the whole menu outright - stop forcing the preview
+                    -- and let the button go back to reflecting the real page state,
+                    -- as if these settings had never been touched.
+                    local orig_backToUpperMenu = touchmenu_instance.backToUpperMenu
+                    local orig_closeMenu = touchmenu_instance.closeMenu
+                    local function exitPreview()
+                        touchmenu_instance.backToUpperMenu = orig_backToUpperMenu
+                        touchmenu_instance.closeMenu = orig_closeMenu
+                        if overlay then
+                            overlay.preview_both_sides = false
+                        end
+                        ReadingLocationTracker.refreshOverlayVisibility(ui)
+                        refreshFloatingButtonPreview(ui, true)
+                    end
+                    touchmenu_instance.backToUpperMenu = function(self, ...)
+                        exitPreview()
+                        return orig_backToUpperMenu(self, ...)
+                    end
+                    touchmenu_instance.closeMenu = function(self, ...)
+                        exitPreview()
+                        return orig_closeMenu(self, ...)
+                    end
+
+                    local sub_item_table = {
+                        {
+                            text = _("Show button on screen"),
+                            checked_func = function()
+                                return ReadingLocationTracker.isFloatingButtonEnabled()
+                            end,
+                            callback = function()
+                                local enabled = not ReadingLocationTracker.isFloatingButtonEnabled()
+                                ReadingLocationTracker.setFloatingButtonEnabled(enabled)
+                                if not enabled then
+                                    -- Nothing left to dismiss/promote on the button's
+                                    -- behalf once it's off - stop a still-running
+                                    -- timer from doing either later regardless.
+                                    ReadingLocationTracker.cancelForwardDismiss(ui)
+                                    ui._rlt_forward_dismiss_pending = false
+                                end
+                                -- Directly tied to this setting while previewing, so
+                                -- it appears/disappears the moment you toggle it.
+                                if ui._rlt_overlay then
+                                    ui._rlt_overlay.visible = enabled
+                                end
+                                refreshFloatingButtonPreview(ui, true)
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                return T(_("Mode: %1"), ReadingLocationTracker.isPercentageModeEnabled()
+                                    and _("Percentage") or _("Page number"))
+                            end,
+                            -- No checked_func on this item (it's a cycling text
+                            -- toggle, not a checkbox), so TouchMenu:onMenuSelect
+                            -- would otherwise close the menu on tap - and, since it
+                            -- also skips the auto-updateItems() it does for checked/
+                            -- checked_func items, the text_func label needs a manual
+                            -- refresh here too, or it'd keep showing the old mode.
+                            keep_menu_open = true,
+                            callback = function(touchmenu_instance)
+                                ReadingLocationTracker.setPercentageModeEnabled(not ReadingLocationTracker.isPercentageModeEnabled())
+                                refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
+                                if touchmenu_instance then
+                                    touchmenu_instance:updateItems()
+                                end
+                            end,
+                        },
+                        {
+                            text = _("Show full text"),
+                            checked_func = function()
+                                return ReadingLocationTracker.isFullTextEnabled()
+                            end,
+                            callback = function()
+                                ReadingLocationTracker.setFullTextEnabled(not ReadingLocationTracker.isFullTextEnabled())
+                                refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
+                            end,
+                        },
+                        {
+                            text = _("Show location/page number"),
+                            -- "Go back to page"/"Go back to" doesn't make sense
+                            -- without a value next to it, so this is forced on (and
+                            -- locked) while "Show full text" is on - see
+                            -- isPageNumberEnabled().
+                            enabled_func = function()
+                                return not ReadingLocationTracker.isFullTextEnabled()
+                            end,
+                            checked_func = function()
+                                return ReadingLocationTracker.isPageNumberEnabled()
+                            end,
+                            callback = function()
+                                ReadingLocationTracker.setPageNumberEnabled(not ReadingLocationTracker.isPageNumberEnabled())
+                                refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                return _("Show dismiss button") .. (ReadingLocationTracker.isDismissButtonEnabled() and "" or " (hold to dismiss)")
+                            end,
+                            checked_func = function()
+                                return ReadingLocationTracker.isDismissButtonEnabled()
+                            end,
+                            callback = function()
+                                ReadingLocationTracker.setDismissButtonEnabled(not ReadingLocationTracker.isDismissButtonEnabled())
+                                refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
+                            end,
+                        },
+                        {
+                            text = _("Show shadow"),
+                            checked_func = function()
+                                return ReadingLocationTracker.isShadowEnabled()
+                            end,
+                            callback = function()
+                                ReadingLocationTracker.setShadowEnabled(not ReadingLocationTracker.isShadowEnabled())
+                                refreshFloatingButtonPreview(ui, ui._rlt_overlay and ui._rlt_overlay.visible)
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                local seconds = ReadingLocationTracker.getForwardDismissSeconds()
+                                return T(_("Forward popup auto-dismiss: %1"),
+                                    seconds and T(_("%1s"), seconds) or _("Off"))
+                            end,
+                            sub_item_table = {
+                                {
+                                    text = _("Off"),
+                                    radio = true,
+                                    checked_func = function()
+                                        return ReadingLocationTracker.getForwardDismissSeconds() == nil
+                                    end,
+                                    callback = function()
+                                        ReadingLocationTracker.setForwardDismissSeconds(nil)
+                                    end,
+                                },
+                                {
+                                    text = _("15 seconds"),
+                                    radio = true,
+                                    checked_func = function()
+                                        return ReadingLocationTracker.getForwardDismissSeconds() == 15
+                                    end,
+                                    callback = function()
+                                        ReadingLocationTracker.setForwardDismissSeconds(15)
+                                    end,
+                                },
+                                {
+                                    text = _("20 seconds"),
+                                    radio = true,
+                                    checked_func = function()
+                                        return ReadingLocationTracker.getForwardDismissSeconds() == 20
+                                    end,
+                                    callback = function()
+                                        ReadingLocationTracker.setForwardDismissSeconds(20)
+                                    end,
+                                },
+                                {
+                                    text = _("30 seconds"),
+                                    radio = true,
+                                    checked_func = function()
+                                        return ReadingLocationTracker.getForwardDismissSeconds() == 30
+                                    end,
+                                    callback = function()
+                                        ReadingLocationTracker.setForwardDismissSeconds(30)
+                                    end,
+                                },
+                                {
+                                    text = _("50 seconds"),
+                                    radio = true,
+                                    checked_func = function()
+                                        return ReadingLocationTracker.getForwardDismissSeconds() == 50
+                                    end,
+                                    callback = function()
+                                        ReadingLocationTracker.setForwardDismissSeconds(50)
+                                    end,
+                                },
+                            },
+                        },
+                        {
+                            text_func = function()
+                                return T(_("Bottom offset: %1"), ReadingLocationTracker.getBottomOffset())
+                            end,
+                            keep_menu_open = true,
+                            callback = function(touchmenu_instance)
+                                showOffsetSpinWidget(ui, touchmenu_instance,
+                                    _("Bottom offset"),
+                                    _("Extra distance the button is docked away from the bottom edge of the screen, on top of the footer's own height when it's visible. Applies to both corners."),
+                                    ReadingLocationTracker.getBottomOffset,
+                                    ReadingLocationTracker.setBottomOffset)
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                return T(_("Side offset: %1"), ReadingLocationTracker.getSideOffset())
+                            end,
+                            keep_menu_open = true,
+                            callback = function(touchmenu_instance)
+                                showOffsetSpinWidget(ui, touchmenu_instance,
+                                    _("Side offset"),
+                                    _("Extra distance the button is docked away from the left/right edge of the screen, whichever corner it's currently in. Applies to both corners."),
+                                    ReadingLocationTracker.getSideOffset,
+                                    ReadingLocationTracker.setSideOffset)
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                return T(_("Button radius: %1"), ReadingLocationTracker.getButtonRadius())
+                            end,
+                            keep_menu_open = true,
+                            callback = function(touchmenu_instance)
+                                showOffsetSpinWidget(ui, touchmenu_instance,
+                                    _("Button radius"),
+                                    _("Corner roundness of the button, from 0 (square) up to fully rounded (pill/circle)."),
+                                    ReadingLocationTracker.getButtonRadius,
+                                    ReadingLocationTracker.setButtonRadius,
+                                    { value_max = BUTTON_RADIUS_DEFAULT, default_value = BUTTON_RADIUS_DEFAULT })
+                            end,
+                        },
+                    }
+                    table.insert(touchmenu_instance.item_table_stack, touchmenu_instance.item_table)
+                    touchmenu_instance.parent_id = "reading_location_settings"
+                    touchmenu_instance.item_table = sub_item_table
+                    touchmenu_instance:updateItems(1)
+                end,
+            },
+        },
     }
 end
 
--- Place the new items right after "go_to_next_location" in the reader's
--- Navigation submenu, in order: "go to furthest reading location", then
--- "set current page as reading location".
+-- Place the group entry right after "go_to_next_location" in the reader's
+-- Navigation submenu - it contains "Go to furthest reading location",
+-- "Set current page as reading location", and "Settings" as its three rows.
 local ok_order, reader_menu_order = pcall(require, "ui/elements/reader_menu_order")
 if ok_order and reader_menu_order and reader_menu_order.navi then
     local navi = reader_menu_order.navi
@@ -1658,7 +1675,7 @@ if ok_order and reader_menu_order and reader_menu_order.navi then
         end
     end
 
-    -- Guards against duplicate menu entries if this file gets require()'d
+    -- Guards against a duplicate menu entry if this file gets require()'d
     -- more than once in the same session (e.g. reloading patches during
     -- development without a full restart) - normal single-boot loading is
     -- unaffected, since already_inserted is always false the first time.
@@ -1672,7 +1689,6 @@ if ok_order and reader_menu_order and reader_menu_order.navi then
         end
 
         table.insert(navi, insert_at, "go_to_furthest_reading_location")
-        table.insert(navi, insert_at + 1, "set_current_page_as_reading_location")
     end
 end
 
