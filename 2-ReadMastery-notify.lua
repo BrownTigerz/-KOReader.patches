@@ -89,6 +89,7 @@ local Geom        = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan  = require("ui/widget/horizontalspan")
+local InfoMessage = require("ui/widget/infomessage")
 local InputContainer  = require("ui/widget/container/inputcontainer")
 local RectSpan    = require("ui/widget/rectspan")
 local Size        = require("ui/size")
@@ -640,6 +641,8 @@ local classes_patched = false
 userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     if classes_patched then return end
 
+    local ok, err = pcall(function()
+
     local Notifications = require("ui/notifications")
     local MainMenu = require("ui/mainmenu")
     local Icons = require("icons")
@@ -767,11 +770,19 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
 
     Notifications.showStreakMilestone = function(self, days)
         if not Notify.enabled then return end
-        local milestone_text = STREAK_MILESTONES[days]
-        if not milestone_text then return end
         if Notify.style == "full" then
+            -- Delegates to the real, complete milestone handling
+            -- regardless of whether `days` is in OUR hardcoded
+            -- STREAK_MILESTONES table below - that table only exists
+            -- to build Compact/Banner content ourselves, and checking
+            -- it first (as this used to) meant any milestone day the
+            -- real plugin supports but this file doesn't know about
+            -- got silently dropped even under Full style, breaking
+            -- the "Full is untouched" guarantee for those days.
             return orig_showStreakMilestone(self, days)
         end
+        local milestone_text = STREAK_MILESTONES[days]
+        if not milestone_text then return end
         local title, text = streakContent(days, milestone_text)
         render(title, text)
     end
@@ -803,7 +814,11 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             -- keep_menu_open = true, so nothing else is closing
             -- synchronously after this tap to race against.
             UIManager:nextTick(function()
-                orig_showAchievement(nil, sample)
+                -- Notifications (the real self this method would
+                -- normally be called on), not nil - costs nothing and
+                -- means this doesn't break if a future ReadMastery
+                -- update ever has this method touch self for anything.
+                orig_showAchievement(Notifications, sample)
             end)
         else
             local title, text, ascii_art = achievementContent(sample)
@@ -943,4 +958,17 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- above throws, this stays false so the next plugin instantiation
     -- can retry instead of permanently skipping setup.
     classes_patched = true
+
+    end) -- pcall
+    if not ok then
+        -- Whole one-time setup wrapped so a throw anywhere in it
+        -- (including the AchievementsView hook above) is visible and
+        -- retryable on the next plugin instantiation, instead of
+        -- propagating uncaught with no message - same pattern the
+        -- sibling quest-engine patch already uses.
+        UIManager:show(InfoMessage:new{
+            text = "ReadMastery Notify patch failed to load:\n" .. tostring(err),
+            timeout = 8,
+        })
+    end
 end)
