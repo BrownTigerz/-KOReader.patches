@@ -9,10 +9,11 @@
 -- 3) Goodreads search / CSRF fetch routed around the AWS WAF bot check
 --    (/book/auto_complete and /review/list instead of /search and /).
 -- 4) ShelfSync > Settings, above "Verbose logging":
---      * Exclude WikiReader articles  (no autolink for koreader/cache/wikireader/)
---      * Hide providers > Fable / Hardcover / Goodreads / StoryGraph
---    Only "Exclude WikiReader articles" is ON by default; the Hide toggles
---    start OFF. Hiding a provider also stops it doing anything.
+--      * Auto re-login when session expires (on by default)
+--      * Retry autolink when Wi-Fi connects (on by default)
+--      * Hide providers > Fable / Hardcover / Goodreads / Pagebound / StoryGraph
+--        (all off by default). Hiding a provider also stops it doing anything.
+--    WikiReader/Wikipedia articles: ShelfSync 1.4.0+ excludes these itself.
 -- 5) ShelfSync > "Link & Update" (between Providers and Settings): every
 --    enabled provider's Link book and Update status in one place, labelled,
 --     Copies of the providers' own items --
@@ -54,7 +55,6 @@ local CACHE = {
     csrf_at = 0,
     uid = nil,     -- Goodreads user id
     relink = {},   -- [provider label] = { file, at } last autolink retry on connect
-    engines = {},  -- [provider label] = engine (so an api can find its engine)
     reauth = {},   -- [provider label] = { at, running } last auto re-login
 }
 -- Login: single attempt (no hidden 2s/4s sleep-and-retry that freezes the
@@ -64,6 +64,7 @@ local LOGIN_OPTS = { attempts = 1, timeout = 10 }
 local WIFI_SAFETY_TIMEOUT = 120 -- seconds (covers the retry pass too)
 local RELINK_DELAY = 5       -- seconds after connecting before retrying autolink
 local RELINK_COOLDOWN = 120  -- don't retry the same book on the same provider more often
+local RELOGIN_RUNNING_MAX = 120 -- seconds before a stuck "re-login in progress" is ignored
 local RELOGIN_COOLDOWN = 1800 -- seconds: max one auto re-login per provider per 30 min
 local RETRY_DELAY = 3 -- seconds before retrying providers that failed
 local CSRF_TTL = 120 -- seconds; Goodreads rotates tokens, same TTL goodreadskosync uses
@@ -221,6 +222,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 return
             end
         end
+        require("logger").warn("ShelfSync tweaks: menu item '" .. tostring(label)
+            .. "' not found -- ShelfSync wording changed? Fixed-size cookie dialog not applied.")
     end
 
     function GoodreadsMenu:_grkHandleResult(result, creds)
@@ -590,7 +593,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
     -- Tweaks settings + menu toggles ------------------------------------------
     local TWEAKS_FILE = DataStorage:getSettingsDir() .. "/shelfsync_tweaks.lua"
-    local DEFAULTS = { exclude_wikireader = true, relink_on_connect = true, auto_relogin = true } -- everything else defaults OFF
+    local DEFAULTS = { relink_on_connect = true, auto_relogin = true } -- everything else defaults OFF
     local function tweak(key)
         if not CACHE.tweaks then
             CACHE.tweaks = LuaSettings:open(TWEAKS_FILE).data or {}
@@ -612,36 +615,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         Goodreads = "hide_goodreads",
         Hardcover = "hide_hardcover",
         Fable = "hide_fable",
+        Pagebound = "hide_pagebound",
     }
-
-    local function isWikiReaderFile(file)
-        return tweak("exclude_wikireader")
-            and type(file) == "string" and file:find("/cache/wikireader/", 1, true) ~= nil
-    end
-
-    -- WikiReader exclusion
-    local ok_bs, BaseSettings = pcall(require, "shelfsync/lib/common/base_settings")
-    if ok_bs and BaseSettings and not BaseSettings.__ss_wiki_patched then
-        BaseSettings.__ss_wiki_patched = true
-        local orig_autolinkEnabled = BaseSettings.autolinkEnabled
-        BaseSettings.autolinkEnabled = function(self)
-            if isWikiReaderFile(self:getFilePath()) then return false end
-            return orig_autolinkEnabled(self)
-        end
-    end
-    local ok_bp, BaseProvider = pcall(require, "shelfsync/lib/common/base_provider")
-    if ok_bp and BaseProvider and not BaseProvider.__ss_wiki_patched then
-        BaseProvider.__ss_wiki_patched = true
-        local orig_tryAutolink = BaseProvider.tryAutolink
-        BaseProvider.tryAutolink = function(self, done)
-            local file = self.ui and self.ui.document and self.ui.document.file
-            if isWikiReaderFile(file) then
-                if done then done() end
-                return
-            end
-            return orig_tryAutolink(self, done)
-        end
-    end
 
     -- Hidden providers: never active, and left out of the Providers menu
     local ok_se, SyncEngine = pcall(require, "shelfsync/lib/common/sync_engine")
@@ -649,7 +624,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         SyncEngine.__ss_hide_patched = true
         local orig_isActive = SyncEngine.isActive
         SyncEngine.isActive = function(self)
-            if self.label then CACHE.engines[self.label] = self end
+            -- Back-reference so an api can find ITS engine (per book/instance;
+            -- no global map that could point at a closed book's engine)
+            if self.api and self.api.__ss_engine ~= self then self.api.__ss_engine = self end
             local key = HIDDEN[self.label]
             if key and tweak(key) then return false end
             return orig_isActive(self)
@@ -698,7 +675,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if not (ok_a and active) then return end
                 if not tweak("relink_on_connect") then return end
                 if engine.settings:bookLinked() then return end
-                if not engine.settings:autolinkEnabled() then return end -- also covers WikiReader exclusion
+                if not engine.settings:autolinkEnabled() then return end
 
                 CACHE.relink[engine.label] = { file = file, at = os.time() }
                 engine.settings:debugLog(engine.label .. ": network connected, retrying autolink for unlinked book")
@@ -746,8 +723,6 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if item.text == _("Verbose logging") then idx = i; break end
             end
             local new = {
-                toggle(_("Exclude WikiReader articles"), "exclude_wikireader",
-                    _("Don't auto-link Wikipedia articles opened with WikiReader (koreader/cache/wikireader/) to books on any provider.")),
                 toggle(_("Auto re-login when session expires"), "auto_relogin",
                     _("When a Goodreads or StoryGraph session expires and you've saved your login, sign in again automatically (once per 30 min) and re-send your progress. Goodreads may still ask for a verification code.")),
                 toggle(_("Retry autolink when Wi-Fi connects"), "relink_on_connect",
@@ -761,6 +736,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                             _("Remove Hardcover from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                         toggle(_("Goodreads"), "hide_goodreads",
                             _("Remove Goodreads from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                        toggle(_("Pagebound"), "hide_pagebound",
+                            _("Remove Pagebound from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                         toggle(_("StoryGraph"), "hide_storygraph",
                             _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                     },
@@ -814,6 +791,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
         local out = {}
         for _i, entry in ipairs(activeEngines(app)) do
+            local found = false
             for _i, item in ipairs(providerItems(entry)) do
                 local t = itemText(item)
                 if t:find("^Link book") or t:find("^Linked book") then
@@ -825,8 +803,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     end
                     item.separator = nil
                     out[#out + 1] = item
+                    found = true
                     break
                 end
+            end
+            if not found then
+                require("logger").warn("ShelfSync tweaks: no Link book item found for "
+                    .. entry.label .. " -- ShelfSync wording changed?")
             end
         end
         if #out == 0 then return placeholder(_("No enabled providers")) end
@@ -837,6 +820,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
         local out = {}
         for _i, entry in ipairs(activeEngines(app)) do
+            local found = false
             for _i, item in ipairs(providerItems(entry)) do
                 if itemText(item) == _("Update status") then
                     out[#out + 1] = {
@@ -846,8 +830,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                         sub_item_table_func = item.sub_item_table_func,
                         callback = item.callback,
                     }
+                    found = true
                     break
                 end
+            end
+            if not found then
+                require("logger").warn("ShelfSync tweaks: no Update status item found for "
+                    .. entry.label .. " -- ShelfSync wording changed?")
             end
         end
         if #out == 0 then return placeholder(_("No enabled providers")) end
@@ -1087,9 +1076,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
     -- Auto re-login ------------------------------------------------------------
     local function engineForApi(api)
-        for _i, e in pairs(CACHE.engines) do
-            if e.api == api then return e end
-        end
+        local e = api and api.__ss_engine
+        if e and e.api == api then return e end
     end
 
     -- After a successful re-login: re-send progress for the open book
@@ -1097,7 +1085,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         UIManager:show(require("ui/widget/notification"):new{
             text = label .. _(": session renewed"),
         })
-        if engine and engine.ui and engine.ui.document then
+        if engine and engine.ui and engine.ui.document and engine.ui.document.file then
             local ok_l, linked = pcall(engine.settings.bookLinked, engine.settings)
             if ok_l and linked then
                 UIManager:scheduleIn(2, function() engine:onUpdateProgress(nil, false) end)
@@ -1109,9 +1097,12 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local state = CACHE.reauth[label]
         local now = os.time()
         local email, password = loadCreds(cred_file)
+        -- `running` self-expires, so a callback that never fired can't wedge
+        -- auto re-login for this provider forever
+        local running = state and state.running and (now - state.at) < RELOGIN_RUNNING_MAX
         if not tweak("auto_relogin") or not email
-                or (state and (state.running or (now - state.at) < RELOGIN_COOLDOWN)) then
-            if not (state and state.running) then orig_notify(api) end
+                or running or (state and (now - state.at) < RELOGIN_COOLDOWN) then
+            if not running then orig_notify(api) end
             return
         end
         CACHE.reauth[label] = { at = now, running = true }
