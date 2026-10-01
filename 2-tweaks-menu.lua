@@ -7,9 +7,12 @@ KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
                     groups split by separators
 
 Moved plugins work exactly the same, they're just shown here instead of their
-usual spot. "Choose what's in Add-ons" (bottom of the list) turns each one on or
-off: off puts it back where it originally was (after a restart). Plugins you install later that aren't in PLUGINS are picked up
-automatically under "Other" (AUTO_COLLECT).
+usual spot. Newly installed plugins and patches (anything that adds a menu)
+are found automatically: you get a one-time notice and they show up, marked
+"New", in "Choose what's in Add-ons" for you to tick (AUTO_COLLECT). "Choose what's in Add-ons" (bottom of the list): tap an item to
+turn it on or off (off puts it back where it originally was), hold it to move
+it to another group. Both apply after a restart. Plugins you install later that aren't in PLUGINS are picked up
+under "Other" when you tick them (AUTO_COLLECT).
 
 Nothing is changed or saved: each menu build works on a copy of KOReader's
 menu order, so delete this file and restart, and every menu goes back where it
@@ -23,7 +26,10 @@ Install: koreader/patches/2-tweaks-menu.lua (Kobo: .adds/koreader/patches/), the
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
 local SHOW_HEADERS = true        -- group names above each group (false = separators only)
-local AUTO_COLLECT = true        -- put other plugins' Tools entries under "Other"
+local AUTO_COLLECT = true        -- find add-ons not listed below (new installs) and
+                                 -- offer them in "Choose what's in Add-ons"
+local NEW_GO_IN    = false       -- true: newly found add-ons go straight into
+                                 -- Add-ons; false: listed unticked, you choose
 
 -- Plugins, by group, shown in this order. An id is the key a plugin uses in
 -- addToMainMenu (menu_items.<id>), or a built-in id from KOReader's
@@ -49,14 +55,15 @@ local PLUGINS = {
     },
     { header = "System",
         "Storefront",             -- Storefront
-        "backup",                 -- Backup & Restore
+        "backup",                 -- Device Backup & Restore
+        "backup_patches",         -- Patch Backup & Restore (patch)
         "menu_disabler",          -- Menu Disabler (Menu customizer)
     },
 }
 
--- Menus added by patches (not plugins), shown in the "Patches" group together
--- with settings from patches that register themselves (e.g. SimpleUI Mod).
--- Same ids as above: the key the patch uses in menu_items.<id>.
+-- Menus added by patches that aren't placed in a group above: they go in the
+-- "Patches" group, with settings from patches that register themselves
+-- (e.g. SimpleUI Mod). Any id - plugin or patch - can go in any group above.
 local PATCH_MENUS = {
     "go_to_furthest_reading_location", -- Track Reading Location (reader only)
 }
@@ -100,6 +107,38 @@ TM.menu_id = MENU_ID
 local SETTINGS_KEY = "addons_menu_excluded"
 local excluded = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
 
+-- Group chosen in "Choose what's in Add-ons" (hold an item): [key] = group name.
+local GROUPS_KEY = "addons_menu_groups"
+local group_of = G_reader_settings and G_reader_settings:readSetting(GROUPS_KEY) or {}
+
+-- Add-ons found so far ([id] = true), and ones not yet seen in the chooser.
+local KNOWN_KEY, NEW_KEY = "addons_menu_known", "addons_menu_new"
+local known_ids = G_reader_settings and G_reader_settings:readSetting(KNOWN_KEY)
+local new_ids = G_reader_settings and G_reader_settings:readSetting(NEW_KEY) or {}
+
+-- KOReader's own menu ids, read from its files on disk, so ids other patches
+-- added to the menu order at load time don't count as built in.
+local stock_cache = {}
+local function stockIds(where)
+    if stock_cache[where] ~= nil then return stock_cache[where] end
+    local ids = false
+    local chunk = loadfile("frontend/ui/elements/" .. where .. "_menu_order.lua")
+    if chunk then
+        local ok, order = pcall(chunk)
+        if ok and type(order) == "table" then
+            ids = {}
+            for k, l in pairs(order) do
+                ids[k] = true
+                if type(l) == "table" then
+                    for _i, v in ipairs(l) do ids[v] = true end
+                end
+            end
+        end
+    end
+    stock_cache[where] = ids
+    return ids
+end
+
 function TM.shows(id)
     return not excluded["patch:" .. tostring(id)]
 end
@@ -107,6 +146,7 @@ end
 -- what the last menu build found, per menu ("filemanager" / "reader"), for the
 -- chooser: { { key = ..., label = ..., header = ... }, ... }
 local seen = {}
+local seen_groups = {}   -- group names of the last build, in order
 
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -127,9 +167,46 @@ end
 
 local restart_asked = false   -- one prompt per visit to the chooser
 
+local function saveAndAsk(key, value)
+    if G_reader_settings then
+        G_reader_settings:saveSetting(key, value)
+        if G_reader_settings.flush then G_reader_settings:flush() end
+    end
+    if not restart_asked then
+        restart_asked = true
+        askRestart()
+    end
+end
+
+-- Hold an item in the chooser: pick the group it goes in.
+local function pickGroup(c, touchmenu)
+    local ok, ButtonDialog = pcall(require, "ui/widget/buttondialog")
+    local okm, UIManager = pcall(require, "ui/uimanager")
+    if not (ok and okm) then return end
+    local dlg
+    local buttons = {}
+    for _i, name in ipairs(seen_groups) do
+        local current = (group_of[c.key] or c.default) == name
+        buttons[#buttons + 1] = {{
+            text = (current and "\u{2713} " or "") .. name
+                .. (name == c.default and ("  " .. _("(default)")) or ""),
+            callback = function()
+                UIManager:close(dlg)
+                local value = (name ~= c.default) and name or nil
+                if group_of[c.key] == value then return end
+                group_of[c.key] = value
+                saveAndAsk(GROUPS_KEY, group_of)
+                if touchmenu then touchmenu:updateItems() end
+            end,
+        }}
+    end
+    dlg = ButtonDialog:new{ title = c.label, buttons = buttons }
+    UIManager:show(dlg)
+end
+
 local function chooserItems(where)
     restart_asked = false
-    local out, last_header = {}, nil
+    local out, last_header = { { text = _("Tap: in or out · Hold: move to a group"), enabled = false, separator = true } }, nil
     for _i, c in ipairs(seen[where] or {}) do
         if c.header ~= last_header then
             if #out > 0 then out[#out].separator = true end
@@ -138,24 +215,24 @@ local function chooserItems(where)
             end
             last_header = c.header
         end
+        local is_new = new_ids[c.key]
         out[#out + 1] = {
-            text = c.label,
+            text = is_new and (c.label .. "  • " .. _("New")) or c.label,
             checked_func = function() return not excluded[c.key] end,
             keep_menu_open = true,
             callback = function()
                 excluded[c.key] = (not excluded[c.key]) or nil
-                if G_reader_settings then
-                    G_reader_settings:saveSetting(SETTINGS_KEY, excluded)
-                    if G_reader_settings.flush then G_reader_settings:flush() end
-                end
-                if not restart_asked then
-                    restart_asked = true
-                    askRestart()
-                end
+                saveAndAsk(SETTINGS_KEY, excluded)
             end,
+            hold_callback = function(touchmenu) pickGroup(c, touchmenu) end,
         }
     end
-    if #out == 0 then out[1] = { text = _("Nothing to choose yet"), enabled = false } end
+    if #out == 1 then out[1] = { text = _("Nothing to choose yet"), enabled = false } end
+    -- shown once: the next time you open this list they're no longer "new"
+    if next(new_ids) ~= nil then
+        new_ids = {}
+        if G_reader_settings then G_reader_settings:saveSetting(NEW_KEY, new_ids) end
+    end
     return out
 end
 
@@ -229,14 +306,8 @@ local function inject(where, items, order)
         return type(id) == "string" and id:sub(1, #MENU_ID) ~= MENU_ID
            and items[id] ~= nil and not disabled[id] and not claimed[id]
     end
-    -- record a candidate for the chooser; true if it should go in Add-ons
-    local function claim(key, id, header)
-        claimed[id] = true
-        found[#found + 1] = { key = key, label = itemLabel(items[id], id), header = header }
-        return not excluded[key]
-    end
 
-    -- Plugins: the configured groups
+    -- Rows of the Add-ons list
     local plist = {}
     local function addGroup(header, ids)
         if #ids == 0 then return end
@@ -248,60 +319,137 @@ local function inject(where, items, order)
         end
         for _i, id in ipairs(ids) do plist[#plist + 1] = id end
     end
+
+    -- Every candidate in its default order: { key, id, label, group }
+    local OTHER, PATCHES = _("Other"), _("Patches")
+    local cands = {}
+    local function add(key, id, label, group)
+        claimed[id] = true
+        cands[#cands + 1] = { key = key, id = id, label = label, default = group }
+    end
     for _i, g in ipairs(PLUGINS) do
-        local ids = {}
         for _j, id in ipairs(g) do
-            if usable(id) and claim(id, id, g.header) then
-                moved[id] = true
-                ids[#ids + 1] = id
-            end
+            if usable(id) then add(id, id, itemLabel(items[id], id), g.header) end
         end
-        addGroup(g.header, ids)
     end
 
-    -- Plugins: anything else placed by sorting_hint that KOReader's order doesn't
-    -- know about (i.e. a plugin not listed above) goes under "Other"
+    -- Add-ons not listed above (new installs): every top-level menu that isn't
+    -- KOReader's own, ours, a patch menu listed below, or a submenu inside
+    -- another add-on's menu. Falls back to plugins with a Tools placement hint
+    -- if KOReader's menu files can't be read.
     if AUTO_COLLECT then
-        local in_order = {}
-        for _k, l in pairs(order) do
+        local stock = stockIds(where)
+        local skip = {}
+        for _i, id in ipairs(PATCH_MENUS) do skip[id] = true end
+        for id in pairs(TM.entries) do skip[id] = true end
+        local in_order, children = {}, {}
+        for k, l in pairs(order) do
             if type(l) == "table" then
-                for _i, v in ipairs(l) do in_order[v] = true end
+                local add_on_list = stock and not stock[k] and k ~= MENU_ID
+                for _i, v in ipairs(l) do
+                    in_order[v] = true
+                    if add_on_list then children[v] = true end
+                end
             end
         end
         local others = {}
         for id, item in pairs(items) do
-            if usable(id) and not in_order[id] and type(item) == "table"
-               and (item.sorting_hint == "tools" or item.sorting_hint == "more_tools") then
-                others[#others + 1] = id
+            if usable(id) and not skip[id] and type(item) == "table"
+               and not id:find("^KOMenu:") and (item.text or item.text_func) then
+                local addon
+                if stock then
+                    addon = not stock[id] and not children[id]
+                else
+                    addon = not in_order[id] and (item.sorting_hint == "tools" or item.sorting_hint == "more_tools")
+                end
+                if addon then others[#others + 1] = id end
             end
         end
         table.sort(others, function(a, b) return itemLabel(items[a], a) < itemLabel(items[b], b) end)
-        local ids = {}
+
+        -- first run with this feature: what's installed now isn't "new"
+        local first_run = known_ids == nil
+        known_ids = known_ids or {}
+        local fresh = {}
         for _i, id in ipairs(others) do
-            if claim(id, id, _("Other")) then
-                moved[id] = true
-                ids[#ids + 1] = id
+            if not known_ids[id] then
+                known_ids[id] = true
+                if first_run then
+                    -- keep today's layout: only what was already collected
+                    -- (Tools entries KOReader didn't place) starts ticked
+                    local it = items[id]
+                    if in_order[id] or not (it.sorting_hint == "tools" or it.sorting_hint == "more_tools") then
+                        excluded[id] = true
+                    end
+                else
+                    fresh[#fresh + 1] = id
+                    new_ids[id] = true
+                    if not NEW_GO_IN then excluded[id] = true end
+                end
+            end
+            add(id, id, itemLabel(items[id], id), OTHER)
+        end
+        if first_run or #fresh > 0 then
+            if G_reader_settings then
+                G_reader_settings:saveSetting(KNOWN_KEY, known_ids)
+                G_reader_settings:saveSetting(NEW_KEY, new_ids)
+                G_reader_settings:saveSetting(SETTINGS_KEY, excluded)
+                if G_reader_settings.flush then G_reader_settings:flush() end
             end
         end
-        addGroup(_("Other"), ids)
+        if #fresh > 0 then
+            local names = {}
+            for _i, id in ipairs(fresh) do names[#names + 1] = itemLabel(items[id], id) end
+            local ok, Notification = pcall(require, "ui/widget/notification")
+            if ok and type(Notification) == "table" and Notification.notify then
+                pcall(Notification.notify, Notification,
+                    (#fresh == 1 and _("New add-on: ") or _("New add-ons: ")) .. table.concat(names, ", "))
+            end
+        end
     end
 
-    -- Patches, as the last group: menus added by patches, then registered entries
-    local xids = {}
+    -- menus added by patches, then settings from patches that register
     for _i, id in ipairs(PATCH_MENUS) do
-        if usable(id) and claim(id, id, _("Patches")) then
-            moved[id] = true
-            xids[#xids + 1] = id
-        end
+        if usable(id) then add(id, id, itemLabel(items[id], id), PATCHES) end
     end
     for _i, e in ipairs(buildEntries(where)) do
         local cid = ENTRY_ID .. "p:" .. e.id
         items[cid] = e.item
-        claimed[cid] = true
-        found[#found + 1] = { key = "patch:" .. e.id, label = e.text, header = _("Patches") }
-        if not excluded["patch:" .. e.id] then xids[#xids + 1] = cid end
+        add("patch:" .. e.id, cid, e.text, PATCHES)
     end
-    addGroup(_("Patches"), xids)
+
+    -- groups in display order; a group chosen by hold must be one of them
+    local names, known = {}, {}
+    for _i, g in ipairs(PLUGINS) do
+        if g.header and not known[g.header] then names[#names + 1] = g.header; known[g.header] = true end
+    end
+    for _i, n in ipairs({ OTHER, PATCHES }) do
+        if not known[n] then names[#names + 1] = n; known[n] = true end
+    end
+    -- a group's own items first, then ones moved into it (in the order listed)
+    local buckets = {}
+    for pass = 1, 2 do
+        for _i, c in ipairs(cands) do
+            local g = group_of[c.key]
+            c.group = (g and known[g]) and g or c.default
+            if (pass == 1) == (c.group == c.default) then
+                buckets[c.group] = buckets[c.group] or {}
+                table.insert(buckets[c.group], c)
+            end
+        end
+    end
+    for _i, name in ipairs(names) do
+        local ids = {}
+        for _j, c in ipairs(buckets[name] or {}) do
+            found[#found + 1] = { key = c.key, label = c.label, header = name, default = c.default }
+            if not excluded[c.key] then
+                moved[c.id] = true
+                ids[#ids + 1] = c.id
+            end
+        end
+        addGroup(name, ids)
+    end
+    seen_groups = names
 
     if #found == 0 then return nil end
     seen[where] = found
