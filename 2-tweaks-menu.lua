@@ -367,9 +367,13 @@ local function inject(where, items, order)
         end
         table.sort(others, function(a, b) return itemLabel(items[a], a) < itemLabel(items[b], b) end)
 
-        -- first run with this feature: what's installed now isn't "new"
-        local first_run = known_ids == nil
+        -- first run with this feature, per menu (file browser and reader are
+        -- built separately, often in different sessions): what's installed
+        -- now isn't "new"
         known_ids = known_ids or {}
+        local run_flag = "@first_run_done:" .. where
+        local first_run = not known_ids[run_flag]
+        known_ids[run_flag] = true
         local fresh = {}
         for _i, id in ipairs(others) do
             if not known_ids[id] then
