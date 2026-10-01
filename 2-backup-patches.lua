@@ -203,6 +203,7 @@ local function targetStore(target, from_disk)
     if type(target.store) == "function" then
         local ok, data, flush = pcall(target.store, from_disk)
         if ok and type(data) == "table" then return data, flush or function() end end
+        if not ok then logger.warn("backup_patches: settings store failed for", target.id, data) end
         return nil
     end
     if not G_reader_settings then return nil end
@@ -339,7 +340,7 @@ local function makeBackup(target, tag)
     local settings = collectSettings(target)
     local files = existingFiles(target)
     if next(settings) == nil and #files == 0 then
-        return nil, _("Nothing to back up yet: no settings saved.")
+        return nil, _("Nothing to back up yet: no settings saved."), "empty"
     end
 
     -- Every icon file the settings point to, flattened into icons/ with
@@ -368,6 +369,12 @@ local function makeBackup(target, tag)
         files = files, -- settings files, stored under files/
     }
 
+    local ok_d, manifest_src = pcall(dump, manifest)
+    if not ok_d then
+        logger.warn("backup_patches: could not serialise settings for", target.id, manifest_src)
+        return nil, _("Could not read these settings.")
+    end
+
     util.makePath(targetDir(target))
     local path = string.format("%s/%s_%s%s.zip", targetDir(target), target.id,
         os.date("%Y-%m-%d_%H%M%S"), tag and ("_" .. tag) or "")
@@ -375,7 +382,7 @@ local function makeBackup(target, tag)
     local w = Archiver.Writer:new()
     if not w:open(path, "zip") then return nil, w.err or _("Could not create zip.") end
     local count = 0
-    local ok = w:addFileFromMemory(MANIFEST, "return " .. dump(manifest))
+    local ok = w:addFileFromMemory(MANIFEST, "return " .. manifest_src)
     for name, orig in pairs(icons) do
         local data = readFile(orig)
         if data and w:addFileFromMemory("icons/" .. name, data) then count = count + 1 end
@@ -410,8 +417,13 @@ local function restoreBackup(target, zip_path)
         return nil, _("This backup belongs to something else.")
     end
 
-    -- Safety net: snapshot the current setup first (skipped if there's none).
-    makeBackup(target, "before-restore")
+    -- Safety net: snapshot the current setup first. Nothing to save is fine;
+    -- any other failure stops the restore before anything is changed.
+    local safe, safe_err, safe_why = makeBackup(target, "before-restore")
+    if not safe and safe_why ~= "empty" then
+        r:close()
+        return nil, T(_("Couldn't make the safety backup, so nothing was changed.\n\n%1"), tostring(safe_err))
+    end
 
     -- All icons go into one folder; remember old path -> new path.
     local remap, count = {}, 0
@@ -469,7 +481,8 @@ end
 local function tidyIcons(target)
     local stray = strayIcons(target)
     if #stray == 0 then return 0 end
-    makeBackup(target, "before-tidy")
+    local safe, safe_err, safe_why = makeBackup(target, "before-tidy")
+    if not safe and safe_why ~= "empty" then return nil, safe_err end
     util.makePath(target.icon_dir)
 
     local remap, moved = {}, 0
@@ -778,9 +791,24 @@ local function iconsMenu()
 
 
     local function runTidy(list)
-        local total = 0
-        for _i, t in ipairs(list) do total = total + tidyIcons(t) end
-        UIManager:askForRestart(T(_("Tidied %1 icons.\n\nKOReader needs to restart."), total))
+        local total, skipped = 0, {}
+        for _i, t in ipairs(list) do
+            local n, err = tidyIcons(t)
+            if n then
+                total = total + n
+            else
+                skipped[#skipped + 1] = T(_("%1: %2"), t.text, tostring(err))
+            end
+        end
+        if #skipped > 0 then
+            -- Left untouched: their safety backup couldn't be made.
+            UIManager:show(InfoMessage:new{
+                text = T(_("Skipped, couldn't make the safety backup:\n%1"), table.concat(skipped, "\n")),
+            })
+        end
+        if total > 0 then
+            UIManager:askForRestart(T(_("Tidied %1 icons.\n\nKOReader needs to restart."), total))
+        end
     end
 
     return {
@@ -1212,7 +1240,8 @@ local function applyIconPaths(archive_path, options)
         local m = Arch.readManifest(archive_path)
         comps = m and m.components
     end
-    if comps and not comps.settings then return end
+    -- If it can't be told whether settings came back, leave them alone.
+    if type(comps) ~= "table" or not comps.settings then return end
 
     local plan = readPlan(Arch, archive_path)
     if not plan then return end
