@@ -1,6 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
+Version: 1.0.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -11,8 +12,9 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
       Keep original    – icons keep their true colours, even in night mode
       Inverted         – icon colours flipped relative to the UI
     (no background tile – only the icon pixels are flipped)
-  • Optional on/off indicator per icon (follow Wi-Fi, frontlight or night
-    mode): dim when off, inverted tile when off or when on, or swap to an
+  • Optional on/off indicator per icon. Follows Wi-Fi, frontlight, night
+    mode, SSH server, Calibre connection, or a remembered tap toggle.
+    Off/on styles: dim when off, inverted tile when off or when on, or an
     alternate "off" icon.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
@@ -21,10 +23,20 @@ home-screen module. Does not modify any plugin files.
 Install: drop in koreader/patches/ and restart KOReader.
 Custom icons: put them in koreader/icons/ (or anywhere) and pick them from
 the menu.
+
+Cost: icons left untouched get no hooks at all. Tweaked icons add one small
+check per redraw. Wi-Fi/SSH/Calibre indicators run at most one short
+catch-up timer after a tap (stops as soon as the state changes). Nothing
+runs in the background or while asleep.
+
+Changelog
+  1.0.0  First release: custom icons, colour modes, on/off indicators
+         (Wi-Fi, frontlight, night mode, SSH, Calibre, tap toggle).
 --]]
 
 local userpatch = require("userpatch")
 
+local PATCH_VERSION = "1.0.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (follow UI)" },
@@ -81,16 +93,25 @@ local STATES = {
 -- Tap-toggle state is shared by shortcut NAME, so the same shortcut set up
 -- in the reader and the library (which get different internal keys) stays
 -- in sync.
+local toggle_id_cache = {}  -- cleared on every toolbar build
+
 local function toggleId(key)
+    if toggle_id_cache[key] then return toggle_id_cache[key] end
+    local id = "key:" .. key
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     if ok_m then
         for _i, view in ipairs({ "reader", "fb", "simpleui" }) do
             for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
-                if it.key == key then return "label:" .. tostring(it.label or key) end
+                if it.key == key then
+                    id = "label:" .. tostring(it.label or key)
+                    toggle_id_cache[key] = id
+                    return id
+                end
             end
         end
     end
-    return "key:" .. key
+    toggle_id_cache[key] = id
+    return id
 end
 
 local function getToggled(key)
@@ -195,6 +216,12 @@ local function tweakButton(btn, key)
 end
 
 -- After a tap, re-draw a few times so async state (Wi-Fi) catches up.
+-- Only these change in the background after a tap (connecting, starting a
+-- server). Tap toggle repaints instantly; night mode repaints the whole
+-- screen; frontlight changes through its own dialog.
+local ASYNC_STATES = { wifi = true, calibre = true, ssh = true }
+local REFRESH_STEPS = { 1, 3, 6, 10 } -- seconds after the tap
+
 local function addStateRefresh(btn, key)
     local UIManager = require("ui/uimanager")
     local cb = btn.callback
@@ -210,14 +237,36 @@ local function addStateRefresh(btn, key)
             saveSettings(s)
             if top and btn.dimen then UIManager:setDirty(top, "ui", btn.dimen) end
         end
-        cb(...)
-        for _, d in ipairs({ 1, 3, 6, 10 }) do
-            UIManager:scheduleIn(d, function()
-                if top and btn.dimen and UIManager:getTopmostVisibleWidget() == top then
-                    UIManager:setDirty(top, "ui", btn.dimen)
-                end
-            end)
+        local state = k and STATE_BY_ID[k.state]
+        local async = state and ASYNC_STATES[state.id]
+        local before
+        if async then
+            local ok, v = pcall(state.get, key)
+            before = ok and (v and true or false) or nil
         end
+        cb(...)
+        if not async then return end
+
+        -- One catch-up timer per button, never stacked: a new tap cancels
+        -- the previous chain. The chain stops as soon as the state actually
+        -- changes or the screen changes, so usually it's 1-2 wake-ups.
+        if btn._stb_refresh then UIManager:unschedule(btn._stb_refresh) end
+        local step = 0
+        local function tick()
+            step = step + 1
+            local still_here = top and btn.dimen and UIManager:getTopmostVisibleWidget() == top
+            if not still_here then btn._stb_refresh = nil; return end
+            local ok, now = pcall(state.get, key)
+            local changed = ok and before ~= nil and (now and true or false) ~= before
+            if changed or step >= #REFRESH_STEPS then
+                UIManager:setDirty(top, "ui", btn.dimen)
+                btn._stb_refresh = nil
+                return
+            end
+            UIManager:scheduleIn(REFRESH_STEPS[step + 1] - REFRESH_STEPS[step], tick)
+        end
+        btn._stb_refresh = tick
+        UIManager:scheduleIn(REFRESH_STEPS[1], tick)
     end
 end
 
@@ -258,6 +307,7 @@ local function withCapture(config, fn, ...)
     local padding_h = Screen:scaleBySize(config.spacing or 8)
     local queue = expectedKeys(config)
     local desynced = false
+    toggle_id_cache = {} -- pick up renamed shortcuts
     local captured = {}
     local orig_new = IconButton.new
 
@@ -565,6 +615,11 @@ local function buildMenu()
                         end,
                     })
                 end,
+                separator = true,
+            })
+            table.insert(t, {
+                text = _("Icon tweaks v") .. PATCH_VERSION,
+                enabled = false,
             })
             return t
         end,
@@ -574,6 +629,8 @@ end
 -- --------------------------------------------------------------------------
 -- Entry point
 -- --------------------------------------------------------------------------
+
+require("logger").info("shortcutstoolbar icon tweaks v" .. PATCH_VERSION)
 
 userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
     hookHomeContent()
