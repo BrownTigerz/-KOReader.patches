@@ -1,7 +1,14 @@
 --[[
-2-backup-patches.lua
+2-backup-patches.lua                                     v1.0.0 (2026-10-02)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
+
+Tested with
+  backup.koplugin   26.9.28.3 (stable, no icons), 26.9.29-beta, 26.9.30-beta
+  SimpleUI          simpleui.koplugin, 2026-09-30 (9492046)
+  ShelfSync         Lyfts/ShelfSync, 2026-09-30 (a8a5c4a)
+Recheck after a major update to any of these: this patch relies on how they
+store settings and logins, and on backup.koplugin's backup/restore code.
 
 Menu:  Tools → Patch Backup & Restore
        With the Add-ons patch it's under Tools → Add-ons → Patches instead,
@@ -75,8 +82,13 @@ koreader/settings/):
 Needs a KOReader build with zip support (ffi/archiver, 2024+).
 
 Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
-then restart.
+then restart. The version shows at the bottom of the menu.
+
+Changelog
+  1.0.0  2026-10-02  First release.
 --]]
+
+local VERSION = "1.0.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -98,6 +110,7 @@ local ICON_EXT = { svg = true, png = true, jpg = true, jpeg = true }
 
 local Backup = package.loaded.backup_patches or { targets = {} }
 package.loaded.backup_patches = Backup
+Backup.version = VERSION
 Backup.targets = Backup.targets or {}
 
 function Backup.register(target)
@@ -994,6 +1007,11 @@ mainItems = function()
                 end,
             })
         end,
+        separator = true,
+    })
+    table.insert(items, {
+        text = T(_("Version %1"), VERSION),
+        enabled = false,
     })
     return items
 end
@@ -1442,4 +1460,4 @@ Backup.register{
     end,
 }
 
-logger.dbg("backup_patches: loaded", #Backup.targets, "targets")
+logger.dbg("backup_patches: v" .. VERSION .. " loaded,", #Backup.targets, "targets")
