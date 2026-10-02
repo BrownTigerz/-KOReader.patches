@@ -2,26 +2,42 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
+Version: 1.0.0
+
+Changelog:
+  1.0.0  2026-10-02  First release.
+
+Versioning:
+  1.0.x  fixes (e.g. adapting to a KOReader or plugin menu id rename)
+  1.x.0  new features
+  2.0.0  anything that changes how saved Add-ons choices work
+
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
                     groups split by separators
 
 Moved plugins work exactly the same, they're just shown here instead of their
-usual spot. Newly installed plugins and patches (anything that adds a menu)
-are found automatically: you get a one-time notice and they show up, marked
-"New", in "Choose what's in Add-ons" for you to tick (AUTO_COLLECT). "Choose what's in Add-ons" (bottom of the list): tap an item to
-turn it on or off (off puts it back where it originally was), hold it to move
-it to another group. Both apply after a restart. Plugins you install later that aren't in PLUGINS are picked up
-under "Other" when you tick them (AUTO_COLLECT).
+usual spot.
 
-Nothing is changed or saved: each menu build works on a copy of KOReader's
-menu order, so delete this file and restart, and every menu goes back where it
-was. An id that doesn't exist (not installed, renamed by an update) is skipped.
-Items hidden with a menu-order file / Menu Disabler ("KOMenu:disabled") stay
-hidden. A built-in submenu left empty by moving all its items out is hidden.
+Newly installed plugins and patches (anything that adds a menu) are found
+automatically (AUTO_COLLECT): you get a one-time notice, and they show up
+marked "New" in "Choose what's in Add-ons", under "Other", for you to tick.
+
+"Choose what's in Add-ons" (bottom of the list): tap an item to turn it on or
+off (off puts it back where it originally was), hold it to move it to another
+group. Both apply after a restart.
+
+KOReader's menu order is never modified: each menu build works on a copy, so
+delete this file and restart, and every menu goes back where it was. Only your
+Add-ons choices are saved (in settings.reader.lua). An id that doesn't exist
+(not installed, renamed by an update) is skipped. Items hidden with a
+menu-order file / Menu Disabler ("KOMenu:disabled") stay hidden. A built-in
+submenu left empty by moving all its items out is hidden.
 
 Install: koreader/patches/2-tweaks-menu.lua (Kobo: .adds/koreader/patches/), then restart.
 ]]
+
+local VERSION = "1.0.0"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -85,6 +101,7 @@ local PATCH_MENUS = {
   Add-ons": show your own menu entry then, as if this patch weren't installed.
   TM.active is true once this patch has loaded. Check it inside your own menu hook
   (menu build time), not at load time, so patch file order doesn't matter.
+  TM.version is this patch's version string.
 ]]
 
 local logger = require("logger")
@@ -101,6 +118,7 @@ package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
 TM.active  = true
 TM.menu_id = MENU_ID
+TM.version = VERSION
 
 -- Items turned off in "Choose what's in Add-ons" (kept in their original spot).
 -- Plugins by menu id, patches as "patch:<id>".
@@ -143,10 +161,11 @@ function TM.shows(id)
     return not excluded["patch:" .. tostring(id)]
 end
 
--- what the last menu build found, per menu ("filemanager" / "reader"), for the
--- chooser: { { key = ..., label = ..., header = ... }, ... }
+-- What the last menu build found, per menu ("filemanager" / "reader"), for the
+-- chooser: seen[where] = { { key, label, header, default }, ... },
+-- seen_groups[where] = group names in display order.
 local seen = {}
-local seen_groups = {}   -- group names of the last build, in order
+local seen_groups = {}
 
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -179,13 +198,13 @@ local function saveAndAsk(key, value)
 end
 
 -- Hold an item in the chooser: pick the group it goes in.
-local function pickGroup(c, touchmenu)
+local function pickGroup(where, c, touchmenu)
     local ok, ButtonDialog = pcall(require, "ui/widget/buttondialog")
     local okm, UIManager = pcall(require, "ui/uimanager")
     if not (ok and okm) then return end
     local dlg
     local buttons = {}
-    for _i, name in ipairs(seen_groups) do
+    for _i, name in ipairs(seen_groups[where] or {}) do
         local current = (group_of[c.key] or c.default) == name
         buttons[#buttons + 1] = {{
             text = (current and "\u{2713} " or "") .. name
@@ -206,8 +225,9 @@ end
 
 local function chooserItems(where)
     restart_asked = false
+    local list = seen[where] or {}
     local out, last_header = { { text = _("Tap: in or out · Hold: move to a group"), enabled = false, separator = true } }, nil
-    for _i, c in ipairs(seen[where] or {}) do
+    for _i, c in ipairs(list) do
         if c.header ~= last_header then
             if #out > 0 then out[#out].separator = true end
             if SHOW_HEADERS and c.header then
@@ -224,15 +244,21 @@ local function chooserItems(where)
                 excluded[c.key] = (not excluded[c.key]) or nil
                 saveAndAsk(SETTINGS_KEY, excluded)
             end,
-            hold_callback = function(touchmenu) pickGroup(c, touchmenu) end,
+            hold_callback = function(touchmenu) pickGroup(where, c, touchmenu) end,
         }
     end
     if #out == 1 then out[1] = { text = _("Nothing to choose yet"), enabled = false } end
-    -- shown once: the next time you open this list they're no longer "new"
-    if next(new_ids) ~= nil then
-        new_ids = {}
-        if G_reader_settings then G_reader_settings:saveSetting(NEW_KEY, new_ids) end
+    -- shown once: the next time you open this list they're no longer "new".
+    -- Only clear what this menu actually showed, so a reader-only add-on keeps
+    -- its tag until you open the chooser in the reader.
+    local cleared = false
+    for _i, c in ipairs(list) do
+        if new_ids[c.key] then
+            new_ids[c.key] = nil
+            cleared = true
+        end
     end
+    if cleared and G_reader_settings then G_reader_settings:saveSetting(NEW_KEY, new_ids) end
     return out
 end
 
@@ -267,20 +293,20 @@ local function buildEntries(where)
     for id, e in pairs(TM.entries) do
         if type(e) == "table" and type(e.build) == "function"
            and (e.where == nil or e.where == where) then
-          if excluded["patch:" .. id] then
-            -- turned off: listed in the chooser only, not built
-            list[#list + 1] = { id = id, order = e.order or 100, text = e.text or id, off = true }
-          else
-            -- one broken patch must not take the whole menu (or KOReader) down
-            local ok, item = pcall(e.build, where)
-            if ok and type(item) == "table" then
-                if not item.text and not item.text_func then item.text = e.text or id end
-                list[#list + 1] = { id = id, order = e.order or 100,
-                                    text = e.text or tostring(item.text), item = item }
-            elseif not ok then
-                logger.warn(TAG, "menu build failed for", id, item)
+            if excluded["patch:" .. id] then
+                -- turned off: listed in the chooser only, not built
+                list[#list + 1] = { id = id, order = e.order or 100, text = e.text or id, off = true }
+            else
+                -- one broken patch must not take the whole menu (or KOReader) down
+                local ok, item = pcall(e.build, where)
+                if ok and type(item) == "table" then
+                    if not item.text and not item.text_func then item.text = e.text or id end
+                    list[#list + 1] = { id = id, order = e.order or 100,
+                                        text = e.text or tostring(item.text), item = item }
+                elseif not ok then
+                    logger.warn(TAG, "menu build failed for", id, item)
+                end
             end
-          end
         end
     end
     table.sort(list, function(a, b)
@@ -352,7 +378,7 @@ local function inject(where, items, order)
                 end
             end
         end
-        local others = {}
+        local others, labels = {}, {}
         for id, item in pairs(items) do
             if usable(id) and not skip[id] and type(item) == "table"
                and not id:find("^KOMenu:") and (item.text or item.text_func) then
@@ -362,10 +388,13 @@ local function inject(where, items, order)
                 else
                     addon = not in_order[id] and (item.sorting_hint == "tools" or item.sorting_hint == "more_tools")
                 end
-                if addon then others[#others + 1] = id end
+                if addon then
+                    others[#others + 1] = id
+                    labels[id] = itemLabel(item, id)   -- once, not per comparison
+                end
             end
         end
-        table.sort(others, function(a, b) return itemLabel(items[a], a) < itemLabel(items[b], b) end)
+        table.sort(others, function(a, b) return labels[a] < labels[b] end)
 
         -- first run with this feature, per menu (file browser and reader are
         -- built separately, often in different sessions): what's installed
@@ -391,7 +420,7 @@ local function inject(where, items, order)
                     if not NEW_GO_IN then excluded[id] = true end
                 end
             end
-            add(id, id, itemLabel(items[id], id), OTHER)
+            add(id, id, labels[id], OTHER)
         end
         if first_run or #fresh > 0 then
             if G_reader_settings then
@@ -403,7 +432,7 @@ local function inject(where, items, order)
         end
         if #fresh > 0 then
             local names = {}
-            for _i, id in ipairs(fresh) do names[#names + 1] = itemLabel(items[id], id) end
+            for _i, id in ipairs(fresh) do names[#names + 1] = labels[id] end
             local ok, Notification = pcall(require, "ui/widget/notification")
             if ok and type(Notification) == "table" and Notification.notify then
                 pcall(Notification.notify, Notification,
@@ -423,6 +452,8 @@ local function inject(where, items, order)
     end
 
     -- groups in display order; a group chosen by hold must be one of them
+    -- (an unknown saved group, e.g. a renamed header, falls back to the default
+    -- but is kept, so renaming it back restores your choice)
     local names, known = {}, {}
     for _i, g in ipairs(PLUGINS) do
         if g.header and not known[g.header] then names[#names + 1] = g.header; known[g.header] = true end
@@ -453,10 +484,10 @@ local function inject(where, items, order)
         end
         addGroup(name, ids)
     end
-    seen_groups = names
 
     if #found == 0 then return nil end
     seen[where] = found
+    seen_groups[where] = names
 
     -- the chooser, always last, so turned-off items can be turned back on
     local cid = ENTRY_ID .. "choose"
@@ -551,7 +582,9 @@ if ok_ms and type(MenuSorter) == "table" and not MenuSorter._tweaks_mods_hooked
     MenuSorter.mergeAndSort = function(self, prefix, ...)
         local prev = cur_where
         cur_where = prefix
-        local res = pack(pcall(orig_mas, self, prefix, ...))
+        -- xpcall + traceback: if KOReader's own sort fails, crash.log still
+        -- shows where, not just this wrapper
+        local res = pack(xpcall(orig_mas, debug.traceback, self, prefix, ...))
         cur_where = prev
         if not res[1] then error(res[2], 0) end
         return unpack(res, 2, res.n)
