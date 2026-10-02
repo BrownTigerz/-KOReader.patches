@@ -2,11 +2,16 @@
 --redesigns the inbuilt 'banner' type sleep screen message to
 --make it look like the kobo lockscreen tag.
 
---[ v2.2.0 ]
---added fallback random quote from a txt file when a book has no highlights
---seeded RNG, wider no-repeat window for highlights/quotes, quotes file
---reloads when it changes on disk instead of only once per session, and
---dropped an unnecessary Sidecar:flush() on every sleep
+--VERSIONING
+--1.0.x = fixes (e.g. adapting to a ShelfSync token rename)
+--1.x.0 = new features
+--2.0.0 = changes that affect how existing backups work
+
+--[ v1.0.0 ] -- 2026-10-02
+--First release. Kobo-style banner with book title/stats, a random highlight
+--(scoped per-book, no-repeat window), and a fallback random quote from a txt
+--file when the current book has no highlights (its own, session-wide
+--no-repeat window). Quotes file reloads automatically if it changes on disk.
 
 --CREDITS
 --this version was written in collab with discord user @sandcastles.
@@ -17,10 +22,10 @@ local B_SETT = {	--BANNER SETTINGS
 										--sleep screen message. for eg, "%T" shows book title,
 										--"page %c of %t" shows 'page 1 of 400' etc.
 					title_fontFace = "AtkinsonHyperlegibleNext-Regular.otf",
-					title_fontSize = 24,
+					title_fontSize = 22,
 					stats_fontFace = "AtkinsonHyperlegibleNext-Regular.otf",
-					stats_fontSize = 17,
-					border_size = 2,
+					stats_fontSize = 16,
+					border_size = 1,
 					border_color = 1,	-- 0 = white, 1 = black						
 					background = 0,		-- 0 = white, 1 = black
 					margin = 10,
@@ -32,7 +37,7 @@ local B_SETT = {	--BANNER SETTINGS
 local HL_SETT = {	--HIGHLIGHT SETTINGS
 					showRandomHighlight = true, 
 					highlight_fontFace = "NotoSerif-Italic.ttf",
-					highlight_fontSize = 17,
+					highlight_fontSize = 16,
 					justify = true,
 					add_quotations = true,
 					show_accent_line = true,					
@@ -55,14 +60,16 @@ local HL_SETT = {	--HIGHLIGHT SETTINGS
 									invert = false,
 					},
 					no_repeat_window = 5,	-- won't repeat a highlight until this many
-											-- other highlights (from the same book)
+											-- other highlights FROM THE SAME BOOK
 											-- have shown first
 }
 local QUOTE_SETT = {	--FALLBACK QUOTE SETTINGS
 						--used only when the current book has no eligible highlights.
+						--quotes.txt should have one quote per line, already formatted
+						--the way you want it shown, e.g.:
 						--“Blah blah blah” - Quoter
 					enabled = true,
-					file_path = "/mnt/onboard/.adds/Famous Quotes.txt",  -- adjust path to your device
+					file_path = "/mnt/onboard/Famous Quotes.txt",  -- adjust path to your device
 					no_repeat_window = 8,	-- won't repeat a quote until this many
 											-- other quotes have shown first
 }
@@ -94,7 +101,11 @@ math.randomseed(os.time())	--without this, "random" picks can repeat the same
 
 local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
 local recent_highlight_indices = {}	-- rolling history, oldest first
-local recent_quote_indices = {}		-- rolling history, oldest first
+local recent_highlight_book			-- which book recent_highlight_indices applies to;
+										-- reset when the book changes (fixes the
+										-- window applying across unrelated books)
+local recent_quote_indices = {}		-- rolling history, oldest first (not book-scoped:
+										-- the fallback pool is the shared quotes file)
 local cached_quotes_list				-- kept in memory, reloaded if file mtime changes
 local cached_quotes_mtime
 local Sidecar
@@ -315,6 +326,15 @@ function UIManager:show(widget, ...)
 	self.ui = require("apps/reader/readerui").instance or 
 				require("apps/filemanager/filemanager").instance
 	--no flush here: we only read from Sidecar below, never write to it.
+
+	--the highlight no-repeat window is meant to be PER BOOK (see HL_SETT
+	--comment) -- without this reset, switching books would keep comparing
+	--against a previous book's highlight indices, which both means nothing
+	--for the new book and silently shrinks its effective random pool.
+	if recent_highlight_book ~= last_file then
+		recent_highlight_indices = {}
+		recent_highlight_book = last_file
+	end
 	
 	--dimen roundup	
 	local dimen_ = {
