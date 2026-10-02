@@ -1,5 +1,9 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
+-- Version 1.0.0
+-- Checked against: ShelfSync 1.4.0, goodreadskosync 2.0.0 (bundled login code)
+-- https://github.com/BrownTigerz/-KOReader.patches
+--
 -- 1) Goodreads "Log in" (email + password) in ShelfSync > Providers >
 --    Goodreads > Account, same as StoryGraph's. Login code is bundled from
 --    goodreadskosync (MIT) at the bottom -- that plugin is NOT needed.
@@ -15,9 +19,8 @@
 --        (all off by default). Hiding a provider also stops it doing anything.
 --    WikiReader/Wikipedia articles: ShelfSync 1.4.0+ excludes these itself.
 -- 5) ShelfSync > "Link & Update" (between Providers and Settings): every
---    enabled provider's Link book and Update status in one place, labelled,
---     Copies of the providers' own items --
---    the per-provider menus are untouched. Also 3 new gesture/Dispatcher
+--    enabled provider's Link book and Update status in one place, labelled.
+--    Copies of the providers' own items -- the per-provider menus are untouched. Also 3 new gesture/Dispatcher
 --    actions that open these pages directly:
 --      ShelfSync: Link & Update menu
 --      ShelfSync: Link book (all providers)
@@ -39,11 +42,14 @@
 --    open book. Goodreads verification code / captcha still prompts you.
 --    At most one attempt per provider per 30 min; if it fails you get
 --    ShelfSync's normal "log in again" warning. Toggle: Settings >
---    "Auto re-login when session expires" (on by default). ShelfSync's own "Update progress
---    for all linked books" also includes disabled providers with an old link.
---    Menu changes show after reopening the book / file browser.
+--    "Auto re-login when session expires" (on by default).
+--
+-- Menu changes (Hide providers) show after reopening the book / file browser.
 
 local userpatch = require("userpatch")
+
+local PATCH_VERSION = "1.0.0"
+require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
 -- every time a book / the file browser opens). Avoids hitting the Kobo's
@@ -743,6 +749,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     },
                 },
             }
+            new[#new + 1] = {
+                text = _("ShelfSync tweaks v") .. PATCH_VERSION,
+                enabled_func = function() return false end,
+            }
             new[#new].separator = true
             for i = #new, 1, -1 do table.insert(items, idx, new[i]) end
             return items
@@ -882,10 +892,21 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             local function step(i)
                 local entry = list[i]
                 if not entry then return on_finished(failed) end
-                entry.engine:onUpdateProgress(function(result)
+                local advanced = false
+                local ok, err = pcall(entry.engine.onUpdateProgress, entry.engine, function(result)
+                    if advanced then return end
+                    advanced = true
                     if not result then failed[#failed + 1] = entry end
                     step(i + 1)
                 end, true)
+                -- A provider throwing an error must not stop the others
+                if not ok and not advanced then
+                    advanced = true
+                    require("logger").warn("ShelfSync tweaks: " .. entry.label
+                        .. " progress update threw: " .. tostring(err))
+                    failed[#failed + 1] = entry
+                    step(i + 1)
+                end
             end
             step(1)
         end
@@ -1034,7 +1055,18 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     local function nextEngine(i)
                         local e = linked[i]
                         if not e then return done() end
-                        e:onUpdateProgress(function() nextEngine(i + 1) end, true)
+                        local advanced = false
+                        local ok, err = pcall(e.onUpdateProgress, e, function()
+                            if advanced then return end
+                            advanced = true
+                            nextEngine(i + 1)
+                        end, true)
+                        if not ok and not advanced then
+                            advanced = true
+                            require("logger").warn("ShelfSync tweaks: " .. tostring(e.label)
+                                .. " progress update threw: " .. tostring(err))
+                            nextEngine(i + 1)
+                        end
                     end
                     nextEngine(1)
                 end, true)
