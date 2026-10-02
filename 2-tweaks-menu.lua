@@ -4,14 +4,6 @@ KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
 Version: 1.0.0
 
-Changelog:
-  1.0.0  2026-10-02  First release.
-
-Versioning:
-  1.0.x  fixes (e.g. adapting to a KOReader or plugin menu id rename)
-  1.x.0  new features
-  2.0.0  anything that changes how saved Add-ons choices work
-
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
                     groups split by separators
@@ -35,9 +27,15 @@ menu-order file / Menu Disabler ("KOMenu:disabled") stay hidden. A built-in
 submenu left empty by moving all its items out is hidden.
 
 Install: koreader/patches/2-tweaks-menu.lua (Kobo: .adds/koreader/patches/), then restart.
+
+Versioning: 1.0.x fixes (e.g. a KOReader or plugin menu id rename),
+            1.x.0 new features, 2.0.0 changes to how saved Add-ons choices work.
+
+Changelog:
+  1.0.0  2026-10-02  First release.
 ]]
 
-local VERSION = "1.0.0"
+local PATCH_VERSION = "1.0.0"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -118,7 +116,9 @@ package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
 TM.active  = true
 TM.menu_id = MENU_ID
-TM.version = VERSION
+TM.version = PATCH_VERSION
+
+logger.info(TAG, "v" .. PATCH_VERSION .. " loaded")
 
 -- Items turned off in "Choose what's in Add-ons" (kept in their original spot).
 -- Plugins by menu id, patches as "patch:<id>".
@@ -497,6 +497,12 @@ local function inject(where, items, order)
     }
     if #plist > 0 then plist[#plist + 1] = SEPARATOR end
     plist[#plist + 1] = cid
+
+    -- version line, greyed out, so you can check it on the device
+    local vid = ENTRY_ID .. "version"
+    items[vid] = { text = "Add-ons menu v" .. PATCH_VERSION, enabled = false }
+    plist[#plist + 1] = SEPARATOR
+    plist[#plist + 1] = vid
 
     -- shallow copy; lists are copied only when we change them
     local new = {}
