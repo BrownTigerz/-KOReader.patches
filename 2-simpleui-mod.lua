@@ -1,13 +1,22 @@
 --[[
 2-simpleui-mod.lua - KOReader user patch for SimpleUI (simpleui.koplugin)
+Version 1.0.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
-Settings: Tools > SimpleUI Mod (or Tools > Add-ons > Patches > SimpleUI Mod when
+Settings: Tools > SimpleUI Mod (or Tools > Add-ons > SimpleUI Mod when
 2-tweaks-menu.lua is installed). Install: koreader/patches/, then restart.
 
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
+
+Changelog
+  1.0.0  First stable release: module/section title colours, bold and sizes,
+         progress & border colours, Night Mode day look for nav bar, section
+         titles and status bar, original-colour nav icons, Add-ons menu and
+         Backup patch support.
 ]]
+
+local VERSION = "1.0.0"
 
 -- ---- Defaults (change in Tools > SimpleUI Mod) -----------------------------
 local DEFAULTS = {
@@ -37,7 +46,7 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Screen     = require("device").screen
 local logger     = require("logger")
 
-local TAG = "simpleui-mod:"
+local TAG = "simpleui-mod " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_mod"
 
 -- ---- settings ----------------------------------------------------------------
@@ -1287,6 +1296,7 @@ local function buildMenu()
             {
                 text = _("Reset to defaults"),
                 keep_menu_open = true,
+                separator = true,
                 callback = function(touchmenu_instance)
                     local UIManager = orig_require("ui/uimanager")
                     local ConfirmBox = orig_require("ui/widget/confirmbox")
@@ -1303,6 +1313,7 @@ local function buildMenu()
                     })
                 end,
             },
+            { text = "SimpleUI Mod v" .. VERSION, enabled = false },
         },
     }
 end
@@ -1336,7 +1347,7 @@ local function addToOrder(order_mod)
 end
 
 -- ---- Add-ons menu (2-tweaks-menu.lua) -------------------------------------------------------
--- With that patch installed, our settings live under Tools > Add-ons > Patches
+-- With that patch installed, our settings live under Tools > Add-ons
 -- (file browser only). Without it, we add our own Tools > SimpleUI Mod entry.
 local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
@@ -1367,6 +1378,33 @@ local function hookMenu(menu_mod, order_mod)
 end
 
 pcall(hookMenu, "apps/filemanager/filemanagermenu", "ui/elements/filemanager_menu_order")
+
+-- ---- Backup patch (Tools > Backup) --------------------------------------------------------
+-- Adds "SimpleUI Mod" as a backup target when the Backup patch is installed.
+-- All our settings live under one key (SETTINGS_KEY), which the prefix matches.
+-- Works in either patch load order: if Backup hasn't loaded yet, we queue the
+-- target in its shared table and it picks it up as one of its targets.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    local target = {
+        id = "simpleui_mod",
+        text = _("SimpleUI Mod"),
+        setting_prefix = SETTINGS_KEY,
+    }
+    if type(BK.register) == "function" then
+        pcall(BK.register, target)
+    else
+        BK.targets = BK.targets or {}
+        -- register() would normally fill this in; set it for the early case
+        -- (never let a backup convenience stop this patch from loading)
+        local ok, DS = pcall(require, "datastorage")
+        if ok and type(DS) == "table" and DS.getDataDir then
+            target.icon_dir = DS:getDataDir() .. "/icons/simpleui_mod"
+        end
+        table.insert(BK.targets, target)
+    end
+end
 
 -- Remember SimpleUI's plugin name (its folder name), for suiInstance().
 userpatch.registerPatchPluginFunc("simpleui", function(plugin)
