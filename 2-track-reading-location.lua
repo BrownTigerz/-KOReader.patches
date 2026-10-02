@@ -1,5 +1,11 @@
 --[[
-    Track Reading Location v1.7.2
+    Track Reading Location v1.0.0
+
+    Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
+    existing saved reading locations are stored (the per-book sidecar data).
+
+    Changelog:
+    1.0.0 - 2026-10-02 - First release.
 
     This patch remembers the last "confirmed" reading position (the furthest page
     you've actually read) for the book you're currently reading.
