@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.0.0
+Version: 1.5.3
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -30,13 +30,27 @@ catch-up timer after a tap (stops as soon as the state changes). Nothing
 runs in the background or while asleep.
 
 Changelog
-  1.0.0  First release: custom icons, colour modes, on/off indicators
-         (Wi-Fi, frontlight, night mode, SSH, Calibre, tap toggle).
+  1.5.3  Tap-toggle name lookup cached per toolbar build (was per redraw);
+         failed state reads no longer count as "on"; header updated.
+  1.5.2  Catch-up timers: one per button, cancelled on re-tap, stop as soon
+         as state changes; only for Wi-Fi/SSH/Calibre.
+  1.5.1  Old off-state icon freed on rebuild; comment on invert handling.
+  1.5.0  Calibre connection indicator.
+  1.4.0  SSH server indicator; tap toggle synced across reader/library;
+         custom shortcuts labelled by view in the menu.
+  1.3.0  Tap toggle indicator for custom shortcuts. Fix: built-in icons
+         weren't matched, so only custom icons got tweaks.
+  1.2.1  Safer button matching (icon + size + spacing, stops on mismatch);
+         image slot found instead of assumed.
+  1.2.0  On/off styles: inverted when off / inverted when on.
+  1.1.0  On/off indicator (Wi-Fi, frontlight, night mode): dim or alternate
+         off icon. Fix: Keep original / Inverted no longer draw a white tile.
+  1.0.0  Custom icons per shortcut, global and per-icon colour modes.
 --]]
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.0.0"
+local PATCH_VERSION = "1.5.3"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (follow UI)" },
@@ -615,11 +629,6 @@ local function buildMenu()
                         end,
                     })
                 end,
-                separator = true,
-            })
-            table.insert(t, {
-                text = _("Icon tweaks v") .. PATCH_VERSION,
-                enabled = false,
             })
             return t
         end,
