@@ -1,11 +1,9 @@
 --[[
-    Track Reading Location v1.0.0
+    Track Reading Location
+    Version: 1.8.0
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
-
-    Changelog:
-    1.0.0 - 2026-10-02 - First release.
 
     This patch remembers the last "confirmed" reading position (the furthest page
     you've actually read) for the book you're currently reading.
@@ -74,6 +72,12 @@
     a font size/margin/line-spacing change doesn't leave "go back" pointing at
     the wrong page - paginated documents (PDF, CBZ, DjVu...) can't reflow, so
     this doesn't apply to them.
+
+    Changelog (from here forward - this patch's earlier history predates this
+    numbering scheme and isn't repeated here):
+    1.8.0 - 2026-10-02 - Added formal version tracking: this header's Version
+    line, the PATCH_VERSION constant everything else reads from, and a
+    version-stamped line in the log on load.
 --]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -102,7 +106,14 @@ local T = require("ffi/util").template
 
 local Screen = Device.screen
 
-logger.dbg("ReadingLocationTracker Patch: Loading...")
+-- Single source of truth for the version shown in the menu and logged below -
+-- the header comment's own "Version:" line is a separate piece of text (a
+-- comment can't read a code constant) and needs updating by hand alongside
+-- this one; everything else - the menu's version row and both load logs -
+-- reads from here.
+local PATCH_VERSION = "1.8.0"
+
+logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
 
 local SETTING_SHOW_BUTTON = "readingloc_show_floating_button"
 -- Independent display toggles for the floating button's content (all
@@ -1728,4 +1739,4 @@ ReaderUI.onSetCurrentPageAsReadingLocation = function(self)
     return true
 end
 
-logger.dbg("ReadingLocationTracker Patch: Loaded")
+logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loaded")
