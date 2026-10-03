@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.0.0 (2026-10-03)
+2-backup-patches.lua                                     2.1.0 (2026-10-03)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -85,6 +85,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.1.0  2026-10-03
+    - Results (backed up, deleted) follow Network Tweaks' notification
+      style: Banner, Minimal corner note, or Normal popup. Questions,
+      restart prompts and failures stay popups. Without Network Tweaks,
+      nothing changes.
   2.0.0  2026-10-03
     - Menu renamed Patch Backup & Restore
     - Device Backup & Restore integration: icons carried along with
@@ -98,7 +103,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.0.0"
+local VERSION = "2.1.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -671,6 +676,43 @@ Backup.findUnusedIcons = findUnusedIcons
 -- Menu
 -- --------------------------------------------------------------------------
 
+-- Notes in the Network Tweaks style (same approach as ShelfSync tweaks):
+-- Banner = top banner, Minimal = small corner note that stacks with Network
+-- Tweaks' own, Normal (or Network Tweaks not installed) = KOReader popup.
+-- Used for results only: questions, restart prompts and failures stay
+-- popups, since those need reading or a decision.
+local function noteStyle()
+    local NetworkMgr = package.loaded["ui/network/manager"]
+    if type(NetworkMgr) ~= "table" or not NetworkMgr.__network_tweaks then return "normal" end
+    local t = G_reader_settings:readSetting("network_tweaks") or {}
+    local style = t.connect_style
+    if style == "normal" or style == "silent" or style == "banner" then return style end
+    if t.quiet_connect == false then return "normal" end
+    if t.quiet_toast == false then return "silent" end
+    return "banner"
+end
+
+-- banner_text: Banner style and the Normal popup. minimal_text: Minimal.
+local function styledNote(banner_text, minimal_text, timeout)
+    local UIManager = require("ui/uimanager")
+    if require("device").screen_saver_mode then return end
+    timeout = timeout or 2
+    local style = noteStyle()
+    if style ~= "normal" then
+        local shared = package.loaded["ui/network/manager"].__network_tweaks_note
+        if type(shared) == "function"
+                and pcall(shared, banner_text, minimal_text or banner_text, timeout) then
+            return
+        end
+        UIManager:show(require("ui/widget/notification"):new{
+            text = style == "silent" and (minimal_text or banner_text) or banner_text,
+            timeout = timeout,
+        })
+        return
+    end
+    UIManager:show(require("ui/widget/infomessage"):new{ text = banner_text, timeout = timeout + 1 })
+end
+
 local function short(p)
     local esc = (DATA:gsub("%p", "%%%0"))
     return (p:gsub("^" .. esc, "koreader"))
@@ -681,9 +723,8 @@ local function confirmRestore(target, entry)
     local ConfirmBox = require("ui/widget/confirmbox")
     local InfoMessage = require("ui/widget/infomessage")
     if target.files and #target.files > 0 and bookOpen() then
-        UIManager:show(InfoMessage:new{
-            text = T(_("Close the book first, then restore %1 from the file browser."), target.text),
-        })
+        styledNote(T(_("Close the book first, then restore %1 from the file browser"), target.text),
+            _("Close the book first"), 4)
         return
     end
     UIManager:show(ConfirmBox:new{
@@ -715,15 +756,13 @@ local function targetMenu(target)
             keep_menu_open = true,
             callback = function()
                 local path, res = makeBackup(target)
-                local text
                 if not path then
-                    text = T(_("Backup failed:\n%1"), tostring(res))
+                    UIManager:show(InfoMessage:new{ text = T(_("Backup failed:\n%1"), tostring(res)) })
                 elseif res > 0 then
-                    text = T(_("Backed up settings and %1 icons to:\n%2"), res, short(path))
+                    styledNote(T(_("Backed up %1 · %2 icons"), target.text, res), _("Backed up"))
                 else
-                    text = T(_("Backed up to:\n%1"), short(path))
+                    styledNote(T(_("Backed up %1"), target.text), _("Backed up"))
                 end
-                UIManager:show(InfoMessage:new{ text = text })
             end,
         },
         {
@@ -908,7 +947,7 @@ local function iconsMenu()
                                         if removeIcon(e) then n = n + 1 end
                                     end
                                     if touchmenu then touchmenu:backToUpperMenu() end
-                                    UIManager:show(InfoMessage:new{ text = T(_("Deleted %1 icons."), n) })
+                                    styledNote(T(_("Deleted %1 unused icons"), n), T(_("%1 icons deleted"), n))
                                 end,
                             })
                         end,
@@ -978,7 +1017,6 @@ mainItems = function()
         callback = function(touchmenu)
             local UIManager = require("ui/uimanager")
             local ConfirmBox = require("ui/widget/confirmbox")
-            local InfoMessage = require("ui/widget/infomessage")
             local n = backupTotals(Backup.targets)
             UIManager:show(ConfirmBox:new{
                 text = T(_("Delete all %1 patch backups, for every target, safety backups included?\n\nDevice Backup & Restore backups aren't affected. This can't be undone."), n),
@@ -988,7 +1026,7 @@ mainItems = function()
                     -- Targets with nothing left drop off this menu: go up so
                     -- it's rebuilt next time.
                     if touchmenu then touchmenu:backToUpperMenu() end
-                    UIManager:show(InfoMessage:new{ text = T(_("Deleted %1 backups."), gone) })
+                    styledNote(T(_("Deleted %1 backups"), gone), T(_("%1 backups deleted"), gone))
                 end,
             })
         end,
