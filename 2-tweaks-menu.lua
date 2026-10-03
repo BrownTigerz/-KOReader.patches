@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.0
+Version: 1.0.1
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -33,9 +33,13 @@ Versioning: 1.0.x fixes (e.g. a KOReader or plugin menu id rename),
 
 Changelog:
   1.0.0  2026-10-02  First release.
+  1.0.1  2026-10-02  "New" tags clear per menu (reader-only add-ons keep theirs);
+                     group lists tracked per menu; labels computed once when
+                     sorting; full traceback in crash.log on sort errors;
+                     version logged on startup and exposed as TM.version.
 ]]
 
-local PATCH_VERSION = "1.0.0"
+local PATCH_VERSION = "1.0.1"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -497,12 +501,6 @@ local function inject(where, items, order)
     }
     if #plist > 0 then plist[#plist + 1] = SEPARATOR end
     plist[#plist + 1] = cid
-
-    -- version line, greyed out, so you can check it on the device
-    local vid = ENTRY_ID .. "version"
-    items[vid] = { text = "Add-ons menu v" .. PATCH_VERSION, enabled = false }
-    plist[#plist + 1] = SEPARATOR
-    plist[#plist + 1] = vid
 
     -- shallow copy; lists are copied only when we change them
     local new = {}
