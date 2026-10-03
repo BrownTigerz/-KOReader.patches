@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.5.3
+Version: 1.9.2
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -16,20 +16,63 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     mode, SSH server, Calibre connection, or a remembered tap toggle.
     Off/on styles: dim when off, inverted tile when off or when on, or an
     alternate "off" icon.
+  • The toolbar Wi-Fi icon, and any Wi-Fi/SSH/Calibre indicator, follow
+    the real network state: connecting in the background, failing,
+    cancelling, auto-disconnect and sleep all update them.
+  • Custom shortcuts for SSH, Wi-Fi, Calibre connect/disconnect and night
+    mode toggles keep the toolbar open when tapped (like the built-in Wi-Fi
+    button), so you see the icon change. Other actions still close it.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
-home-screen module. Does not modify any plugin files.
+home-screen module. Does not modify any plugin files. Compatible with
+2-network-tweaks.lua (background connect, banners, SSH on connect); with
+Network Tweaks 1.4.0+, SSH and Calibre icons update the moment they change.
 
 Install: drop in koreader/patches/ and restart KOReader.
 Custom icons: put them in koreader/icons/ (or anywhere) and pick them from
 the menu.
 
 Cost: icons left untouched get no hooks at all. Tweaked icons add one small
-check per redraw. Wi-Fi/SSH/Calibre indicators run at most one short
-catch-up timer after a tap (stops as soon as the state changes). Nothing
-runs in the background or while asleep.
+check per redraw. Indicator icons are only redrawn while their toolbar is
+on screen; a closed toolbar triggers no redraws, a covered one redraws its
+changed icons once when uncovered. Network-driven
+icons repaint once per Wi-Fi connect / disconnect event (plus one follow-up
+1.5s later for SSH/Calibre). Calibre
+and SSH indicators also run at most one short catch-up timer after a tap
+(stops as soon as the state changes). Nothing runs in the background or
+while asleep.
 
 Changelog
+  1.9.2  Merged with the 1.8.x fixes. Icons only redraw while their toolbar
+         is on screen (a closed reader menu costs nothing; the 1.9.1
+         fallback redrew the current page instead). A toolbar covered by a
+         popup or dialog (e.g. "SSH server started") redraws its changed
+         icons once when it closes. Button screen: asked from KOReader,
+         falling back to the screen it was first drawn on. Toggle night
+         mode also keeps the toolbar open. "Keep toolbar open" option
+         removed: always on.
+  1.9.1  Fix: an indicator could miss its update when a note or banner
+         (e.g. Network Tweaks' "SSH on") was on screen: the repaint went to
+         the note instead of the toolbar, and catch-up timers stopped
+         early. Repaints now target the window that holds the button.
+  1.9.0  SSH and Calibre indicators update the moment they change when
+         Network Tweaks 1.4.0+ is installed (it announces the change).
+         Calibre wireless connect / disconnect shortcuts keep the toolbar
+         open too.
+  1.8.0  Custom shortcuts set to Toggle SSH server / Toggle Wi-Fi / Turn
+         Wi-Fi on / Turn Wi-Fi off no longer close the toolbar.
+  1.7.0  Toolbar Wi-Fi icon and Wi-Fi/SSH/Calibre indicators follow network
+         events instead of guessing on tap: correct after a background
+         connect, a failed or cancelled connect, auto-disconnect and sleep.
+         Wi-Fi shows as on while a connection is in progress. Wi-Fi no
+         longer uses the tap catch-up timers.
+  1.6.0  Custom shortcuts merged: one menu entry each, tweaks apply in
+         reader, library and home. Grouped by action, not name. Existing
+         per-view settings move over automatically (library copy wins if
+         they differed).
+  1.5.4  Fix crash on tapping a tweaked icon: the swapped/main image could
+         have no size info (when the off icon was drawn, or tapped before
+         first paint), and IconButton's tap highlight needs it.
   1.5.3  Tap-toggle name lookup cached per toolbar build (was per redraw);
          failed state reads no longer count as "on"; header updated.
   1.5.2  Catch-up timers: one per button, cancelled on re-tap, stop as soon
@@ -50,7 +93,7 @@ Changelog
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.5.3"
+local PATCH_VERSION = "1.9.2"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (follow UI)" },
@@ -76,14 +119,112 @@ local function modeText(id)
     return id
 end
 
+-- The window a repaint should go to: the topmost real screen, skipping
+-- toasts (notifications, banners) and invisible helpers. A toast on top
+-- would otherwise get the repaint instead of the toolbar underneath it.
+local function screenWindow()
+    local UIManager = require("ui/uimanager")
+    local stack = UIManager._window_stack
+    if type(stack) == "table" then
+        for i = #stack, 1, -1 do
+            local w = stack[i].widget
+            if w and not w.invisible and not w.toast then return w end
+        end
+        return nil
+    end
+    return UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
+end
+
+-- Each tracked button remembers the screen it belongs to (the one showing
+-- when it was first drawn: a toolbar is always built, then shown on top).
+-- It only gets redrawn while that screen is the one showing: a closed
+-- reader menu, or a toolbar under a dialog, costs nothing.
+local function trackScreen(btn)
+    if btn._stb_tracks_screen then return end
+    btn._stb_tracks_screen = true
+    local base = btn.paintTo
+    btn.paintTo = function(self, ...)
+        if not self._stb_win then self._stb_win = screenWindow() end
+        return base(self, ...)
+    end
+end
+
+-- The screen holding this button: asked from KOReader first (exact), else
+-- the screen it was first drawn on.
+local function homeWindow(btn)
+    local UIManager = require("ui/uimanager")
+    if UIManager.isSubwidgetShown then
+        local ok, matched, _depth, w = pcall(UIManager.isSubwidgetShown, UIManager, btn)
+        if ok and matched and w then return w end
+    end
+    return btn._stb_win
+end
+
+-- Returns the button's screen if it's the one showing. Second value is
+-- true when that screen has closed for good (a reader menu that was
+-- dismissed): the button is gone and can be forgotten. A reopened toolbar
+-- is built fresh, so nothing is lost.
+local function visibleWindow(btn)
+    if not btn.dimen then return nil end
+    local UIManager = require("ui/uimanager")
+    local first = btn._stb_win
+    if first and UIManager.isWidgetShown and not UIManager:isWidgetShown(first) then
+        return nil, true
+    end
+    local win = homeWindow(btn)
+    if win and win == screenWindow() then return win end
+    return nil
+end
+
+-- Buttons whose state changed while something covered them (e.g. the SSH
+-- "server started" popup). Closing that popup only refreshes the popup's
+-- own area, so the icon would stay stale: they redraw once their screen is
+-- showing again. Weak keys: a toolbar that's gone just drops out.
+local waiting = setmetatable({}, { __mode = "k" })
+
+local function resumeWaiting()
+    for btn, fn in pairs(waiting) do
+        local win, gone = visibleWindow(btn)
+        if gone then
+            waiting[btn] = nil
+        elseif win then
+            waiting[btn] = nil
+            fn()
+        end
+    end
+end
+
+local close_hooked = false
+local function hookClose()
+    if close_hooked then return end
+    close_hooked = true
+    local UIManager = require("ui/uimanager")
+    local orig_close = UIManager.close
+    UIManager.close = function(self, ...)
+        local res = orig_close(self, ...)
+        if next(waiting) then UIManager:nextTick(resumeWaiting) end
+        return res
+    end
+end
+
+local function waitForScreen(btn, fn)
+    hookClose()
+    waiting[btn] = fn
+end
+
 -- --------------------------------------------------------------------------
 -- State sources (for on/off indicators)
 -- --------------------------------------------------------------------------
 
+-- Wi-Fi counts as on while a connection is in progress (background
+-- connects take a few seconds), matching what the tap asked for.
+local function wifiOn()
+    local NetworkMgr = require("ui/network/manager")
+    return NetworkMgr:isWifiOn() or NetworkMgr.pending_connection == true
+end
+
 local STATES = {
-    { id = "wifi", text = "Wi-Fi", get = function()
-        return require("ui/network/manager"):isWifiOn()
-    end },
+    { id = "wifi", text = "Wi-Fi", get = wifiOn },
     { id = "frontlight", text = "Frontlight", get = function()
         local Device = require("device")
         if not Device:hasFrontlight() then return true end
@@ -104,28 +245,79 @@ local STATES = {
     end },
 }
 
--- Tap-toggle state is shared by shortcut NAME, so the same shortcut set up
--- in the reader and the library (which get different internal keys) stays
--- in sync.
-local toggle_id_cache = {}  -- cleared on every toolbar build
+-- One identity per shortcut across views.
+-- Built-ins already use the same key everywhere. Custom shortcuts get a
+-- different internal key in the reader and the library, so they're grouped
+-- by what they DO: patch id, system action, menu action, then name.
+local group_cache = {}  -- cleared on every toolbar build / menu open
 
-local function toggleId(key)
-    if toggle_id_cache[key] then return toggle_id_cache[key] end
-    local id = "key:" .. key
+local function groupId(key)
+    if type(key) ~= "string" or key:sub(1, 3) ~= "cs_" then return key end
+    if group_cache[key] then return group_cache[key] end
+    local id = key
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     if ok_m then
-        for _i, view in ipairs({ "reader", "fb", "simpleui" }) do
-            for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
-                if it.key == key then
-                    id = "label:" .. tostring(it.label or key)
-                    toggle_id_cache[key] = id
-                    return id
+        for _i, view in ipairs({ "fb", "reader" }) do
+            local ok_f, sc = pcall(Manager.find, key, view)
+            if ok_f and sc then
+                if sc.id and sc.id ~= "" then
+                    id = "id:" .. sc.id
+                elseif sc.dispatcher_action and sc.dispatcher_action ~= "" then
+                    id = "act:" .. sc.dispatcher_action
+                elseif type(sc.path_record) == "table" and sc.path_record.display_label then
+                    id = "menu:" .. sc.path_record.display_label
+                else
+                    id = "name:" .. tostring(sc.name or key)
                 end
+                break
             end
         end
     end
-    toggle_id_cache[key] = id
+    group_cache[key] = id
     return id
+end
+local toggleId = groupId
+
+-- Settings for a toolbar key: shared group first, old per-view entry second.
+local function keySettings(s, key)
+    return s.keys[groupId(key)] or s.keys[key]
+end
+
+-- One-time move of pre-1.6 per-view entries onto shared groups. If the
+-- reader and library copies differed, the library copy wins.
+local migrated = false
+local function migrate()
+    if migrated then return end
+    local ok_m, Manager = pcall(require, "custom_shortcut_manager")
+    if not ok_m then return end
+    migrated = true
+    local s = loadSettings()
+    local changed = false
+    if s.stay_open ~= nil then s.stay_open = nil; changed = true end -- 1.8.0 option, removed
+    for _i, view in ipairs({ "fb", "reader" }) do
+        for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
+            local gid = groupId(it.key)
+            if gid ~= it.key and s.keys[it.key] then
+                if not s.keys[gid] then s.keys[gid] = s.keys[it.key] end
+                s.keys[it.key] = nil
+                changed = true
+            end
+            local old = s.toggles and s.toggles["label:" .. tostring(it.label)]
+            if old then
+                s.toggles[gid] = true
+                changed = true
+            end
+        end
+    end
+    if s.toggles then
+        for id in pairs(s.toggles) do
+            if id:sub(1, 6) == "label:" or id:sub(1, 4) == "key:" then
+                s.toggles[id] = nil
+                changed = true
+            end
+        end
+    end
+    if changed then saveSettings(s) end
 end
 
 local function getToggled(key)
@@ -180,6 +372,13 @@ local function installPaint(img, mode, state, off_img, style, key)
         if flip then bb:invertRect(x, y, sz.w, sz.h) end
         paint(src, bb, x, y)
         if flip then bb:invertRect(x, y, sz.w, sz.h) end
+        if src ~= self then
+            -- The off icon was drawn instead; keep our own geometry current
+            -- so IconButton's tap highlight has something to invert.
+            local Geom = require("ui/geometry")
+            self.dimen = self.dimen or Geom:new{}
+            self.dimen.x, self.dimen.y, self.dimen.w, self.dimen.h = x, y, sz.w, sz.h
+        end
         if state then
             if style == "dim" and not on then
                 bb:lightenRect(x, y, sz.w, sz.h)
@@ -194,7 +393,7 @@ end
 
 local function tweakButton(btn, key)
     local s = loadSettings()
-    local k = s.keys[key] or {}
+    local k = keySettings(s, key) or {}
     local mode = k.mode or s.mode
     local state = k.state and STATE_BY_ID[k.state]
     local custom = fileExists(k.file) and k.file or nil
@@ -226,14 +425,20 @@ local function tweakButton(btn, key)
     btn.image = img
     hg[slot] = img
     btn:update()
+    if not img.dimen then
+        local Geom = require("ui/geometry")
+        local sz = img:getSize()
+        img.dimen = Geom:new{ x = 0, y = 0, w = sz.w, h = sz.h }
+    end
     if old and old ~= img and old.free then pcall(old.free, old) end
 end
 
--- After a tap, re-draw a few times so async state (Wi-Fi) catches up.
--- Only these change in the background after a tap (connecting, starting a
--- server). Tap toggle repaints instantly; night mode repaints the whole
--- screen; frontlight changes through its own dialog.
-local ASYNC_STATES = { wifi = true, calibre = true, ssh = true }
+-- After a tap, re-draw a few times so async state catches up. Only for
+-- states with no event to follow (starting a server, Calibre connecting).
+-- Wi-Fi follows network events instead (see below). Tap toggle repaints
+-- instantly; night mode repaints the whole screen; frontlight changes
+-- through its own dialog.
+local ASYNC_STATES = { calibre = true, ssh = true }
 local REFRESH_STEPS = { 1, 3, 6, 10 } -- seconds after the tap
 
 local function addStateRefresh(btn, key)
@@ -241,9 +446,9 @@ local function addStateRefresh(btn, key)
     local cb = btn.callback
     if not cb then return end
     btn.callback = function(...)
-        local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
+        local top = visibleWindow(btn) or screenWindow()
         local s = loadSettings()
-        local k = s.keys[key]
+        local k = keySettings(s, key)
         if k and k.state == "tap" then
             local id = toggleId(key)
             s.toggles = s.toggles or {}
@@ -265,15 +470,22 @@ local function addStateRefresh(btn, key)
         -- the previous chain. The chain stops as soon as the state actually
         -- changes or the screen changes, so usually it's 1-2 wake-ups.
         if btn._stb_refresh then UIManager:unschedule(btn._stb_refresh) end
+        waiting[btn] = nil
         local step = 0
         local function tick()
+            -- Covered (popup, dialog) or closed: no timers, no redraws.
+            -- Picks up again when its screen is showing.
+            local win, gone = visibleWindow(btn)
+            if not win then
+                btn._stb_refresh = nil
+                if not gone then waitForScreen(btn, tick) end
+                return
+            end
             step = step + 1
-            local still_here = top and btn.dimen and UIManager:getTopmostVisibleWidget() == top
-            if not still_here then btn._stb_refresh = nil; return end
             local ok, now = pcall(state.get, key)
             local changed = ok and before ~= nil and (now and true or false) ~= before
             if changed or step >= #REFRESH_STEPS then
-                UIManager:setDirty(top, "ui", btn.dimen)
+                UIManager:setDirty(win, "ui", btn.dimen)
                 btn._stb_refresh = nil
                 return
             end
@@ -281,6 +493,92 @@ local function addStateRefresh(btn, key)
         end
         btn._stb_refresh = tick
         UIManager:scheduleIn(REFRESH_STEPS[1], tick)
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- Network sync
+-- --------------------------------------------------------------------------
+-- The plugin flips its Wi-Fi icon on tap and never looks again, so it goes
+-- wrong whenever Wi-Fi changes on its own (background connect, failure,
+-- cancel, auto-disconnect, sleep). Buttons that show network-driven state
+-- are tracked here and re-synced on KOReader's network events.
+
+local NET_STATES = { wifi = true, ssh = true, calibre = true }
+local NET_EVENTS = {
+    onNetworkConnecting = true,
+    onNetworkConnected = true,
+    onNetworkDisconnected = true,
+    onNetworkTweaksStateChanged = true, -- SSH / Calibre, from Network Tweaks 1.4.0+
+}
+local FOLLOW_UP_S = 1.5 -- SSH/Calibre react to a connect a moment later
+
+-- btn -> key. Weak keys: buttons from discarded toolbars just drop out.
+local live = setmetatable({}, { __mode = "k" })
+
+local function syncLive()
+    if next(live) == nil then return end
+    local UIManager = require("ui/uimanager")
+    local s = loadSettings()
+    local want_wifi = wifiOn() and "wifi" or "wifi.open.0"
+    for btn, key in pairs(live) do
+        local dirty = false
+        if key == "wifi" and btn.icon ~= want_wifi and btn.setIcon then
+            -- Wrapped in withCapture, so tweaks are re-applied.
+            pcall(btn.setIcon, btn, want_wifi)
+            dirty = true
+        end
+        local k = keySettings(s, key)
+        if k and k.state and NET_STATES[k.state] then dirty = true end
+        -- State above is always updated (cheap); the screen is only
+        -- touched when this toolbar is actually showing.
+        if dirty then
+            local win, gone = visibleWindow(btn)
+            if gone then
+                live[btn] = nil
+            elseif win then
+                UIManager:setDirty(win, "ui", btn.dimen)
+            elseif btn._stb_win then
+                waitForScreen(btn, function()
+                    local w = visibleWindow(btn)
+                    if w then UIManager:setDirty(w, "ui", btn.dimen) end
+                end)
+            end
+        end
+    end
+end
+
+-- Coalesced: a burst of events (connecting → connected) is one repaint,
+-- plus one follow-up for things that start after the connect.
+local function scheduleSync()
+    if next(live) == nil then return end
+    local UIManager = require("ui/uimanager")
+    UIManager:unschedule(syncLive)
+    UIManager:nextTick(syncLive)
+    UIManager:scheduleIn(FOLLOW_UP_S, syncLive)
+end
+
+local net_hooked = false
+local function hookNetworkEvents()
+    if net_hooked then return end
+    net_hooked = true
+
+    local UIManager = require("ui/uimanager")
+    local orig_bc = UIManager.broadcastEvent
+    UIManager.broadcastEvent = function(self, event, ...)
+        local res = orig_bc(self, event, ...)
+        if type(event) == "table" and NET_EVENTS[event.handler] then scheduleSync() end
+        return res
+    end
+
+    -- A failed connect sends no event (it was never connected).
+    local NetworkMgr = require("ui/network/manager")
+    local orig_abort = NetworkMgr._abortWifiConnection
+    if type(orig_abort) == "function" then
+        NetworkMgr._abortWifiConnection = function(self, ...)
+            orig_abort(self, ...)
+            scheduleSync()
+        end
     end
 end
 
@@ -321,7 +619,8 @@ local function withCapture(config, fn, ...)
     local padding_h = Screen:scaleBySize(config.spacing or 8)
     local queue = expectedKeys(config)
     local desynced = false
-    toggle_id_cache = {} -- pick up renamed shortcuts
+    group_cache = {} -- pick up edited shortcuts
+    migrate()
     local captured = {}
     local orig_new = IconButton.new
 
@@ -356,7 +655,7 @@ local function withCapture(config, fn, ...)
     for _, c in ipairs(captured) do
         local btn, key = c.btn, c.key
         tweakButton(btn, key)
-        local k = settings.keys[key]
+        local k = keySettings(settings, key)
         if k and k.state then addStateRefresh(btn, key) end
         -- Wi-Fi toggles rebuild the image via setIcon(); re-apply after.
         local orig_set = btn.setIcon
@@ -364,8 +663,52 @@ local function withCapture(config, fn, ...)
             orig_set(self, icon)
             tweakButton(self, key)
         end
+        if k and k.state then trackScreen(btn) end
+        if key == "wifi" or (k and k.state and NET_STATES[k.state]) then
+            trackScreen(btn)
+            live[btn] = key
+            hookNetworkEvents()
+        end
     end
     return res
+end
+
+-- --------------------------------------------------------------------------
+-- Keep the toolbar open for toggle shortcuts
+-- --------------------------------------------------------------------------
+-- The plugin closes the menu before running a custom shortcut's system
+-- action, because sendEvent stops at the top widget (the menu). For these
+-- toggles a broadcast reaches the handler (SSH plugin, network listener,
+-- Calibre plugin, device listener) even with the menu open, so the toolbar
+-- stays put, like the built-in Wi-Fi icon, and you see the icon change.
+-- Anything else still closes the toolbar as before.
+local STAY_OPEN = {
+    toggle_ssh_server        = "ToggleSSHServer",
+    toggle_wifi              = "ToggleWifi",
+    wifi_on                  = "InfoWifiOn",
+    wifi_off                 = "InfoWifiOff",
+    calibre_start_connection = "StartWirelessConnection",
+    calibre_close_connection = "CloseWirelessConnection",
+    night_mode               = "ToggleNightMode",
+}
+
+local function hookExecute()
+    local ok, Manager = pcall(require, "custom_shortcut_manager")
+    if not ok or type(Manager) ~= "table" or Manager.__stb_stay_open then return end
+    if type(Manager.execute) ~= "function" or type(Manager.getActionSource) ~= "function" then return end
+    Manager.__stb_stay_open = true
+
+    local orig_execute = Manager.execute
+    Manager.execute = function(shortcut, menu, ...)
+        local ev = type(shortcut) == "table" and STAY_OPEN[shortcut.dispatcher_action]
+        if ev and Manager.getActionSource(shortcut) == "system" then
+            local UIManager = require("ui/uimanager")
+            local Event = require("ui/event")
+            UIManager:broadcastEvent(Event:new(ev))
+            return true
+        end
+        return orig_execute(shortcut, menu, ...)
+    end
 end
 
 local function hookHomeContent()
@@ -399,7 +742,6 @@ local function refreshViews()
 end
 
 local function allShortcuts()
-    local _ = require("gettext")
     local items, seen = {}, {}
     local ok_d, SHORTCUT_DATA = pcall(require, "shortcuts_data")
     if ok_d then
@@ -412,13 +754,12 @@ local function allShortcuts()
     end
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     if ok_m then
-        local where = { reader = _("reader"), fb = _("library"), simpleui = _("home") }
-        for _i, view in ipairs({ "reader", "fb", "simpleui" }) do
+        for _i, view in ipairs({ "fb", "reader" }) do
             for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
-                if not seen[it.key] then
-                    seen[it.key] = true
-                    table.insert(items, { key = it.key,
-                        label = (it.label or it.key) .. " (" .. where[view] .. ")" })
+                local gid = groupId(it.key)
+                if not seen[gid] then
+                    seen[gid] = true
+                    table.insert(items, { key = gid, label = it.label or it.key })
                 end
             end
         end
@@ -607,6 +948,8 @@ local function buildMenu()
                     separator = true,
                 },
             }
+            group_cache = {}
+            migrate()
             for _i, it in ipairs(allShortcuts()) do
                 local key = it.key
                 table.insert(t, {
@@ -643,6 +986,7 @@ require("logger").info("shortcutstoolbar icon tweaks v" .. PATCH_VERSION)
 
 userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
     hookHomeContent()
+    hookExecute()
     if plugin.__stb_icon_tweaks_menu then return end
     plugin.__stb_icon_tweaks_menu = true
 
