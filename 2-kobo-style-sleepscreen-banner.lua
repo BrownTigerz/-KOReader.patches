@@ -2,16 +2,22 @@
 --redesigns the inbuilt 'banner' type sleep screen message to
 --make it look like the kobo lockscreen tag.
 
+--Version: 1.1.0
+
 --VERSIONING
 --1.0.x = fixes (e.g. adapting to a ShelfSync token rename)
 --1.x.0 = new features
 --2.0.0 = changes that affect how existing backups work
 
---[ v1.0.0 ] -- 2026-10-02
---First release. Kobo-style banner with book title/stats, a random highlight
---(scoped per-book, no-repeat window), and a fallback random quote from a txt
---file when the current book has no highlights (its own, session-wide
---no-repeat window). Quotes file reloads automatically if it changes on disk.
+--CHANGELOG
+--1.1.0 - fallback random quote from a txt file (its own no-repeat window)
+--         when the current book has no highlights; quotes file hot-reloads
+--         if it changes on disk; RNG now seeded; highlight no-repeat window
+--         fixed to scope per book instead of leaking across books; dropped
+--         a redundant Sidecar:flush() on every sleep; sleep-screen date
+--         format corrected to "Mon D 'YY"
+--1.0.0 - baseline: Kobo-style banner with book title/stats and a random
+--         highlight on sleep
 
 --CREDITS
 --this version was written in collab with discord user @sandcastles.
@@ -95,6 +101,13 @@ local UIManager = require("ui/uimanager")
 local util = require("util")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+
+local PATCH_VERSION = "1.1.0"	--bump this on every change; it's the only
+								--number that needs to change -- the header's
+								--Version line and changelog are kept in sync
+								--by hand, this constant is what actually
+								--reaches crash.log.
+require("logger").info("[kobo-style-sleepscreen-banner] loaded, version " .. PATCH_VERSION)
 
 math.randomseed(os.time())	--without this, "random" picks can repeat the same
 							--sequence across restarts
