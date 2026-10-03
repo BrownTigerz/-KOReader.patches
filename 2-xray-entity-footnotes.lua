@@ -2,7 +2,7 @@
 Entity Footnotes patch for ultimatejimmy/xray.koplugin
 https://github.com/Dukko/xray.koplugin
 
-Version: 1.0.0 (2026-10-02) - First release.
+Version: 1.0.1 (2026-10-02) - See CHANGELOG below.
 
 Versioning (for future updates to this file):
   1.0.x - fixes (e.g. adapting to an xray.koplugin internal rename)
@@ -31,6 +31,10 @@ X-Ray itself goes to ultimatejimmy.
 ===================================================================
 CHANGELOG
 ===================================================================
+1.0.1 (2026-10-02) - Fix: dropped the on-device version line from the
+X-Ray submenu (kept the menu short); version is still visible in
+crash.log on every startup (see the PATCH_VERSION log lines below).
+
 1.0.0 (2026-10-02) - First release. Everything below was folded into this
 initial version during development/review; future entries will be per-bump.
 
@@ -95,7 +99,7 @@ Behavior:
     session only. No scanning or caching happens at all while off.
 --]]
 
-local PATCH_VERSION = "1.0.0"
+local PATCH_VERSION = "1.0.1"
 
 local ok_userpatch, userpatch = pcall(require, "userpatch")
 if not ok_userpatch or not userpatch or not userpatch.registerPatchPluginFunc then
@@ -1829,7 +1833,7 @@ function XRayPlugin:getSubMenuItems(...)
                         end
                     },
                 }
-            }
+            },
         },
         separator = true,
     }
