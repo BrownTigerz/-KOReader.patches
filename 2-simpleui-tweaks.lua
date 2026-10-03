@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 1.8.0
+Version 1.9.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  1.9.0  Per-module text colours (normal and Night Mode), like section
+         titles: an "All modules" default, each module can override it.
   1.8.0  Renamed to SimpleUI Tweaks (settings kept). Settings are saved to
          disk straight away, so they survive a crash, power-off or patch
          update. Works with SimpleUI's own "Don't Invert Colored Icons in
@@ -40,7 +42,7 @@ Changelog
          colours, progress & border colours.
 ]]
 
-local VERSION = "1.8.0"
+local VERSION = "1.9.0"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -76,6 +78,7 @@ local DEFAULTS = {
     },
     title_size       = 100,         -- section title size, % (x SimpleUI's own label scale)
     titles           = {},          -- per-section overrides: [module id] = { color, bold, size }
+    module_colors    = {},          -- per-module text: [module id] = { text, night }
 }
 
 local userpatch  = require("userpatch")
@@ -221,8 +224,30 @@ local function shouldRecolor(c)
     return v == 0
 end
 
-local function colorForModule()
-    if Screen.night_mode and NIGHT_C then return NIGHT_C end
+-- A module's own text colour settings, if any (instances like Quick Actions
+-- rows match their module id as a prefix).
+local function moduleColors(id)
+    if type(id) ~= "string" then return nil end
+    local mc = cfg.module_colors
+    if mc[id] then return mc[id] end
+    for key, t in pairs(mc) do
+        if id:sub(1, #key) == key then return t end
+    end
+    return nil
+end
+
+-- Text colour for a module, as drawn (Night Mode values pre-inverted).
+-- nil = leave SimpleUI's colour.
+local function colorForModule(id)
+    local t = moduleColors(id)
+    if Screen.night_mode then
+        local n = t and t.night
+        if n ~= nil and n ~= "none" then return colorOf(n, true) end
+        if n == nil and NIGHT_C then return NIGHT_C end
+        -- "none" (inverts with the screen) falls through to the day colour
+    end
+    local d = t and t.text
+    if d ~= nil then return colorOf(d) end   -- "none" -> nil
     return TEXT_C
 end
 
@@ -804,7 +829,7 @@ local function patchCore(UI)
     if type(orig_upd) == "function" and not ours[orig_upd] then
         UI.updateColoredText = mine(function(wgt, txt, fg)
             if cfg.recolor_all and fg and shouldRecolor(fg) then
-                fg = colorForModule(nil) or fg
+                fg = cur_color or colorForModule(nil) or fg
             end
             return orig_upd(wgt, txt, fg)
         end)
@@ -1386,6 +1411,53 @@ local function buildMenu()
         return function() local t = cfg.titles[id]; return t and t[field] end
     end
 
+    -- Modules > Text colour: "All modules" defaults + one submenu per module
+    local function modPut(id, field)
+        return function(v)
+            local t = cfg.module_colors[id] or {}
+            t[field] = v
+            if next(t) == nil then cfg.module_colors[id] = nil else cfg.module_colors[id] = t end
+            saveConfig()
+            applyConfig()
+            askRestart()
+        end
+    end
+    local function modGet(id, field)
+        return function() local t = cfg.module_colors[id]; return t and t[field] end
+    end
+    local text_colour_items = {
+        {
+            text = _("All modules"),
+            sub_item_table = {
+                { text = _("Colour"), sub_item_table = colorMenu("module_text", true) },
+                { text = _("Colour in Night Mode"),
+                  sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")) },
+            },
+            separator = true,
+        },
+    }
+    for _i, m in ipairs(ALL_MODULES) do
+        local id, name = m[1], m[2]
+        text_colour_items[#text_colour_items + 1] = {
+            text_func = function()
+                return cfg.module_colors[id] and (name .. " •") or name   -- dot = customised
+            end,
+            sub_item_table = {
+                { text = _("Colour"),
+                  sub_item_table = colorMenuWith(modGet(id, "text"), modPut(id, "text"),
+                                                 nil, _("Same as all modules")) },
+                { text = _("Colour in Night Mode"),
+                  sub_item_table = colorMenuWith(modGet(id, "night"), modPut(id, "night"),
+                                                 _("Off (inverts with the screen)"), _("Same as all modules")) },
+                { text = _("Reset this module"),
+                  callback = function()
+                      cfg.module_colors[id] = nil
+                      saveConfig(); applyConfig(); askRestart()
+                  end },
+            },
+        }
+    end
+
     local titles_items = {
         {
             text = _("All sections"),
@@ -1450,9 +1522,7 @@ local function buildMenu()
                 text = _("Modules"),
                 sub_item_table = {
                     { text = _("Text colour"),
-                      sub_item_table = colorMenu("module_text", true) },
-                    { text = _("Text colour in Night Mode"),
-                      sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")) },
+                      sub_item_table = text_colour_items },
                     { text = _("Also recolour grey text"),
                       checked_func = function() return cfg.recolor_all end,
                       callback = function() set("recolor_all", not cfg.recolor_all, true) end,
