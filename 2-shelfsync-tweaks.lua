@@ -1,6 +1,6 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.0.0
+-- Version 1.9.2
 -- Checked against: ShelfSync 1.4.0, goodreadskosync 2.0.0 (bundled login code)
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
@@ -48,7 +48,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.0.0"
+local PATCH_VERSION = "1.9.2"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -748,10 +748,6 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                             _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                     },
                 },
-            }
-            new[#new + 1] = {
-                text = _("ShelfSync tweaks v") .. PATCH_VERSION,
-                enabled_func = function() return false end,
             }
             new[#new].separator = true
             for i = #new, 1, -1 do table.insert(items, idx, new[i]) end
