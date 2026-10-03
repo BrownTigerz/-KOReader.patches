@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     v1.0.0 (2026-10-02)
+2-backup-patches.lua                                     2.0.0 (2026-10-03)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -82,13 +82,23 @@ koreader/settings/):
 Needs a KOReader build with zip support (ffi/archiver, 2024+).
 
 Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
-then restart. The version shows at the bottom of the menu.
+then restart.
 
 Changelog
-  1.0.0  2026-10-02  First release.
+  2.0.0  2026-10-03
+    - Menu renamed Patch Backup & Restore
+    - Device Backup & Restore integration: icons carried along with
+      their paths fixed on restore, logins left out by default
+    - Icons: Tidy icons and Unused icons
+    - SimpleUI support (its own settings file and sui_icons/ folder)
+    - Delete all backups, per target and for everything
+    - Relative icon paths (Kobo) handled; KOReader's built-in icons
+      never touched
+    - Restore and Tidy stop if their safety backup can't be made
+  1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "1.0.0"
+local VERSION = "2.0.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1007,11 +1017,6 @@ mainItems = function()
                 end,
             })
         end,
-        separator = true,
-    })
-    table.insert(items, {
-        text = T(_("Version %1"), VERSION),
-        enabled = false,
     })
     return items
 end
