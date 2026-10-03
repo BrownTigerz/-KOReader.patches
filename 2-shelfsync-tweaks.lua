@@ -1,7 +1,8 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.9.2
--- Checked against: ShelfSync 1.4.0, goodreadskosync 2.0.0 (bundled login code)
+-- Version 1.10.0
+-- Checked against: ShelfSync 1.5.0, goodreadskosync 2.0.0 (bundled login code)
+-- Notes follow Network Tweaks' notification style when it is installed.
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
 -- 1) Goodreads "Log in" (email + password) in ShelfSync > Providers >
@@ -48,7 +49,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.9.2"
+local PATCH_VERSION = "1.10.0"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -72,6 +73,9 @@ local RELINK_DELAY = 5       -- seconds after connecting before retrying autolin
 local RELINK_COOLDOWN = 120  -- don't retry the same book on the same provider more often
 local RELOGIN_RUNNING_MAX = 120 -- seconds before a stuck "re-login in progress" is ignored
 local RELOGIN_COOLDOWN = 1800 -- seconds: max one auto re-login per provider per 30 min
+local WIFI_SETTLE = 3           -- seconds to let a fresh Wi-Fi connection settle
+local WIFI_ONLINE_WAIT = 10     -- then wait up to this long for DNS to work
+local WIFI_CONNECT_TIMEOUT = 30 -- give up if Wi-Fi hasn't connected by then
 local RETRY_DELAY = 3 -- seconds before retrying providers that failed
 local CSRF_TTL = 120 -- seconds; Goodreads rotates tokens, same TTL goodreadskosync uses
 
@@ -87,6 +91,49 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         UIManager:show(InfoMessage:new{
             text = text,
             icon = warn and "notice-warning" or nil,
+        })
+    end
+
+    -- Notes that follow Network Tweaks' notification style (Normal /
+    -- Minimal / Banner), so sync messages look like the Wi-Fi ones.
+    -- Without Network Tweaks installed: Normal (KOReader popups).
+    local function noteStyle()
+        local NetworkMgr = require("ui/network/manager")
+        if not NetworkMgr.__network_tweaks then return "normal" end
+        local t = G_reader_settings:readSetting("network_tweaks") or {}
+        local style = t.connect_style
+        if style == "normal" or style == "silent" or style == "banner" then return style end
+        if t.quiet_connect == false then return "normal" end
+        if t.quiet_toast == false then return "silent" end
+        return "banner"
+    end
+
+    -- banner_text: Banner style (and Normal popup), minimal_text: Minimal
+    -- corner note. opts.warn = failure (warning icon in Normal, shown longer).
+    local function styledNote(banner_text, minimal_text, opts)
+        opts = opts or {}
+        local Device = require("device")
+        if Device.screen_saver_mode then return end -- never over the sleep screen
+        local style = noteStyle()
+        local timeout = opts.timeout or (opts.warn and 4 or 2)
+        if style == "normal" then
+            UIManager:show(InfoMessage:new{
+                text = banner_text,
+                icon = opts.warn and "notice-warning" or nil,
+                timeout = (not opts.warn) and timeout or nil,
+            })
+            return
+        end
+        local NetworkMgr = require("ui/network/manager")
+        local shared = NetworkMgr.__network_tweaks_note
+        if type(shared) == "function" then
+            -- Network Tweaks 1.5.1+: same widgets, same corner stacking
+            local ok = pcall(shared, banner_text, minimal_text or banner_text, timeout)
+            if ok then return end
+        end
+        UIManager:show(require("ui/widget/notification"):new{
+            text = style == "silent" and (minimal_text or banner_text) or banner_text,
+            timeout = timeout,
         })
     end
 
@@ -640,13 +687,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         -- onUpdateProgress doesn't check isActive, so ShelfSync's own
         -- "update all" would still push to a hidden provider with an old link
         local orig_onUpdateProgress = SyncEngine.onUpdateProgress
-        SyncEngine.onUpdateProgress = function(self, completion_callback, gesture_feedback)
+        SyncEngine.onUpdateProgress = function(self, completion_callback, ...)
             local key = HIDDEN[self.label]
             if key and tweak(key) then
                 if completion_callback then completion_callback(nil, "hidden") end
                 return
             end
-            return orig_onUpdateProgress(self, completion_callback, gesture_feedback)
+            return orig_onUpdateProgress(self, completion_callback, ...)
         end
 
         -- Retry autolink when the network comes up. ShelfSync only restarts
@@ -853,7 +900,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local function updateAllEnabled(app, done)
         done = done or function() end
         if not (app.ui and app.ui.document) then
-            notify(_("Unable to update reading progress: No book active"), true)
+            styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
             return done()
         end
         local linked, unlinked = {}, {}
@@ -865,69 +912,89 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 unlinked[#unlinked + 1] = entry.label
             end
         end
-        local function reportUnlinked()
-            if #unlinked > 0 then
-                UIManager:show(InfoMessage:new{
-                    text = _("Not linked on: ") .. table.concat(unlinked, ", ")
-                        .. _("\nUse Link & Update > Link book to link it."),
-                    timeout = 4,
-                })
-            end
+        local function names(list)
+            local out = {}
+            for _i, e in ipairs(list) do out[#out + 1] = e.label or e end
+            return table.concat(out, ", ")
         end
+        local not_linked = #unlinked > 0 and (_(" · Not linked: ") .. table.concat(unlinked, ", ")) or ""
+
         if #linked == 0 then
             if #unlinked == 0 then
-                notify(_("No enabled providers."), true)
+                styledNote(_("No enabled providers"), _("No providers"), { warn = true })
             else
-                reportUnlinked()
+                styledNote(_("Not linked: ") .. table.concat(unlinked, ", ")
+                    .. _(" · use Link & Update > Link book"), _("Book not linked"), { warn = true })
             end
             return done()
         end
-        -- Run one pass over `list`; collect the ones that failed.
+
+        styledNote(_("Syncing progress · ") .. names(linked), _("Syncing progress"), { timeout = 3 })
+
+        -- One pass over `list`. Provider popups are suppressed (ShelfSync
+        -- 1.5.0+); results are collected and shown as one note at the end.
         local function runPass(list, on_finished)
-            local failed = {}
+            local ok_list, failed = {}, {}
             local function step(i)
                 local entry = list[i]
-                if not entry then return on_finished(failed) end
+                if not entry then return on_finished(ok_list, failed) end
                 local advanced = false
-                local ok, err = pcall(entry.engine.onUpdateProgress, entry.engine, function(result)
+                local function record(result, reason)
                     if advanced then return end
                     advanced = true
-                    if not result then failed[#failed + 1] = entry end
+                    if result then
+                        ok_list[#ok_list + 1] = entry
+                    else
+                        failed[#failed + 1] = { entry = entry, reason = reason }
+                    end
                     step(i + 1)
-                end, true)
+                end
+                local ok, err = pcall(entry.engine.onUpdateProgress, entry.engine, record, true, true)
                 -- A provider throwing an error must not stop the others
                 if not ok and not advanced then
-                    advanced = true
                     require("logger").warn("ShelfSync tweaks: " .. entry.label
                         .. " progress update threw: " .. tostring(err))
-                    failed[#failed + 1] = entry
-                    step(i + 1)
+                    record(nil, _("unexpected error"))
                 end
             end
             step(1)
         end
 
-        runPass(linked, function(failed)
+        local function summary(synced, failed)
             if #failed == 0 then
-                reportUnlinked()
+                styledNote(_("Progress synced · ") .. names(synced) .. not_linked,
+                    _("Progress synced"), { warn = #unlinked > 0, timeout = #unlinked > 0 and 4 or 2 })
+                return
+            end
+            local parts = {}
+            for _i, f in ipairs(failed) do
+                parts[#parts + 1] = f.entry.label .. (f.reason and (": " .. tostring(f.reason)) or "")
+            end
+            local text = (#synced > 0 and (_("Synced ") .. names(synced) .. " · ") or "")
+                .. _("Failed: ") .. table.concat(parts, "; ") .. not_linked
+            local fail_names = {}
+            for _i, f in ipairs(failed) do fail_names[#fail_names + 1] = f.entry.label end
+            styledNote(text, table.concat(fail_names, ", ") .. _(" sync failed"), { warn = true })
+        end
+
+        runPass(linked, function(synced, failed)
+            if #failed == 0 then
+                summary(synced, failed)
                 return done()
             end
             -- One automatic retry, only for providers that failed
-            local names = {}
-            for _i, e in ipairs(failed) do names[#names + 1] = e.label end
-            UIManager:show(InfoMessage:new{
-                text = _("Retrying: ") .. table.concat(names, ", "),
-                timeout = 2,
-            })
+            local retry = {}
+            for _i, f in ipairs(failed) do retry[#retry + 1] = f.entry end
+            styledNote(_("Retrying · ") .. names(retry), _("Retrying"), { timeout = 2 })
             UIManager:scheduleIn(RETRY_DELAY, function()
-                runPass(failed, function()
-                    reportUnlinked()
+                runPass(retry, function(synced2, failed2)
+                    for _i, e in ipairs(synced2) do synced[#synced + 1] = e end
+                    summary(synced, failed2)
                     done()
                 end)
             end)
         end)
     end
-
 
     -- Turn Wi-Fi on and wait for a real connection before running `run(done)`.
     -- If we switched Wi-Fi on and `restore_after` is set, switch it back off
@@ -938,11 +1005,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             return run(function() end)
         end
         if G_reader_settings:isTrue("airplanemode") then
-            notify(_("Airplane mode is on -- turn it off to sync."), true)
+            styledNote(_("Airplane mode is on · turn it off to sync"), _("Airplane mode on"), { warn = true })
             return
         end
         local was_on = NetworkMgr:isWifiOn()
-        local finished = false
+        local finished, started_run = false, false
         local function finish()
             if finished then return end -- runs once: normal finish OR safety timeout
             finished = true
@@ -953,14 +1020,48 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 end)
             end
         end
-        NetworkMgr:turnOnWifiAndWaitForConnection(function()
+        local function go()
+            if started_run then return end
+            started_run = true
             -- Safety net: if a provider never reports back (error, cancelled
             -- request), don't leave Wi-Fi on draining the battery.
             if restore_after and not was_on then
                 UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
             end
             run(finish)
-        end)
+        end
+        -- "Connected" only means there's an IP; DNS/routing can lag a few
+        -- seconds, and requests sent in that gap fail. Settle, then wait
+        -- until hostnames resolve (or give up waiting and try anyway).
+        local function waitOnline(deadline)
+            local ok, online = pcall(NetworkMgr.isOnline, NetworkMgr)
+            if (ok and online) or os.time() >= deadline then return go() end
+            UIManager:scheduleIn(1, function() waitOnline(deadline) end)
+        end
+        local connect_started = os.time()
+        local function poll()
+            if started_run then return end
+            if NetworkMgr:isConnected() then
+                UIManager:scheduleIn(WIFI_SETTLE, function()
+                    waitOnline(os.time() + WIFI_ONLINE_WAIT)
+                end)
+                return
+            end
+            if os.time() - connect_started >= WIFI_CONNECT_TIMEOUT then
+                -- Network Tweaks shows its own failure banner
+                if not NetworkMgr.__network_tweaks then
+                    styledNote(_("Couldn't connect to Wi-Fi"), _("Wi-Fi failed"), { warn = true })
+                end
+                started_run = true
+                finish()
+                return
+            end
+            UIManager:scheduleIn(1, poll)
+        end
+        -- Callback not relied on: a connect already in progress (or a
+        -- background connect from Network Tweaks) may never call it.
+        NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
+        UIManager:scheduleIn(1, poll)
     end
 
     local function hubRootItems(app)
@@ -1031,41 +1132,18 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             withNetwork(function() showHub(hubStatusItems(app)) end, false); return true
         end
         -- ShelfSync's built-in "Update progress for all linked books" has no
-        -- Wi-Fi handling. Same behaviour (every linked provider), but connect
-        -- first and turn Wi-Fi back off afterwards if we turned it on.
+        -- Wi-Fi handling. Since 1.5.0 it also only syncs enabled providers, so
+        -- it now runs the same flow as ShelfSync All: connect and settle
+        -- first, one retry, one styled summary, Wi-Fi back off afterwards.
         local orig_updateAll = plugin.onShelfSyncUpdateAllProgress
         if orig_updateAll then
             plugin.onShelfSyncUpdateAllProgress = function(self)
                 -- No book / nothing linked: let the original show its message
-                if not (self.ui and self.ui.document) or not ok_pv then
+                if not (self.ui and self.ui.document) then
                     return orig_updateAll(self)
                 end
-                local linked = {}
-                for _i, p in ipairs(PROVIDERS) do
-                    local e = self.engines and self.engines[p.key]
-                    if e and e.settings:bookLinked() then linked[#linked + 1] = e end
-                end
-                if #linked == 0 then return orig_updateAll(self) end
-
-                withNetwork(function(done)
-                    local function nextEngine(i)
-                        local e = linked[i]
-                        if not e then return done() end
-                        local advanced = false
-                        local ok, err = pcall(e.onUpdateProgress, e, function()
-                            if advanced then return end
-                            advanced = true
-                            nextEngine(i + 1)
-                        end, true)
-                        if not ok and not advanced then
-                            advanced = true
-                            require("logger").warn("ShelfSync tweaks: " .. tostring(e.label)
-                                .. " progress update threw: " .. tostring(err))
-                            nextEngine(i + 1)
-                        end
-                    end
-                    nextEngine(1)
-                end, true)
+                local app = self
+                withNetwork(function(done) updateAllEnabled(app, done) end, true)
                 return true
             end
         end
@@ -1074,7 +1152,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         function plugin:onShelfSyncAllUpdateProgress()
             local app = self
             if not (app.ui and app.ui.document) then
-                notify(_("Unable to update reading progress: No book active"), true)
+                styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
                 return true
             end
             withNetwork(function(done) updateAllEnabled(app, done) end, true); return true
@@ -1110,13 +1188,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
     -- After a successful re-login: re-send progress for the open book
     local function afterRelogin(engine, label)
-        UIManager:show(require("ui/widget/notification"):new{
-            text = label .. _(": session renewed"),
-        })
+        styledNote(label .. _(" session renewed"), label .. _(" renewed"))
         if engine and engine.ui and engine.ui.document and engine.ui.document.file then
             local ok_l, linked = pcall(engine.settings.bookLinked, engine.settings)
             if ok_l and linked then
-                UIManager:scheduleIn(2, function() engine:onUpdateProgress(nil, false) end)
+                UIManager:scheduleIn(2, function() engine:onUpdateProgress(nil, false, true) end)
             end
         end
     end
@@ -1139,7 +1215,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         UIManager:scheduleIn(1, function()
             Trapper:wrap(function()
                 local info = InfoMessage:new{ text = _("Renewing ") .. label .. _(" session...") }
-                UIManager:show(info)
+                if noteStyle() == "normal" then
+                    UIManager:show(info)
+                else
+                    styledNote(_("Renewing ") .. label .. _(" session…"), _("Renewing ") .. label, { timeout = 3 })
+                end
                 UIManager:forceRePaint()
 
                 if label == "StoryGraph" then
