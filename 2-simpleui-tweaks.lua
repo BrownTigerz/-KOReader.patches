@@ -1,15 +1,32 @@
 --[[
-2-simpleui-mod.lua - KOReader user patch for SimpleUI (simpleui.koplugin)
-Version 1.6.0
+2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
+(simpleui.koplugin)
+Version 1.8.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
-Settings: Tools > SimpleUI Mod (or Tools > Add-ons > SimpleUI Mod when
+Settings: Tools > SimpleUI Tweaks (or Tools > Add-ons > SimpleUI Tweaks when
 2-tweaks-menu.lua is installed). Install: koreader/patches/, then restart.
+Also: KOReader's own menu tab icons and arrows can keep their original
+colours in Night Mode (for colour icons swapped in via koreader/icons/).
 
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  1.8.0  Renamed to SimpleUI Tweaks (settings kept). Settings are saved to
+         disk straight away, so they survive a crash, power-off or patch
+         update. Works with SimpleUI's own "Don't Invert Colored Icons in
+         Night Mode" (no double flip) and with its custom tab icons (icon
+         list lookup no longer blocked). File renamed to
+         2-simpleui-tweaks.lua (delete 2-simpleui-mod.lua).
+  1.7.2  Menu tabs matched by menu id, so tabs with a custom icon from
+         SimpleUI's System Icons work (Navigation, Back to file browser…).
+         File browser settings and Back to file browser are separate.
+         Fix: Shortcuts Toolbar stopped showing when those tabs had a custom
+         icon (it recognised menus by icon name only).
+  1.7.1  Menu tab icons chosen one by one (e.g. only Tools).
+  1.7.0  Original colours in Night Mode for KOReader's menu tab icons, menu
+         arrows and Quick Actions icons (each a toggle, off by default).
   1.6.0  Backup patch support. Fixed a duplicate status bar timer. Section
          title size only applied while titles are built. Hardened loading.
   1.5.0  Add-ons menu support (incl. on/off). Settings menu built only when
@@ -23,9 +40,17 @@ Changelog
          colours, progress & border colours.
 ]]
 
-local VERSION = "1.6.0"
+local VERSION = "1.8.0"
 
--- ---- Defaults (change in Tools > SimpleUI Mod) -----------------------------
+-- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
+-- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
+if package.loaded["simpleui_tweaks_patch"] then
+    require("logger").warn("simpleui-tweaks: another copy is already loaded, this one is skipped")
+    return
+end
+package.loaded["simpleui_tweaks_patch"] = true
+
+-- ---- Defaults (change in Tools > SimpleUI Tweaks) --------------------------
 local DEFAULTS = {
     module_text      = "#000000",   -- module text, normal mode
     night_text       = "#000000",   -- module text in Night Mode (as shown)
@@ -36,6 +61,11 @@ local DEFAULTS = {
     accent_modules   = { reading_goals = true, reading_stats = true, currently = false },
     nav_labels_black = true,        -- nav labels show black in Night Mode
     nav_icons_original = true,      -- nav icons keep their real colours in Night Mode
+    qa_icons_original = false,      -- Quick Actions icons: same, in Night Mode
+    menu_icons       = {            -- KOReader menu icons: same, in Night Mode
+        tab    = {},                --   tab icons, by menu id: ["tools"] = true
+        arrows = false,             --   back arrow and page arrows
+    },
     titles_day_night = true,        -- section titles look the same in Night Mode
     topbar_day_night = true,        -- status bar looks the same in Night Mode
     bold = {                        -- bold text (applies after restart,
@@ -53,7 +83,7 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Screen     = require("device").screen
 local logger     = require("logger")
 
-local TAG = "simpleui-mod " .. VERSION .. ":"
+local TAG = "simpleui-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_mod"
 
 -- ---- settings ----------------------------------------------------------------
@@ -88,11 +118,36 @@ local function loadConfig()
         m.nav_icons_original = false
     end
     m.topbar_bold, m.show_popup, m.nav_icon_night = nil, nil, nil   -- retired settings
+    -- 1.7.0 had one switch for all tab icons; 1.7.1 keyed tabs by icon name
+    local by_icon = {
+        ["appbar.filebrowser"] = { "filemanager_settings", "filemanager" },
+        ["appbar.settings"] = { "setting" }, ["appbar.tools"] = { "tools" },
+        ["appbar.search"] = { "search" }, ["appbar.menu"] = { "main" },
+        ["appbar.navigation"] = { "navi" }, ["appbar.typeset"] = { "typeset" },
+    }
+    if m.menu_icons.tabs == true then
+        for _icon, ids in pairs(by_icon) do
+            for _i, id in ipairs(ids) do m.menu_icons.tab[id] = true end
+        end
+    end
+    for icon, ids in pairs(by_icon) do
+        if m.menu_icons.tab[icon] then
+            m.menu_icons.tab[icon] = nil
+            for _i, id in ipairs(ids) do m.menu_icons.tab[id] = true end
+        end
+    end
+    m.menu_icons.tabs = nil
     for k in pairs(cfg) do cfg[k] = nil end
     for k, v in pairs(m) do cfg[k] = v end
 end
+-- Written to disk straight away (only ever on a settings change): KOReader
+-- otherwise only saves on a clean exit, so a crash, power-off or swapping
+-- patch files over USB could lose the change.
 local function saveConfig()
-    if G_reader_settings then G_reader_settings:saveSetting(SETTINGS_KEY, cfg) end
+    if G_reader_settings then
+        G_reader_settings:saveSetting(SETTINGS_KEY, cfg)
+        if G_reader_settings.flush then pcall(G_reader_settings.flush, G_reader_settings) end
+    end
 end
 loadConfig()
 
@@ -176,6 +231,7 @@ local cur_color = nil  -- colour applied to text built right now
 local cur_bold  = false -- bold applied to text built right now (modules)
 local suspended = 0    -- > 0: don't recolour (mask internals)
 local flip_kind = nil  -- "nav" | "title" | "topbar" while building those
+local icon_kind = nil  -- icons only: "quick_actions" | "menu_tab" | "menu_arrow"
 local in_mask   = 0    -- > 0: painting through an alpha mask
 
 local function pack(...) return { n = select("#", ...), ... } end
@@ -199,6 +255,11 @@ local function withBold(on, fn, ...)
     if not res[1] then error(res[2], 0) end
     return unpack(res, 2, res.n)
 end
+
+local function tabOn(name)
+    return type(name) == "string" and cfg.menu_icons.tab[name] == true
+end
+local function anyTabOn() return next(cfg.menu_icons.tab) ~= nil end
 
 local function boldForModule(id)
     local mods = cfg.bold.modules
@@ -261,6 +322,9 @@ end
 local function flipOn(kind)
     if kind == "nav"      then return cfg.nav_labels_black end
     if kind == "nav_icon" then return cfg.nav_icons_original end
+    if kind == "quick_actions" then return cfg.qa_icons_original end
+    if kind == "menu_tab"   then return anyTabOn() end
+    if kind == "menu_arrow" then return cfg.menu_icons.arrows end
     if kind == "title"    then return cfg.titles_day_night end
     if kind == "topbar"   then return cfg.topbar_day_night end
     return false
@@ -304,6 +368,17 @@ local function makeNightAwareMask(w, kind)
     end
 end
 
+-- KOReader's own ImageWidget painter, captured before SimpleUI loads.
+-- SimpleUI's "Don't Invert Colored Icons in Night Mode" wraps ImageWidget's
+-- painter and pre-inverts coloured icons itself; drawing our inverted copy
+-- through that wrapper would flip the icon twice (no visible change). When
+-- that wrapper is the one we'd call, draw with KOReader's painter instead.
+local ImageWidgetCls, RAW_IMAGE_PAINT
+do
+    local ok, IW = pcall(require, "ui/widget/imagewidget")
+    if ok and type(IW) == "table" then ImageWidgetCls, RAW_IMAGE_PAINT = IW, IW.paintTo end
+end
+
 local function paintIconOriginal(self, orig, bb, x, y)
     -- Draw a private inverted COPY of the icon (alpha untouched); the
     -- screen-wide inversion flips it back to the real colours. The source
@@ -320,21 +395,28 @@ local function paintIconOriginal(self, orig, bb, x, y)
         copy:invertRect(0, 0, copy:getWidth(), copy:getHeight())
         self._sui_inv_bb, self._sui_inv_src = copy, src
     end
+    local painter = orig
+    if ImageWidgetCls and RAW_IMAGE_PAINT and rawget(ImageWidgetCls, "_simpleui_icon_nightcolor_patched")
+            and rawequal(orig, ImageWidgetCls.paintTo) then
+        painter = RAW_IMAGE_PAINT
+    end
     self._bb = self._sui_inv_bb
-    local ok, err = pcall(orig, self, bb, x, y)
+    local ok, err = pcall(painter, self, bb, x, y)
     self._bb = src
     if not ok then error(err, 0) end
     return true
 end
 
 local function makeNightAwareIcon(iw, kind)
-    if iw._sui_nav_night then return end
+    if iw._sui_nav_night or iw._mi_night then return end
     iw._sui_nav_night = true
     local orig = iw.paintTo
     iw.paintTo = function(self, bb, x, y)
         if Screen.night_mode and in_mask == 0 then
             local on
-            if kind == "nav" then on = cfg.nav_icons_original else on = flipOn(kind) end
+            if kind == "nav" then on = cfg.nav_icons_original
+            elseif kind == "menu_tab" then on = tabOn(self._sui_tab_id)
+            else on = flipOn(kind) end
             if on then
                 local ok, done = pcall(paintIconOriginal, self, orig, bb, x, y)
                 if ok and done then return end
@@ -467,6 +549,8 @@ do
         IW.init = function(self, ...)
             if flip_kind and self.is_icon then
                 makeNightAwareIcon(self, flip_kind)
+            elseif icon_kind and self.is_icon then
+                makeNightAwareIcon(self, icon_kind)
             end
             if orig_init then return orig_init(self, ...) end
         end
@@ -474,9 +558,29 @@ do
     local ok2, IcW = pcall(require, "ui/widget/iconwidget")
     if ok2 and type(IcW) == "table" and rawget(IcW, "init") then
         local orig_icon_init = IcW.init
+        -- SimpleUI finds KOReader's icon lookup tables (ICONS_PATH,
+        -- ICONS_DIRS) by inspecting IconWidget.init's upvalues, to register
+        -- custom tab icons without a restart. We load first, so it inspects
+        -- this wrapper: carry the same tables under the same names so its
+        -- lookup still works.
+        local ICONS_PATH, ICONS_DIRS
+        local i = 1
+        while true do
+            local n, v = debug.getupvalue(orig_icon_init, i)
+            if n == nil then break end
+            if n == "ICONS_PATH" then ICONS_PATH = v elseif n == "ICONS_DIRS" then ICONS_DIRS = v end
+            i = i + 1
+        end
         IcW.init = function(self, ...)
+            if ICONS_PATH == self then return ICONS_DIRS end   -- never true: keeps both as upvalues
             if flip_kind then
                 makeNightAwareIcon(self, flip_kind)   -- guarded against double-wrapping
+            elseif icon_kind and (icon_kind ~= "menu_arrow"
+                    or (type(self.icon) == "string" and self.icon:find("^chevron"))) then
+                -- menu icons are normally flattened onto white when rendered,
+                -- which would leave a box once flipped: keep transparency
+                if icon_kind == "menu_tab" or icon_kind == "menu_arrow" then self.alpha = true end
+                makeNightAwareIcon(self, icon_kind)
             end
             return orig_icon_init(self, ...)
         end
@@ -514,6 +618,56 @@ end
 
 local wrapped = setmetatable({}, { __mode = "k" })
 
+-- ---- KOReader's own menu: tab icons and arrows ------------------------------------
+local seen_tabs = {}   -- tab icon names seen this session, in order
+-- The menu is created each time it opens, so a toggle applies on the next
+-- open. Icons are only touched while their toggle is on.
+do
+    local ok, TouchMenu = pcall(require, "ui/widget/touchmenu")
+    if ok and type(TouchMenu) == "table" and type(TouchMenu.init) == "function"
+            and not TouchMenu._sui_mod_hooked then
+        TouchMenu._sui_mod_hooked = true
+        -- the tab bar class is private to touchmenu.lua
+        local TouchMenuBar = findUpvalue(TouchMenu.init, "TouchMenuBar")
+        local function scoped(kind, on, orig, ...)
+            local prev = icon_kind
+            icon_kind = on and kind or nil
+            local res = pack(pcall(orig, ...))
+            icon_kind = prev
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2, res.n)
+        end
+        local orig_menu_init = TouchMenu.init
+        TouchMenu.init = function(self, ...)
+            return scoped("menu_arrow", cfg.menu_icons.arrows, orig_menu_init, self, ...)
+        end
+        if type(TouchMenuBar) == "table" and type(TouchMenuBar.init) == "function" then
+            local orig_bar_init = TouchMenuBar.init
+            TouchMenuBar.init = function(self, ...)
+                local res = pack(scoped("menu_tab", anyTabOn(), orig_bar_init, self, ...))
+                -- Tabs are matched by menu id (it never changes), not icon
+                -- name: SimpleUI's System Icons give custom tab icons their
+                -- own names, and two tabs can share one stock icon.
+                local tabs = type(self.menu) == "table" and self.menu.tab_item_table
+                for k, ib in ipairs(self.icon_widgets or {}) do
+                    local tab = type(tabs) == "table" and tabs[k]
+                    local id = type(tab) == "table" and tab.id
+                    if type(id) == "string" then
+                        if type(ib) == "table" and type(ib.image) == "table" then ib.image._sui_tab_id = id end
+                        -- tabs that aren't KOReader's own (a plugin's tab)
+                        -- show up in the settings list once seen
+                        if not seen_tabs[id] then
+                            seen_tabs[id] = true
+                            seen_tabs[#seen_tabs + 1] = id
+                        end
+                    end
+                end
+                return unpack(res, 1, res.n)
+            end
+        end
+    end
+end
+
 local function wrapDescriptor(m, fallback_id)
     if type(m) ~= "table" or wrapped[m] or type(m.build) ~= "function" then return end
     wrapped[m] = true
@@ -534,11 +688,15 @@ local function wrapDescriptor(m, fallback_id)
         local accent = isAccentModule(id)
         local ok, w
         local bold = boldForModule(id)
+        -- Quick Actions icons get the Night Mode switch (checked when drawn)
+        local prev_icon_kind = icon_kind
+        if type(id) == "string" and id:sub(1, 13) == "quick_actions" then icon_kind = "quick_actions" end
         if accent then
             ok, w = pcall(withBold, bold, withAccents, withColor, colorForModule(id), orig, ...)
         else
             ok, w = pcall(withBold, bold, withColor, colorForModule(id), orig, ...)
         end
+        icon_kind = prev_icon_kind
         if ok then
             -- nil is a legitimate result (e.g. no book / no data yet)
             if w ~= nil and accent then pcall(makeAccentPaint, w, id) end
@@ -887,7 +1045,7 @@ _G.require = function(name, ...)
     return mod
 end
 
--- ---- Tools > SimpleUI Mod menu ------------------------------------------------------------
+-- ---- Tools > SimpleUI Tweaks menu ---------------------------------------------------------
 local _ = orig_require("gettext")
 
 local PRESETS = {
@@ -1136,6 +1294,41 @@ local function item(text, spec)
     return spec
 end
 
+local tabItems
+-- KOReader's own tab icons, file browser and reader menus combined
+local STOCK_TABS = {
+    { "filemanager_settings", _("File browser settings") },
+    { "navi",                 _("Navigation (reader)") },
+    { "typeset",              _("Typeset (reader)") },
+    { "filemanager",          _("Back to file browser (reader)") },
+    { "setting",              _("Settings") },
+    { "tools",                _("Tools") },
+    { "search",               _("Search") },
+    { "main",                 _("Main menu") },
+    { "_sui_qs_panel",        _("SimpleUI Quick Settings") },
+}
+
+tabItems = function()
+    local list, known = {}, {}
+    for _i, t in ipairs(STOCK_TABS) do list[#list + 1] = t; known[t[1]] = true end
+    for _i, name in ipairs(seen_tabs) do
+        if not known[name] then list[#list + 1] = { name, name } end
+    end
+    local items = {}
+    for _i, t in ipairs(list) do
+        local name = t[1]
+        items[#items + 1] = {
+            text = t[2],
+            checked_func = function() return tabOn(name) end,
+            callback = function()
+                cfg.menu_icons.tab[name] = (not tabOn(name)) or nil
+                saveConfig()
+            end,
+        }
+    end
+    return items
+end
+
 local function buildMenu()
     local function boldTbl() return cfg.bold end
     local function boldMods() return cfg.bold.modules end
@@ -1251,7 +1444,7 @@ local function buildMenu()
     end
 
     return {
-        text = _("SimpleUI Mod"),
+        text = _("SimpleUI Tweaks"),
         sub_item_table = {
             {
                 text = _("Modules"),
@@ -1272,6 +1465,9 @@ local function buildMenu()
                       sub_item_table = accent_items,
                       separator = true },
                     { text = _("Bold"), sub_item_table = bold_module_items },
+                    { text = _("Quick Actions icons keep original colours in Night Mode"),
+                      checked_func = function() return cfg.qa_icons_original end,
+                      callback = function() set("qa_icons_original", not cfg.qa_icons_original) end },
                 },
             },
             {
@@ -1291,6 +1487,22 @@ local function buildMenu()
                 },
             },
             {
+                text = _("KOReader menu"),
+                sub_item_table = {
+                    { text_func = function()
+                          local n = 0
+                          for _k in pairs(cfg.menu_icons.tab) do n = n + 1 end
+                          return _("Tab icons keep original colours in Night Mode") .. (n > 0 and (": " .. n) or "")
+                      end,
+                      help_text = _("For colour icons you've swapped in (same file name in koreader/icons/). Plain black icons would disappear on the dark Night Mode menu. Applies the next time the menu opens."),
+                      sub_item_table_func = tabItems },
+                    { text = _("Arrows keep original colours in Night Mode"),
+                      help_text = _("Back arrow and page arrows. Only useful with colour arrow icons swapped in. Applies the next time the menu opens."),
+                      checked_func = function() return cfg.menu_icons.arrows end,
+                      callback = function() cfg.menu_icons.arrows = not cfg.menu_icons.arrows; saveConfig() end },
+                },
+            },
+            {
                 text = _("Status bar"),
                 sub_item_table = {
                     item(_("Bold"), toggle(boldTbl, "topbar", refreshTopbarNow)),
@@ -1307,7 +1519,7 @@ local function buildMenu()
                     local UIManager = orig_require("ui/uimanager")
                     local ConfirmBox = orig_require("ui/widget/confirmbox")
                     UIManager:show(ConfirmBox:new{
-                        text = _("Reset all SimpleUI Mod settings to defaults?"),
+                        text = _("Reset all SimpleUI Tweaks settings to defaults?"),
                         ok_text = _("Reset"),
                         ok_callback = function()
                             if G_reader_settings then G_reader_settings:delSetting(SETTINGS_KEY) end
@@ -1327,7 +1539,7 @@ end
 -- opened (sub_item_table_func), not every time KOReader's main menu is built.
 local function lazyMenu()
     return {
-        text = _("SimpleUI Mod"),
+        text = _("SimpleUI Tweaks"),
         sub_item_table_func = function()
             -- a menu bug must never take KOReader down: show a stub instead
             local ok, menu = pcall(buildMenu)
@@ -1353,12 +1565,12 @@ end
 
 -- ---- Add-ons menu (2-tweaks-menu.lua) -------------------------------------------------------
 -- With that patch installed, our settings live under Tools > Add-ons
--- (file browser only). Without it, we add our own Tools > SimpleUI Mod entry.
+-- (file browser only). Without it, we add our own Tools > SimpleUI Tweaks entry.
 local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
 TM.entries.simpleui_mod = {
-    text  = "SimpleUI Mod",
+    text  = "SimpleUI Tweaks",
     where = "filemanager",
     build = lazyMenu,
 }
@@ -1385,7 +1597,7 @@ end
 pcall(hookMenu, "apps/filemanager/filemanagermenu", "ui/elements/filemanager_menu_order")
 
 -- ---- Backup patch (Tools > Backup) --------------------------------------------------------
--- Adds "SimpleUI Mod" as a backup target when the Backup patch is installed.
+-- Adds "SimpleUI Tweaks" as a backup target when the Backup patch is installed.
 -- All our settings live under one key (SETTINGS_KEY), which the prefix matches.
 -- Works in either patch load order: if Backup hasn't loaded yet, we queue the
 -- target in its shared table and it picks it up as one of its targets.
@@ -1394,7 +1606,7 @@ do
     package.loaded.backup_patches = BK
     local target = {
         id = "simpleui_mod",
-        text = _("SimpleUI Mod"),
+        text = _("SimpleUI Tweaks"),
         setting_prefix = SETTINGS_KEY,
     }
     if type(BK.register) == "function" then
@@ -1410,6 +1622,47 @@ do
         table.insert(BK.targets, target)
     end
 end
+
+-- ---- Shortcuts Toolbar compatibility ---------------------------------------------------
+-- Shortcuts Toolbar tells the file browser and reader menus apart by tab icon
+-- name (appbar.filebrowser / appbar.navigation / appbar.typeset). A custom tab
+-- icon from SimpleUI's System Icons renames it, so the toolbar stopped
+-- showing. Teach its two checks to also recognise those tabs by menu id.
+userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
+    if type(plugin) ~= "table" or plugin._sui_mod_menu_compat then return end
+    local menuConfig = findUpvalue(plugin.onSwitchTab, "menuConfig")
+        or findUpvalue(plugin.onMenuInit, "menuConfig")
+    if type(menuConfig) ~= "function" then return end
+    local orig_reader, ri = findUpvalue(menuConfig, "isReaderMenu")
+    local orig_fb, fi = findUpvalue(menuConfig, "isFileBrowserMenu")
+    if type(orig_reader) ~= "function" or type(orig_fb) ~= "function" then return end
+    plugin._sui_mod_menu_compat = true
+
+    local function hasTab(menu, ids)
+        if type(menu) ~= "table" or type(menu.tab_item_table) ~= "table" then return false end
+        for _i, tab in ipairs(menu.tab_item_table) do
+            if type(tab) == "table" and ids[tab.id] then return true end
+        end
+        return false
+    end
+    local READER_TABS = { navi = true, typeset = true }
+    local FB_TABS = { filemanager_settings = true }
+
+    -- shared by every function in the plugin that uses these checks
+    debug.setupvalue(menuConfig, ri, function(menu)
+        if orig_reader(menu) then return true end
+        local R = package.loaded["apps/reader/readerui"]
+        local inst = type(R) == "table" and R.instance
+        return inst ~= nil and inst ~= false and not inst.tearing_down and hasTab(menu, READER_TABS)
+    end)
+    debug.setupvalue(menuConfig, fi, function(menu)
+        if orig_fb(menu) then return true end
+        local F = package.loaded["apps/filemanager/filemanager"]
+        local inst = type(F) == "table" and F.instance
+        return inst ~= nil and inst ~= false and not inst.tearing_down
+            and not hasTab(menu, READER_TABS) and hasTab(menu, FB_TABS)
+    end)
+end)
 
 -- Remember SimpleUI's plugin name (its folder name), for suiInstance().
 userpatch.registerPatchPluginFunc("simpleui", function(plugin)
