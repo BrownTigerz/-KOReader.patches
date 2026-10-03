@@ -2,6 +2,8 @@
 ReadMastery - Notification Style Patch
 =======================================
 
+Version: 1.0.1
+
 Drop this file, unmodified plugin included, into your KOReader
 `patches/` folder:
 
@@ -72,6 +74,16 @@ notifications queue and show one at a time instead of overlapping.
 All settings are stored in their own file
 (settings/ReadMastery_notify.lua), completely separate from
 ReadMastery's own data file.
+
+Changelog:
+  1.0.1 (2026-10-02) - Full style now always delegates streak-milestone
+    notifications to the real plugin, even for milestone days this file
+    doesn't have hardcoded itself (previously these were silently
+    dropped under Full style). Preview's Full-style path no longer
+    passes a bare nil for self. The whole one-time setup is now
+    wrapped so a failure anywhere in it shows a visible error and can
+    retry, instead of failing silently and uncaught.
+  1.0.0 (2026-10-02) - First release.
 --]]--
 
 local userpatch  = require("userpatch")
@@ -97,8 +109,15 @@ local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget    = require("ui/widget/textwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan  = require("ui/widget/verticalspan")
+local logger      = require("logger")
 local Input  = Device.input
 local Screen = Device.screen
+
+-- The only version number that actually matters at runtime - the
+-- header comment above is for humans reading the file; this is what
+-- the menu's version line and the startup log entry below both
+-- display, so they can never drift out of sync with each other.
+local PATCH_VERSION = "1.0.1"
 
 -- =================================================================
 -- Settings (own file - ReadMastery's own data.json is never touched)
@@ -958,6 +977,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- above throws, this stays false so the next plugin instantiation
     -- can retry instead of permanently skipping setup.
     classes_patched = true
+    logger.info("ReadMastery Notify patch v" .. PATCH_VERSION .. " loaded")
 
     end) -- pcall
     if not ok then
