@@ -1,6 +1,8 @@
 --[[--
-ReadMastery - Quests & Tag Engine Patch (Phase 2: tag-based quests)
-=================================================================
+ReadMastery - Quests & Tag Engine Patch
+========================================
+
+Version: 1.0.1
 
 Drop this alongside 2-ReadMastery-notify.lua in your KOReader
 `patches/` folder and restart. Independent, optional add-on - if
@@ -131,6 +133,16 @@ proven. Series quests stay blocked entirely - there's no reliable
 series metadata field in standard EPUB/Calibre exports, unlike
 author (getProps().authors), which is why Author Explorer is safe
 to have already but a series-based quest isn't.
+
+Changelog:
+  1.0.1 (2026-10-02) - awardDiscoveryBonus no longer flushes to disk on
+    its own (trackEndOfBook's existing final flush already covers it) -
+    a book that was both a new genre and a new author for the yearly
+    quests previously triggered 3 separate disk writes instead of 1.
+    Quest id registration now warns in the log if an id is ever
+    accidentally reused across two quest lists, instead of silently
+    letting the later one shadow the earlier one.
+  1.0.0 (2026-10-02) - First release.
 --]]--
 
 local userpatch   = require("userpatch")
@@ -142,6 +154,12 @@ local Menu        = require("ui/widget/menu")
 local Screen      = require("device").screen
 local util        = require("util")
 local logger      = require("logger")
+
+-- The only version number that actually matters at runtime - the
+-- header comment above is for humans reading the file; this is what
+-- the menu's version line and the startup log entry below both
+-- display, so they can never drift out of sync with each other.
+local PATCH_VERSION = "1.0.1"
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -229,11 +247,7 @@ local function NudgesEnabled()
 end
 
 -- =================================================================
--- Quest definitions (Phase 1: no req_tag matching)
--- =================================================================
-
--- =================================================================
--- Genre groups (Phase 2: tag-based quests)
+-- Genre groups (used by the tag-based quests below)
 --
 -- A book "matches" a group if its keywords metadata contains ANY of
 -- these strings, exact match after lowercase/trim (no partial
@@ -597,7 +611,7 @@ local function patchReadMastery(plugin)
     }
 
     -- ---------------------------------------------------------------
-    -- Book tag detection (Phase 2) - read once per book open, cached
+    -- Book tag detection - read once per book open, cached
     -- for the whole session. keywords is a single string that may
     -- contain multiple entries separated by newlines (how CRE
     -- aggregates EPUB <dc:subject> tags, e.g. Calibre tags). Exact
@@ -1299,6 +1313,7 @@ local function patchReadMastery(plugin)
     -- ---------------------------------------------------------------
     if not plugin._readmastery_quest_hooks_installed then
         plugin._readmastery_quest_hooks_installed = true
+        logger.info("ReadMastery Quests patch v" .. PATCH_VERSION .. " loaded")
 
         if plugin.onPageUpdate then
             local orig_onPageUpdate = plugin.onPageUpdate
