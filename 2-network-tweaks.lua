@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.5.2
+Version: 1.6.2
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -17,7 +17,19 @@ Menu: Settings (gear) → Network → Network Tweaks
     by the automatic reconnect after waking, so SSH stays off after sleep.
     Handy for pushing patches.
 
-  Wi-Fi, SSH & Calibre notifications           (default: Banner)
+  Choose network…
+    Opens the network list without connecting to anything by itself. With
+    Wi-Fi off (Kobo), the radio comes up just for the scan; close the list
+    without picking and Wi-Fi goes back off. Elsewhere, KOReader's own
+    long-press flow is used.
+
+  Saved networks
+    Networks saved in KOReader: tap one to forget it, or clear them all.
+    Background connect uses the device's own saved networks instead (on
+    Kobo, the ones joined in Kobo's Wi-Fi settings); these don't change
+    those.
+
+  Notifications                                 (default: Banner)
     One style for Wi-Fi on/off, SSH on/off and the Calibre wireless
     connection, whichever way you trigger them (toolbar, gesture, menu,
     prompts, start-on-connect).
@@ -44,12 +56,26 @@ Menu: Settings (gear) → Network → Network Tweaks
     with the network list. Background connect needs Kobo or Kindle.
     Other patches can use the same style (ShelfSync tweaks does).
 
-  Cancel Wi-Fi connection
+  Cancel Wi-Fi connection (only shown while connecting)
     Stops a background connect in progress. You can also tap the banner,
     or tap the Wi-Fi toggle (toolbar/gesture) again. A connect in progress
     is also cancelled when the device goes to sleep.
 
 Changelog
+  1.6.2  Choose network (and the toolbar Wi-Fi hold) never connects on its
+         own. With Wi-Fi off (Kobo), the radio comes up without joining any
+         saved network, the list opens, and if you close it without picking
+         one, Wi-Fi goes back off. Replaces 1.6.1's connect-then-list.
+  1.6.1  Choose network (and the toolbar Wi-Fi hold) follows the
+         notification style: with Wi-Fi off it connects in the background
+         with the banner / corner note, then shows the list, instead of
+         KOReader's "Turning on Wi-Fi…" / "Connected to…" popups. The
+         "Scanning…" message follows the style too.
+  1.6.0  Menu reorganised: SSH toggles, Choose network…, Saved networks
+         (forget one, or clear all), Notifications submenu. "Cancel Wi-Fi
+         connection" only shows while a background connect is running.
+         Choose network is shared as NetworkMgr.__network_tweaks_choose_network
+         (for a toolbar hold action).
   1.5.2  SSH start/stop in Minimal and Banner no longer builds the SSH
          plugin's popup (icon render, text layout) only to throw it away.
          Internal: note() and the shared hook are one function.
@@ -99,13 +125,14 @@ Changelog
   1.0.0  First release. Replaces ssh-stop-on-sleep 1.1.0.
 --]]
 
-local PATCH_VERSION = "1.5.2"
+local PATCH_VERSION = "1.6.2"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Event = require("ui/event")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local ConfirmBox = require("ui/widget/confirmbox")
 local Geom = require("ui/geometry")
 local InfoMessage = require("ui/widget/infomessage")
 local NetworkMgr = require("ui/network/manager")
@@ -852,8 +879,185 @@ if ok_nl and type(NetworkListener) == "table" then
 end
 
 ---------------------------------------------------------------------------
--- Menu: Settings → Network → Network tweaks (or Tools → Add-ons)
+-- Choose network / saved networks
 ---------------------------------------------------------------------------
+
+-- Kobo: power the radio up for a scan without joining anything.
+-- enable-wifi.sh (the same script KOReader uses) starts wpa_supplicant, which
+-- joins any network in the device's config on its own. Disabling them all
+-- (in memory only: they're back next time Wi-Fi is turned on) leaves it
+-- scanning but unassociated. Picking a network in the list adds and enables
+-- it as usual.
+local function radioOnly()
+    logger.info("network-tweaks: Wi-Fi radio on for the network list (no auto-join)")
+    os.execute("./enable-wifi.sh")
+    local iface = "wlan0"
+    local ok, name = pcall(NetworkMgr.getNetworkInterfaceName, NetworkMgr)
+    if ok and type(name) == "string" and name ~= "" then iface = name end
+    local cmd = string.format("wpa_cli -i %s disable_network all >/dev/null 2>&1", iface)
+    for _i = 1, 20 do -- control socket can take a moment to appear
+        if os.execute(cmd) == 0 then return true end
+        ffiutil.usleep(100000)
+    end
+    logger.warn("network-tweaks: couldn't stop wpa_supplicant from auto-joining")
+    return false
+end
+
+-- Scan and show KOReader's network list. The "Scanning…" message follows
+-- the notification style (the scan briefly holds the UI, so it's drawn
+-- first). No re-DHCP like the stock flow does when already connected.
+-- radio_only: Wi-Fi was off; power it up without joining, and power it back
+-- down if the list is closed without picking a network.
+local function showNetworkList(radio_only)
+    local style = connectStyle()
+    local info
+    if style == "banner" then
+        info = Banner:new{ text = _("Scanning for networks…") }
+    elseif style == "silent" then
+        info = CornerNote:new{ text = _("Scanning…"), timeout = 60 }
+    else
+        info = InfoMessage:new{ text = _("Scanning for networks…") }
+    end
+    UIManager:show(info)
+    UIManager:forceRePaint()
+
+    local function backOff()
+        if radio_only then NetworkMgr:disableWifi(nil, true) end
+    end
+
+    if radio_only then radioOnly() end
+    local list, err = NetworkMgr:getNetworkList()
+    if list and #list == 0 then -- same rescan workaround as stock
+        list, err = NetworkMgr:getNetworkList()
+    end
+    UIManager:close(info)
+    if not list then
+        backOff()
+        if style == "normal" then
+            UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
+        else
+            note(_("Couldn't scan for networks"), _("Scan failed"), 3)
+        end
+        return
+    end
+    table.sort(list, function(l, r) return (l.signal_quality or 0) > (r.signal_quality or 0) end)
+
+    local picked = false
+    local widget = require("ui/widget/networksetting"):new{
+        network_list = list,
+        connect_callback = function()
+            picked = true
+            -- Picking a network: announce it like any other connect, so the
+            -- toolbar, "SSH follows Wi-Fi" and auto-restore on wake see it.
+            markUserConnect()
+            if not NetworkMgr.pending_connectivity_check then
+                NetworkMgr:scheduleConnectivityCheck()
+            end
+        end,
+    }
+    if radio_only then
+        local orig_close = widget.onCloseWidget
+        widget.onCloseWidget = function(self, ...)
+            local res = orig_close and orig_close(self, ...)
+            if not picked then
+                logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
+                UIManager:nextTick(backOff)
+            end
+            return res
+        end
+    end
+    UIManager:show(widget)
+end
+
+-- Opens the network list, never connecting on its own.
+-- Wi-Fi on: the list straight away. Wi-Fi off (Kobo): radio up without
+-- joining anything, then the list; closed without a pick, Wi-Fi goes back
+-- off. Wi-Fi off elsewhere: KOReader's long-press flow (which may reconnect
+-- to a known network first). Shared as NetworkMgr.__network_tweaks_choose_network
+-- (toolbar hold on Wi-Fi).
+local function chooseNetwork()
+    if not Device:hasWifiToggle() then return end
+    if quiet then cancelQuiet(true) end -- you asked for the list instead
+
+    if not NetworkMgr:isWifiOn() then
+        if Device:isKobo() then
+            showNetworkList(true)
+        else
+            markUserConnect()
+            NetworkMgr:toggleWifiOn(nil, true, true)
+        end
+        return
+    end
+    showNetworkList(false)
+end
+NetworkMgr.__network_tweaks_choose_network = chooseNetwork
+
+-- KOReader's saved networks (settings/network.lua), keyed by SSID.
+local function savedNetworks()
+    local ok, nw = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
+    return ok and nw and type(nw.data) == "table" and nw.data or {}
+end
+
+local function savedNetworksMenu()
+    local ssids = {}
+    for ssid in pairs(savedNetworks()) do ssids[#ssids + 1] = ssid end
+    table.sort(ssids, function(a, b) return a:lower() < b:lower() end)
+
+    local items = {}
+    for _i, ssid in ipairs(ssids) do
+        items[#items + 1] = {
+            text = ssid,
+            -- Greys out once forgotten (the list is rebuilt next time it's opened).
+            enabled_func = function() return savedNetworks()[ssid] ~= nil end,
+            keep_menu_open = true,
+            callback = function(touchmenu)
+                UIManager:show(ConfirmBox:new{
+                    text = _("Forget this network?") .. "\n\n" .. ssid,
+                    ok_text = _("Forget"),
+                    ok_callback = function()
+                        NetworkMgr:deleteNetwork({ ssid = ssid })
+                        if touchmenu then touchmenu:updateItems() end
+                    end,
+                })
+            end,
+        }
+    end
+    if #items == 0 then
+        items[1] = { text = _("No saved networks"), enabled = false }
+    end
+    items[#items].separator = true
+
+    items[#items + 1] = {
+        text = _("Clear all saved networks"),
+        enabled_func = function() return next(savedNetworks()) ~= nil end,
+        keep_menu_open = true,
+        callback = function(touchmenu)
+            UIManager:show(ConfirmBox:new{
+                text = _("Forget all saved networks?"),
+                ok_text = _("Forget all"),
+                ok_callback = function()
+                    local ok, nw = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
+                    if ok and nw then
+                        for ssid in pairs(savedNetworks()) do nw:delSetting(ssid) end
+                        nw:flush()
+                    end
+                    if touchmenu then touchmenu:updateItems() end
+                end,
+            })
+        end,
+    }
+    return items
+end
+
+---------------------------------------------------------------------------
+-- Menu: Settings → Network → Network Tweaks (or Tools → Add-ons)
+---------------------------------------------------------------------------
+
+local STYLE_LABELS = {
+    normal = _("Normal"),
+    silent = _("Minimal"),
+    banner = _("Banner"),
+}
 
 local function styleItem(style, text)
     return {
@@ -869,35 +1073,56 @@ end
 local function menuTable()
     return {
         text = _("Network Tweaks"),
-        sub_item_table = {
-            {
-                text = _("Stop SSH server on sleep"),
-                help_text = _("Stop the SSH server when the device sleeps. It is not restarted on wake."),
-                checked_func = sshStopOnSleep,
-                callback = function() set("ssh_stop_on_sleep", not sshStopOnSleep()) end,
-                keep_menu_open = true,
-            },
-            {
-                text = _("SSH follows Wi-Fi"),
-                help_text = _("Start SSH when you turn Wi-Fi on, stop it whenever Wi-Fi goes off. Not started by the automatic reconnect after waking."),
-                checked_func = sshStartOnConnect,
-                callback = function() set("ssh_start_on_connect", not sshStartOnConnect()) end,
-                keep_menu_open = true,
-                separator = true,
-            },
-            {
-                text = _("Wi-Fi, SSH & Calibre notifications:"),
-                enabled = false,
-            },
-            styleItem("normal", _("Normal (KOReader popups)")),
-            styleItem("silent", _("Minimal (small corner notes)")),
-            styleItem("banner", _("Banner (top banner, SSH address)")),
-            {
-                text = _("Cancel Wi-Fi connection"),
-                enabled_func = function() return quiet ~= nil end,
-                callback = function() cancelQuiet() end,
-            },
-        },
+        -- Built each time it's opened, so "Cancel" only shows while connecting.
+        sub_item_table_func = function()
+            local items = {
+                {
+                    text = _("Stop SSH server on sleep"),
+                    help_text = _("Stop the SSH server when the device sleeps. It is not restarted on wake."),
+                    checked_func = sshStopOnSleep,
+                    callback = function() set("ssh_stop_on_sleep", not sshStopOnSleep()) end,
+                    keep_menu_open = true,
+                },
+                {
+                    text = _("SSH follows Wi-Fi"),
+                    help_text = _("Start SSH when you turn Wi-Fi on, stop it whenever Wi-Fi goes off. Not started by the automatic reconnect after waking."),
+                    checked_func = sshStartOnConnect,
+                    callback = function() set("ssh_start_on_connect", not sshStartOnConnect()) end,
+                    keep_menu_open = true,
+                    separator = true,
+                },
+                {
+                    text = _("Choose network…"),
+                    enabled_func = function() return Device:hasWifiToggle() end,
+                    callback = function() chooseNetwork() end,
+                },
+                {
+                    text = _("Saved networks"),
+                    help_text = _("Networks saved in KOReader. Background connect uses the device's own saved networks (on Kobo, the ones joined in Kobo's Wi-Fi settings), which these don't change."),
+                    sub_item_table_func = savedNetworksMenu,
+                },
+                {
+                    text_func = function()
+                        return _("Notifications: ") .. STYLE_LABELS[connectStyle()]
+                    end,
+                    help_text = _("One style for Wi-Fi, SSH and Calibre notes."),
+                    sub_item_table = {
+                        styleItem("normal", _("Normal (KOReader popups)")),
+                        styleItem("silent", _("Minimal (small corner notes)")),
+                        styleItem("banner", _("Banner (top banner, SSH address)")),
+                    },
+                },
+            }
+            if quiet then
+                items[#items].separator = true
+                items[#items + 1] = {
+                    text = _("Cancel Wi-Fi connection"),
+                    enabled_func = function() return quiet ~= nil end,
+                    callback = function() cancelQuiet() end,
+                }
+            end
+            return items
+        end,
     }
 end
 
