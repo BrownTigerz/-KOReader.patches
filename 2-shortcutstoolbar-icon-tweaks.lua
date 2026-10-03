@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.9.2
+Version: 1.10.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -22,6 +22,9 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
   • Custom shortcuts for SSH, Wi-Fi, Calibre connect/disconnect and night
     mode toggles keep the toolbar open when tapped (like the built-in Wi-Fi
     button), so you see the icon change. Other actions still close it.
+  • Hold the built-in Wi-Fi button: network list (Network Tweaks' picker
+    when installed). Hold the built-in Restart button: Restart / Exit
+    KOReader, Reboot, Power off. Tap does what it always did.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
 home-screen module. Does not modify any plugin files. Compatible with
@@ -43,6 +46,10 @@ and SSH indicators also run at most one short catch-up timer after a tap
 while asleep.
 
 Changelog
+  1.10.0 Hold actions: built-in Wi-Fi opens the network list (Network
+         Tweaks 1.6.0's "Choose network" when installed, else KOReader's
+         own), built-in Restart opens Restart / Exit KOReader / Reboot /
+         Power off. Custom shortcuts still open their edit dialog on hold.
   1.9.2  Merged with the 1.8.x fixes. Icons only redraw while their toolbar
          is on screen (a closed reader menu costs nothing; the 1.9.1
          fallback redrew the current page instead). A toolbar covered by a
@@ -93,7 +100,7 @@ Changelog
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.9.2"
+local PATCH_VERSION = "1.10.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (follow UI)" },
@@ -582,6 +589,61 @@ local function hookNetworkEvents()
     end
 end
 
+-- --------------------------------------------------------------------------
+-- Hold actions for built-in buttons
+-- --------------------------------------------------------------------------
+-- The plugin's built-in buttons only flash their name on hold. Wi-Fi and
+-- Restart get something useful instead. Custom shortcuts keep their hold
+-- (it opens their edit dialog).
+
+-- Hold Wi-Fi: the network list. Uses Network Tweaks' picker (1.6.0+) when
+-- installed, else KOReader's own long-press flow.
+local function holdWifi()
+    local NetworkMgr = require("ui/network/manager")
+    local choose = NetworkMgr.__network_tweaks_choose_network
+    if type(choose) == "function" then
+        choose()
+    elseif not NetworkMgr:isWifiOn() then
+        NetworkMgr:toggleWifiOn(nil, true, true)
+    elseif NetworkMgr.reconnectOrShowNetworkMenu then
+        NetworkMgr:reconnectOrShowNetworkMenu(nil, true)
+    end
+end
+
+-- Hold Restart: power options. Same events KOReader's gestures use, so the
+-- book and settings are saved; reboot / power off ask to confirm.
+local function holdPower()
+    local _ = require("gettext")
+    local Device = require("device")
+    local Event = require("ui/event")
+    local UIManager = require("ui/uimanager")
+    local ButtonDialog = require("ui/widget/buttondialog")
+
+    local dialog
+    local function action(text, event)
+        return { text = text, callback = function()
+            UIManager:close(dialog)
+            UIManager:broadcastEvent(Event:new(event))
+        end }
+    end
+
+    local buttons = {}
+    if Device:canRestart() then
+        table.insert(buttons, { action(_("Restart KOReader"), "Restart") })
+    end
+    table.insert(buttons, { action(_("Exit KOReader"), "Exit") })
+    local device_row = {}
+    if Device:canReboot() then table.insert(device_row, action(_("Reboot"), "RequestReboot")) end
+    if Device:canPowerOff() then table.insert(device_row, action(_("Power off"), "RequestPowerOff")) end
+    if #device_row > 0 then table.insert(buttons, device_row) end
+    table.insert(buttons, { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } })
+
+    dialog = ButtonDialog:new{ title = _("Power"), title_align = "center", buttons = buttons }
+    UIManager:show(dialog)
+end
+
+local HOLD = { wifi = holdWifi, restart = holdPower }
+
 -- Work out which shortcut keys will become IconButtons, in order, so each
 -- captured button can be matched back to its key.
 local function expectedKeys(config)
@@ -657,6 +719,7 @@ local function withCapture(config, fn, ...)
         tweakButton(btn, key)
         local k = keySettings(settings, key)
         if k and k.state then addStateRefresh(btn, key) end
+        if HOLD[key] then btn.hold_callback = HOLD[key] end
         -- Wi-Fi toggles rebuild the image via setIcon(); re-apply after.
         local orig_set = btn.setIcon
         btn.setIcon = function(self, icon)
