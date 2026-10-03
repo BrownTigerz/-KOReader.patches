@@ -1,6 +1,6 @@
 --[[
 2-simpleui-mod.lua - KOReader user patch for SimpleUI (simpleui.koplugin)
-Version 1.0.0
+Version 1.6.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -10,13 +10,20 @@ Settings: Tools > SimpleUI Mod (or Tools > Add-ons > SimpleUI Mod when
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
-  1.0.0  First stable release: module/section title colours, bold and sizes,
-         progress & border colours, Night Mode day look for nav bar, section
-         titles and status bar, original-colour nav icons, Add-ons menu and
-         Backup patch support.
+  1.6.0  Backup patch support. Fixed a duplicate status bar timer. Section
+         title size only applied while titles are built. Hardened loading.
+  1.5.0  Add-ons menu support (incl. on/off). Settings menu built only when
+         opened.
+  1.4.0  Lighter: no status popup, leaner hot paths. Menu grouped by area.
+  1.3.0  Per-section titles: colour, bold and size (presets or custom).
+  1.2.0  Bold for modules, nav bar and status bar. Section title size.
+  1.1.0  Night Mode day look for section titles, status bar and the whole nav
+         bar (Framed style fixed). Original-colour nav icons.
+  1.0.0  Settings menu (Tools > SimpleUI Mod): module text and Night Mode
+         colours, progress & border colours.
 ]]
 
-local VERSION = "1.0.0"
+local VERSION = "1.6.0"
 
 -- ---- Defaults (change in Tools > SimpleUI Mod) -----------------------------
 local DEFAULTS = {
@@ -1296,7 +1303,6 @@ local function buildMenu()
             {
                 text = _("Reset to defaults"),
                 keep_menu_open = true,
-                separator = true,
                 callback = function(touchmenu_instance)
                     local UIManager = orig_require("ui/uimanager")
                     local ConfirmBox = orig_require("ui/widget/confirmbox")
@@ -1313,7 +1319,6 @@ local function buildMenu()
                     })
                 end,
             },
-            { text = "SimpleUI Mod v" .. VERSION, enabled = false },
         },
     }
 end
