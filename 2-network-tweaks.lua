@@ -1,9 +1,9 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.4.2
+Version: 1.5.2
 
-Menu: Settings (gear) → Network → Network tweaks
+Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
 
   Stop SSH server on sleep                      (default: on)
@@ -11,10 +11,11 @@ Menu: Settings (gear) → Network → Network tweaks
     NOT restarted on wake. Without this, SSH quietly becomes reachable
     again as soon as Wi-Fi reconnects. Silent, closes open sessions.
 
-  Start SSH server when you turn Wi-Fi on       (default: off)
-    Starts SSH when you turn Wi-Fi on (toolbar, gesture, menu, prompts).
-    Not on the automatic reconnect after waking, so SSH stays off after
-    sleep. Handy for pushing patches.
+  SSH follows Wi-Fi                             (default: off)
+    SSH starts when you turn Wi-Fi on (toolbar, gesture, menu, prompts)
+    and stops whenever Wi-Fi goes off, however that happens. Not started
+    by the automatic reconnect after waking, so SSH stays off after sleep.
+    Handy for pushing patches.
 
   Wi-Fi, SSH & Calibre notifications           (default: Banner)
     One style for Wi-Fi on/off, SSH on/off and the Calibre wireless
@@ -41,6 +42,7 @@ Menu: Settings (gear) → Network → Network tweaks
     it. If that config has no networks, the Normal flow is used instead.
     Long-press the Wi-Fi toggle in the network menu for the normal flow
     with the network list. Background connect needs Kobo or Kindle.
+    Other patches can use the same style (ShelfSync tweaks does).
 
   Cancel Wi-Fi connection
     Stops a background connect in progress. You can also tap the banner,
@@ -48,6 +50,22 @@ Menu: Settings (gear) → Network → Network tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog
+  1.5.2  SSH start/stop in Minimal and Banner no longer builds the SSH
+         plugin's popup (icon render, text layout) only to throw it away.
+         Internal: note() and the shared hook are one function.
+  1.5.1  Other patches can show notes in the chosen style
+         (NetworkMgr.__network_tweaks_note). ShelfSync tweaks uses it for
+         its sync messages, and its corner notes stack with these instead
+         of overlapping.
+  1.5.0  Fix: cancelling a background connect didn't stop it. KOReader
+         kills the restore script by a name the system truncates, so it
+         never matched and the connect carried on (more obvious once the
+         network was known and connected fast). The connect scripts are
+         now stopped properly before Wi-Fi is powered down. "Start SSH"
+         becomes "SSH follows Wi-Fi": Wi-Fi off also turns SSH off, with
+         one combined note. Toolbar indicators are told after Wi-Fi off
+         and cancel. No notes drawn over the sleep screen. Menu renamed
+         Network Tweaks.
   1.4.2  Fix: SSH failed to stop ("dropbear process did not exit"), on
          sleep and when toggling it off. KOReader's SSH plugin waits for
          dropbear with a sleep that rounds 0.1s down to nothing, so it gave
@@ -81,7 +99,7 @@ Changelog
   1.0.0  First release. Replaces ssh-stop-on-sleep 1.1.0.
 --]]
 
-local PATCH_VERSION = "1.4.2"
+local PATCH_VERSION = "1.5.2"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -89,6 +107,7 @@ local Event = require("ui/event")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local InfoMessage = require("ui/widget/infomessage")
 local NetworkMgr = require("ui/network/manager")
 local Notification = require("ui/widget/notification")
 local Size = require("ui/size")
@@ -203,20 +222,25 @@ function CornerNote:onCloseWidget()
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
-local function corner(text)
-    UIManager:show(CornerNote:new{ text = text })
+local function corner(text, timeout)
+    UIManager:show(CornerNote:new{ text = text, timeout = timeout or 2 })
 end
 
--- One call per event: Banner text, Minimal text. Normal shows nothing
--- here (the stock popups are left alone in Normal).
-local function note(banner_text, minimal_text, banner_timeout)
+-- One call per event: Banner text, Minimal text (falls back to the Banner
+-- text), timeout. Normal shows nothing here: the stock popups are left
+-- alone in Normal, and other patches show their own popup there.
+-- Shared with other patches (ShelfSync tweaks), so their notes use the same
+-- style and their corner notes stack with these instead of overlapping.
+local function note(banner_text, minimal_text, timeout)
+    if Device.screen_saver_mode then return end -- never over the sleep screen
     local style = connectStyle()
     if style == "banner" then
-        flash(banner_text, banner_timeout)
+        flash(banner_text, timeout)
     elseif style == "silent" then
-        corner(minimal_text)
+        corner(minimal_text or banner_text, timeout)
     end
 end
+NetworkMgr.__network_tweaks_note = note
 
 -- Tells toolbar indicators (Icon Tweaks) that SSH / Calibre changed, so
 -- they repaint now instead of waiting for a catch-up timer.
@@ -250,8 +274,12 @@ function Banner:onKeyRepeat() return false end
 -- Run fn with plugin/stock popups swallowed (InfoMessage & co., never
 -- toasts). Returns pcall's ok, err and whether a warning popup was
 -- swallowed (that's how the SSH plugin reports failure).
+-- InfoMessages aren't even built: the plugin just gets its own arguments
+-- back (text, icon), which is all the show() check below looks at.
 local function withoutPopups(fn, ...)
     local warned = false
+    local own_new = rawget(InfoMessage, "new") -- normally nil (inherited)
+    InfoMessage.new = function(_cls, o) return o or {} end
     local orig_show = UIManager.show
     UIManager.show = function(um, widget, ...)
         if type(widget) == "table" and widget.text and not widget.toast then
@@ -262,6 +290,7 @@ local function withoutPopups(fn, ...)
     end
     local ok, err = pcall(fn, ...)
     UIManager.show = orig_show
+    InfoMessage.new = own_new
     return ok, err, warned
 end
 
@@ -290,6 +319,14 @@ local SSH_DEFAULT_PORT = 2222
 
 local function sshRunning()
     return lfs.attributes(SSH_PID_FILE, "mode") == "file"
+end
+
+local function sshInstance()
+    local ok, PluginLoader = pcall(require, "pluginloader")
+    if ok and type(PluginLoader) == "table" and PluginLoader.getPluginInstance then
+        local ok2, inst = pcall(PluginLoader.getPluginInstance, PluginLoader, "SSH")
+        if ok2 then return inst end
+    end
 end
 
 -- First IPv4 address, preferring the wireless interface. Reads interfaces
@@ -613,6 +650,7 @@ local function cancelQuiet(silent)
     if not silent then
         note(_("Wi-Fi connection cancelled"), _("Wi-Fi cancelled"))
     end
+    stateChanged()
 end
 
 -- Tappable failure note: opens the normal flow with the network list.
@@ -688,9 +726,29 @@ local function quietConnect(callback)
 end
 
 -- Turn Wi-Fi off without the "Turning off Wi-Fi…" / "Wi-Fi off." popups.
+-- SSH stop that goes with Wi-Fi off ("SSH follows Wi-Fi"). Returns true if
+-- SSH was running and is now stopped.
+local function stopSSHWithWifi()
+    if not (sshStartOnConnect() and sshRunning()) then return false end
+    local ok, res, err = pcall(stopDropbear, sshInstance(), true)
+    if ok and res then
+        logger.info("network-tweaks: SSH stopped with Wi-Fi")
+        return true
+    end
+    logger.warn("network-tweaks: could not stop SSH with Wi-Fi:", ok and err or res)
+    note(_("SSH server failed to stop"), _("SSH stop failed"), 3)
+    return false
+end
+
 local function quietOff(complete_callback)
+    local ssh_stopped = stopSSHWithWifi()
     NetworkMgr:disableWifi(complete_callback, true)
-    note(_("Wi-Fi off"), _("Wi-Fi off"))
+    if ssh_stopped then
+        note(_("Wi-Fi & SSH off"), _("Wi-Fi & SSH off"))
+    else
+        note(_("Wi-Fi off"), _("Wi-Fi off"))
+    end
+    stateChanged()
 end
 
 local orig_abort = NetworkMgr._abortWifiConnection
@@ -702,8 +760,25 @@ NetworkMgr._abortWifiConnection = function(self, ...)
 end
 
 local orig_disable = NetworkMgr.disableWifi
+-- KOReader stops a background connect with `pkill restore-wifi-async.sh`,
+-- but the kernel truncates process names to 15 characters
+-- ("restore-wifi-as"), so that never matches and the connect carries on.
+-- Match on the full command line instead (the [x] keeps pkill from matching
+-- the shell running it), including the helper scripts it starts.
+local function killConnectScripts()
+    if not (Device:hasWifiRestore() and not Device:isKindle()) then return end
+    os.execute("pkill -TERM -f '[r]estore-wifi-async.sh' 2>/dev/null;"
+        .. " pkill -TERM -f '[e]nable-wifi.sh' 2>/dev/null;"
+        .. " pkill -TERM -f '[o]btain-ip.sh' 2>/dev/null")
+end
+
 NetworkMgr.disableWifi = function(self, ...)
+    local connecting = quiet ~= nil or self.pending_connection
     endQuiet()
+    if connecting then
+        killConnectScripts()
+        ffiutil.usleep(200000) -- let them exit before Wi-Fi is torn down
+    end
     return orig_disable(self, ...)
 end
 
@@ -793,7 +868,7 @@ end
 
 local function menuTable()
     return {
-        text = _("Network tweaks"),
+        text = _("Network Tweaks"),
         sub_item_table = {
             {
                 text = _("Stop SSH server on sleep"),
@@ -803,8 +878,8 @@ local function menuTable()
                 keep_menu_open = true,
             },
             {
-                text = _("Start SSH server when you turn Wi-Fi on"),
-                help_text = _("Start SSH when you turn Wi-Fi on. Not on the automatic reconnect after waking, so SSH stays off after sleep."),
+                text = _("SSH follows Wi-Fi"),
+                help_text = _("Start SSH when you turn Wi-Fi on, stop it whenever Wi-Fi goes off. Not started by the automatic reconnect after waking."),
                 checked_func = sshStartOnConnect,
                 callback = function() set("ssh_start_on_connect", not sshStartOnConnect()) end,
                 keep_menu_open = true,
@@ -831,7 +906,7 @@ local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
 TM.entries[ADDON_ID] = {
-    text = _("Network tweaks"),
+    text = _("Network Tweaks"),
     build = function() return menuTable() end,
 }
 
@@ -872,14 +947,6 @@ end
 
 local stopped_for_sleep = false
 
-local function sshInstance()
-    local ok, PluginLoader = pcall(require, "pluginloader")
-    if ok and type(PluginLoader) == "table" and PluginLoader.getPluginInstance then
-        local ok2, inst = pcall(PluginLoader.getPluginInstance, PluginLoader, "SSH")
-        if ok2 then return inst end
-    end
-end
-
 local function beforeSleep()
     user_connect_at = nil -- the reconnect on wake isn't the user's
     if quiet then cancelQuiet(true) end
@@ -906,6 +973,20 @@ UIManager.broadcastEvent = function(self, event, ...)
         local ok_b, res = pcall(orig_broadcast, self, event, ...)
         calibre.quiet_disconnect = false
         if not ok_b then error(res, 0) end
+        return res
+    elseif handler == "onNetworkDisconnected" then
+        local res = orig_broadcast(self, event, ...)
+        -- Any other way Wi-Fi went off (Normal style, auto-disconnect...).
+        -- Sleep is left to beforeSleep.
+        if sshStartOnConnect() and sshRunning() and not Device.screen_saver_mode then
+            UIManager:nextTick(function()
+                if Device.screen_saver_mode then return end
+                if stopSSHWithWifi() then
+                    note(_("SSH off"), _("SSH off"))
+                    stateChanged()
+                end
+            end)
+        end
         return res
     elseif handler == "onResume" then
         local res = orig_broadcast(self, event, ...)
