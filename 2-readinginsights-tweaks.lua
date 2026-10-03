@@ -1,5 +1,6 @@
 --[[
-    2-readinginsights-tweaks.lua  v1.3.0
+    2-readinginsights-tweaks.lua
+    Version: 1.0.0
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin). Each one is on its own toggle.
 
@@ -43,6 +44,21 @@
     otherwise Tools > Reading Insights tweaks.
 
     Install: koreader/patches/ (Kobo: .adds/koreader/patches/), then restart once.
+    Replaces 2-readinginsights-covers.lua / 2-cover-calendar.lua (delete those).
+
+    Cost: nothing runs in the background. Work happens only when you open one of
+    these views (a few small read-only queries + covers already cached by
+    CoverBrowser), and once at suspend for the sleep card. Scaled covers are kept
+    for the session (max 150). The only timer is a one-shot 30s retry window
+    after a missing cover was sent for extraction.
+
+    Versioning
+      1.0.x  fixes, e.g. adapting to a Reading Insights or KOReader change
+      1.x.0  new features or toggles
+      2.0.0  something that changes how existing toggles or saved settings work
+
+    Changelog
+      1.0.0  2026-10-02  First release.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -77,7 +93,9 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
+local PATCH_VERSION = "1.0.0" -- the only number to change when updating
 local TAG = "RI tweaks:"
+logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
 
 -- ---- Settings ------------------------------------------------------------------------------
@@ -155,14 +173,31 @@ end
 local DB_PATH = DataStorage:getSettingsDir() .. "/statistics.sqlite3"
 
 -- Runs one SELECT; returns the column-major result (res[col][row]) or nil.
-local function dbQuery(sql)
-    if lfs.attributes(DB_PATH, "mode") ~= "file" then return nil end
+-- One connection is shared by every query in the same UI pass (a calendar build
+-- runs several) and closed on the next tick. No transaction is held open.
+local shared_conns = {}
+
+local function getConn(path)
+    path = path or DB_PATH
+    if shared_conns[path] then return shared_conns[path] end
+    if lfs.attributes(path, "mode") ~= "file" then return nil end
     local ok_req, SQ3 = pcall(require, "lua-ljsqlite3/init")
     if not ok_req then return nil end
-    local ok_open, conn = pcall(SQ3.open, DB_PATH)
+    local ok_open, conn = pcall(SQ3.open, path)
     if not ok_open or not conn then return nil end
+    shared_conns[path] = conn
+    UIManager:nextTick(function()
+        local c = shared_conns[path]
+        shared_conns[path] = nil
+        if c then pcall(c.close, c) end
+    end)
+    return conn
+end
+
+local function dbQuery(sql)
+    local conn = getConn()
+    if not conn then return nil end
     local ok, res = pcall(conn.exec, conn, sql)
-    pcall(conn.close, conn)
     if not ok then
         logger.warn(TAG, "query failed", res)
         return nil
@@ -235,14 +270,10 @@ local title_missed = {}
 local function findByTitle(title)
     if not title or title == "" or title_missed[title] then return nil end
     title_missed[title] = true -- one lookup per title per session
-    if lfs.attributes(BIM_DB, "mode") ~= "file" then return nil end
-    local ok_req, SQ3 = pcall(require, "lua-ljsqlite3/init")
-    if not ok_req then return nil end
-    local ok_open, conn = pcall(SQ3.open, BIM_DB)
-    if not ok_open or not conn then return nil end
+    local conn = getConn(BIM_DB)
+    if not conn then return nil end
     local ok, res = pcall(conn.exec, conn,
         "SELECT directory, filename FROM bookinfo WHERE title = '" .. (title:gsub("'", "''")) .. "'")
-    pcall(conn.close, conn)
     if not ok then return nil end
     for i = 1, nrows(res) do
         local dir, name = res[1][i], res[2][i]
@@ -315,9 +346,9 @@ end
 -- ---- Covers (CoverBrowser's cache) ---------------------------------------------------------
 -- Scaled covers are kept for the session (sizes are fixed per view, so roughly
 -- one per book per view). Past MAX_CACHED, a cover is owned by its widget.
-local MAX_CACHED = 250
+local MAX_CACHED = 150
 local bb_cache, bb_count = {}, 0
-local queued, pending = {}, {}
+local queued, queued_now, pending = {}, {}, {}
 
 local function getBIM()
     local ok, BIM = pcall(require, "bookinfomanager")
@@ -330,11 +361,21 @@ local function flushExtraction()
     local spec = { max_cover_w = math.floor(Screen:getWidth() / 3), max_cover_h = math.floor(Screen:getHeight() / 3) }
     local files = {}
     for _i, p in ipairs(pending) do files[#files + 1] = { filepath = p, cover_specs = spec } end
+    local batch = pending
     pending = {}
+    local ok, err = false, "CoverBrowser unavailable"
     if BIM and type(BIM.extractInBackground) == "function" then
-        local ok, err = pcall(BIM.extractInBackground, BIM, files)
-        if not ok then logger.warn(TAG, "background extraction failed", err) end
+        ok, err = pcall(BIM.extractInBackground, BIM, files)
     end
+    if not ok then
+        logger.warn(TAG, "background extraction failed", err)
+        for _i, p in ipairs(batch) do queued[p] = 0 end -- didn't start: full retry budget
+    end
+    -- let the next draw requeue anything still missing (within its attempt budget),
+    -- but not before this batch has had time to finish
+    UIManager:scheduleIn(30, function()
+        for _i, p in ipairs(batch) do queued_now[p] = nil end
+    end)
 end
 
 -- returns bb, owned_by_widget
@@ -347,8 +388,12 @@ local function getScaledCover(path, bw, bh, no_queue)
     local ok, bi = pcall(BIM.getBookInfo, BIM, path, true)
     if not ok then bi = nil end
     if not bi or bi.cover_fetched ~= "Y" then
-        if not no_queue and not queued[path] and lfs.attributes(path, "mode") == "file" then
-            queued[path] = true
+        -- queued[path] counts attempts: a failed extraction is retried once
+        -- on a later draw, then left alone for the session
+        if not no_queue and (queued[path] or 0) < 2 and not queued_now[path]
+           and lfs.attributes(path, "mode") == "file" then
+            queued[path] = (queued[path] or 0) + 1
+            queued_now[path] = true
             table.insert(pending, path)
         end
         return nil
@@ -364,8 +409,7 @@ local function getScaledCover(path, bw, bh, no_queue)
         math.max(1, math.floor(sw * s)), math.max(1, math.floor(sh * s)), true)
     if not ok2 or not scaled then
         pcall(src.free, src)
-        bb_cache[key] = false
-        return nil
+        return nil -- transient: retried next draw (only "no cover" is cached as false)
     end
     if bb_count < MAX_CACHED then
         bb_cache[key] = scaled
@@ -439,14 +483,27 @@ local function openBook(path)
     if not ok_r then return end
     local ok_f, FileManager = pcall(require, "apps/filemanager/filemanager")
     -- close every popup stacked above the reader / file browser
-    pcall(function()
-        local stack = UIManager._window_stack or {}
-        for i = #stack, 1, -1 do
-            local w = stack[i] and stack[i].widget
-            if not w or w == ReaderUI.instance or (ok_f and w == FileManager.instance) then break end
+    local function isBase(w)
+        return w == ReaderUI.instance or (ok_f and w == FileManager.instance)
+    end
+    local closed = pcall(function()
+        if type(UIManager.getTopmostVisibleWidget) ~= "function" then error("no public API") end
+        for _i = 1, 12 do
+            local w = UIManager:getTopmostVisibleWidget()
+            if not w or isBase(w) then return end
             UIManager:close(w)
         end
     end)
+    if not closed then -- older KOReader: fall back to the internal stack
+        pcall(function()
+            local stack = UIManager._window_stack or {}
+            for i = #stack, 1, -1 do
+                local w = stack[i] and stack[i].widget
+                if not w or isBase(w) then break end
+                UIManager:close(w)
+            end
+        end)
+    end
     UIManager:nextTick(function()
         if ReaderUI.instance then
             local doc = ReaderUI.instance.document
@@ -1219,7 +1276,6 @@ local function menuItem()
             {
                 text_func = function() return T(_("Daily goal: %1"), fmtDuration(goalSecs())) end,
                 keep_menu_open = true,
-                separator = true,
                 callback = function(touchmenu_instance)
                     UIManager:show(SpinWidget:new{
                         title_text = _("Daily reading goal (minutes)"),
@@ -1232,18 +1288,6 @@ local function menuItem()
                         end,
                     })
                 end,
-            },
-            {
-                text_func = function()
-                    local off = {}
-                    for _i, cap in ipairs({ "grid", "tap", "tall", "book_header", "stats_calendar" }) do
-                        if not Hook.caps[cap] then off[#off + 1] = cap end
-                    end
-                    return #off == 0 and _("Status: all hooks active")
-                        or T(_("Status: skipped %1"), table.concat(off, ", "))
-                end,
-                keep_menu_open = true,
-                callback = function() end,
             },
         },
     }
