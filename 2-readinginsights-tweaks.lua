@@ -1,6 +1,6 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 1.0.0
+    Version: 1.1.0
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin). Each one is on its own toggle.
 
@@ -40,8 +40,8 @@
     cached yet shows its title; it's fetched once in CoverBrowser's background
     subprocess and appears the next time the view is drawn.
 
-    Menu: Tools > Tweaks & Mods > Reading Insights tweaks (with 2-tweaks-menu.lua),
-    otherwise Tools > Reading Insights tweaks.
+    Menu: Tools > Tweaks & Mods > Reading Insights Tweaks (with 2-tweaks-menu.lua),
+    otherwise Tools > Reading Insights Tweaks.
 
     Install: koreader/patches/ (Kobo: .adds/koreader/patches/), then restart once.
     Replaces 2-readinginsights-covers.lua / 2-cover-calendar.lua (delete those).
@@ -59,6 +59,8 @@
 
     Changelog
       1.0.0  2026-10-02  First release.
+      1.1.0  2026-10-03  Record covers are tappable (book details, open book). Menu
+                         renamed to Reading Insights Tweaks.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -93,7 +95,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.0.0" -- the only number to change when updating
+local PATCH_VERSION = "1.1.0" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -816,20 +818,22 @@ end
 -- =============================================================================================
 local function recordTiles(d, width)
     local tiles = {}
-    local function add(book, label)
-        if book then tiles[#tiles + 1] = { book = resolveOne(book), label = label } end
+    local function add(book, label, when)
+        if book then tiles[#tiles + 1] = { book = resolveOne(book), label = label, when = when } end
     end
+    local function day(t) return t and (os.date("%B ", t) .. tonumber(os.date("%d", t)) .. os.date(", %Y", t)) end
     if d.longest and d.longest.date then
         local t0 = dateToTime(d.longest.date, 0)
-        add(topBook(t0, t0 and t0 + 86399, "time"), _("Most time"))
+        add(topBook(t0, t0 and t0 + 86399, "time"), _("Most time"), day(t0))
     end
     if d.best_day and d.best_day.date then
         local t0 = dateToTime(d.best_day.date, 0)
-        add(topBook(t0, t0 and t0 + 86399, "pages"), _("Most pages"))
+        add(topBook(t0, t0 and t0 + 86399, "pages"), _("Most pages"), day(t0))
     end
     if d.streak and d.streak.start_date and d.streak.end_date then
         local t0, t1 = dateToTime(d.streak.start_date, 0), dateToTime(d.streak.end_date, 0)
-        add(topBook(t0, t1 and t1 + 86399, "time"), _("Best streak"))
+        local span = (t0 and t1) and (day(t0) .. " – " .. day(t1)) or nil
+        add(topBook(t0, t1 and t1 + 86399, "time"), _("Best streak"), span)
     end
     if #tiles == 0 then return nil end
 
@@ -839,18 +843,47 @@ local function recordTiles(d, width)
     local label_face = Font:getFace("cfont", 11)
     local row = HorizontalGroup:new{ align = "top" }
     for _i, tile in ipairs(tiles) do
-        table.insert(row, CenterContainer:new{
-            dimen = Geom:new{ w = tile_w, h = cover_h + S(24) },
-            VerticalGroup:new{
-                align = "center",
-                coverWidget(tile.book, cover_w, cover_h),
-                VerticalSpan:new{ width = S(4) },
-                TextWidget:new{ text = tile.label, face = label_face, fgcolor = C_MUTED, max_width = tile_w - S(4) },
+        -- a frame per tile so its on-screen position is known for taps
+        tile.frame = FrameContainer:new{
+            bordersize = 0, padding = 0, margin = 0,
+            CenterContainer:new{
+                dimen = Geom:new{ w = tile_w, h = cover_h + S(24) },
+                VerticalGroup:new{
+                    align = "center",
+                    coverWidget(tile.book, cover_w, cover_h),
+                    VerticalSpan:new{ width = S(4) },
+                    TextWidget:new{ text = tile.label, face = label_face, fgcolor = C_MUTED, max_width = tile_w - S(4) },
+                },
             },
-        })
+        }
+        table.insert(row, tile.frame)
     end
     flushExtraction()
-    return CenterContainer:new{ dimen = Geom:new{ w = width, h = row:getSize().h }, row }
+    return CenterContainer:new{ dimen = Geom:new{ w = width, h = row:getSize().h }, row }, tiles
+end
+
+local function showRecordBook(tile)
+    local b = tile.book or {}
+    local lines = { b.title or "?" }
+    if b.authors and b.authors ~= "" then lines[#lines + 1] = b.authors end
+    lines[#lines + 1] = tile.label .. (tile.when and (" · " .. tile.when) or "")
+    local dlg
+    dlg = ButtonDialog:new{
+        title = table.concat(lines, "\n"),
+        title_align = "center",
+        buttons = {
+            { {
+                text = _("Open book"),
+                enabled = b.path ~= nil,
+                callback = function()
+                    UIManager:close(dlg)
+                    openBook(b.path)
+                end,
+            } },
+            { { text = _("Close"), callback = function() UIManager:close(dlg) end } },
+        },
+    }
+    UIManager:show(dlg)
 end
 
 local function patchRecords(mod, deps)
@@ -871,8 +904,9 @@ local function patchRecords(mod, deps)
             local content = box and box[1]
             if type(content) ~= "table" or not content.getSize then return end
             local width = content:getSize().w
-            local tiles = recordTiles(RecordsData.load() or {}, width)
+            local tiles, list = recordTiles(RecordsData.load() or {}, width)
             if not tiles then return end
+            self._ri_tiles = list
             table.insert(content, VerticalSpan:new{ width = Size.padding.large })
             table.insert(content, LineWidget:new{
                 dimen = Geom:new{ w = width, h = Size.line.thin }, background = C_FAINT })
@@ -881,6 +915,26 @@ local function patchRecords(mod, deps)
             if content.resetLayout then content:resetLayout() end
         end)
         if not ok then logger.warn(TAG, "record covers failed:", err) end
+    end
+
+    -- Records closes on any tap; a tap on one of our covers shows that book instead.
+    -- The dialog goes on top of Records, which stays open behind it.
+    if type(Popup.onTap) == "function" then
+        local orig_tap = Popup.onTap
+        Popup.onTap = function(self, arg, ges_ev, ...)
+            if getSetting("records") and ges_ev and ges_ev.pos and self._ri_tiles then
+                local x, y = ges_ev.pos.x, ges_ev.pos.y
+                for _i, tile in ipairs(self._ri_tiles) do
+                    local d = tile.frame and tile.frame.dimen
+                    if d and d.x and x >= d.x and x <= d.x + d.w and y >= d.y and y <= d.y + d.h then
+                        local ok, err = pcall(showRecordBook, tile)
+                        if not ok then logger.warn(TAG, "record book dialog failed:", err) end
+                        return true
+                    end
+                end
+            end
+            return orig_tap(self, arg, ges_ev, ...)
+        end
     end
 end
 
@@ -1263,7 +1317,7 @@ end
 
 local function menuItem()
     return {
-        text = _("Reading Insights tweaks"),
+        text = _("Reading Insights Tweaks"),
         sub_item_table = {
             toggle(_("Streak calendar: book covers"), "enabled"),
             toggle(_("Streak calendar: taller cover cells"), "tall", "enabled"),
@@ -1297,9 +1351,9 @@ end
 local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
-TM.entries.ri_tweaks = { text = "Reading Insights tweaks", build = function() return menuItem() end }
+TM.entries.ri_tweaks = { text = "Reading Insights Tweaks", build = function() return menuItem() end }
 
--- Fallback: Tools > Reading Insights tweaks when Tweaks & Mods isn't installed
+-- Fallback: Tools > Reading Insights Tweaks when Tweaks & Mods isn't installed
 local function hookMenu(mod)
     local ok, Menu = pcall(require, mod)
     if not ok or type(Menu) ~= "table" or type(Menu.setUpdateItemTable) ~= "function" then return end
