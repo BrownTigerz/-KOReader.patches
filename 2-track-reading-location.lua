@@ -1,6 +1,6 @@
 --[[
     Track Reading Location
-    Version: 1.8.0
+    Version: 1.8.2
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
@@ -75,6 +75,10 @@
 
     Changelog (from here forward - this patch's earlier history predates this
     numbering scheme and isn't repeated here):
+    1.8.2 - 2026-10-03 - After a forward popup times out, a big jump (search,
+    TOC, progress bar) no longer becomes the anchor; the page you were on
+    does, and the jump gets the usual go-back popup.
+    1.8.1 - 2026-10-03 - Fast-forward burst threshold raised from 3 to 4 pages.
     1.8.0 - 2026-10-02 - Added formal version tracking: this header's Version
     line, the PATCH_VERSION constant everything else reads from, and a
     version-stamped line in the log on load.
@@ -111,7 +115,7 @@ local Screen = Device.screen
 -- comment can't read a code constant) and needs updating by hand alongside
 -- this one; everything else - the menu's version row and both load logs -
 -- reads from here.
-local PATCH_VERSION = "1.8.0"
+local PATCH_VERSION = "1.8.2"
 
 logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
 
@@ -138,7 +142,7 @@ local SETTING_MODE_PERCENTAGE = "readingloc_mode_percentage"
 -- cover before it's treated as a jump instead of quick reading. Both are
 -- heuristic, chosen without on-device testing - adjust if they feel off.
 local FAST_TURN_MAX_INTERVAL_MS = 1500
-local FAST_FORWARD_BURST_PAGES = 3
+local FAST_FORWARD_BURST_PAGES = 4
 
 -- The button is always docked to its fixed bottom-left/bottom-right corner.
 -- Its distance from the bottom edge, and from whichever side edge (left or
@@ -1239,14 +1243,23 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
     local burst_forward_span = new_page_no - ui._rlt_burst_start_page
 
     if ui._rlt_forward_dismiss_pending then
-        -- The forward popup already auto-dismissed on an earlier page turn
-        -- and we've been waiting for this one - the next real page turn -
-        -- to promote wherever it lands as the new anchor, bypassing the
+        -- The forward popup already auto-dismissed and we've been waiting
+        -- for the next page change to settle the anchor, bypassing the
         -- normal tolerance/burst check just this once. The timer itself
         -- deliberately never touches the anchor (see
         -- scheduleForwardDismiss) - this is the only place that acts on it.
-        anchor = new_page_no
         ui._rlt_forward_dismiss_pending = false
+        local from_page = previous_page or new_page_no
+        if math.abs(new_page_no - from_page) <= 2 then
+            -- A normal page flip: wherever it lands is the new anchor.
+            anchor = new_page_no
+        else
+            -- A jump (search, TOC, progress bar, link) isn't a page turn.
+            -- The page you were sitting on when the popup timed out is what
+            -- got accepted, so that's the anchor; the jump is then judged
+            -- against it below like any other, so it gets its own popup.
+            anchor = from_page
+        end
     elseif anchor - new_page_no <= 1 and new_page_no - anchor <= 2 then
         -- A real fast skim is many small steps; one big jump (the go-back
         -- tap, progress bar, TOC) that happens to land near the anchor is
