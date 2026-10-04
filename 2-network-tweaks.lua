@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.7.0
+Version: 1.7.3
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -61,6 +61,23 @@ Menu: Settings (gear) → Network → Network Tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog
+  1.7.3  Network list fixes from the diagnostics log:
+         - Cancelling the scan left the "Scanning… tap to cancel" banner
+           stuck on screen for good (taps on it did nothing after that).
+         - The scan waited ~11s more than needed: results were ready in
+           about 1s, but a "no saved network found" event that follows
+           every scan made it keep waiting. It now finishes on the first
+           results event.
+         - The list shows the best 12 networks, then "More networks (N)…";
+           building every row froze the screen ~0.6-0.9s. Tapping a
+           network opens its options on top of the list, so Back no
+           longer rebuilds the list.
+  1.7.2  Timing trace removed again: it lives in a separate, temporary
+         2-zz-network-tweaks-diagnostics.lua instead.
+  1.7.1  Fix: with Wi-Fi off, the network list froze the screen while Wi-Fi
+         powered up (the scanning banner couldn't be tapped, and it could
+         hang there). Powering up now runs in the background and is
+         cancellable too.
   1.7.0  Own network list (Choose network, toolbar Wi-Fi hold): the scan no
          longer freezes the screen and can be cancelled (tap the banner /
          corner note, or the popup in Normal). Networks show Connected,
@@ -132,7 +149,7 @@ Changelog
   1.0.0  First release. Replaces ssh-stop-on-sleep 1.1.0.
 --]]
 
-local PATCH_VERSION = "1.7.0"
+local PATCH_VERSION = "1.7.3"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -937,24 +954,44 @@ local function wpaCtrl()
         and NetworkMgr.wpa_supplicant.ctrl_interface or nil
 end
 
--- Kobo: power the radio up for a scan without joining anything.
--- enable-wifi.sh (the same script KOReader uses) starts wpa_supplicant, which
--- joins any network in the device's config on its own. Disabling them all
--- (in memory only: they're back next time Wi-Fi is turned on) leaves it
--- scanning but unassociated. Picking a network adds and enables it as usual.
-local function radioOnly()
-    logger.info("network-tweaks: Wi-Fi radio on for the network list (no auto-join)")
-    os.execute("./enable-wifi.sh")
-    local iface = "wlan0"
+local function wpaIface()
     local ok, name = pcall(NetworkMgr.getNetworkInterfaceName, NetworkMgr)
-    if ok and type(name) == "string" and name ~= "" then iface = name end
-    local cmd = string.format("wpa_cli -i %s disable_network all >/dev/null 2>&1", iface)
-    for _i = 1, 20 do -- control socket can take a moment to appear
-        if os.execute(cmd) == 0 then return true end
-        ffiutil.usleep(100000)
+    return (ok and type(name) == "string" and name ~= "") and name or "wlan0"
+end
+
+local function execOK(r) return r == 0 or r == true end
+
+-- Kobo: power the radio up for a scan without joining anything, without
+-- freezing the screen. enable-wifi.sh (the same script KOReader uses) runs
+-- in the background; we check every 0.25s for wpa_supplicant's control
+-- socket, then disable all networks it would join on its own (in memory
+-- only: they're back next time Wi-Fi is turned on). Returns a cancel
+-- function; on_ready(ok) runs when it's up (or gave up after 15s).
+local RADIO_TICK_S = 0.25
+local RADIO_MAX_TICKS = 60
+
+local function radioOnlyAsync(on_ready)
+    logger.info("network-tweaks: Wi-Fi radio on for the network list (no auto-join)")
+    os.execute("./enable-wifi.sh &")
+    local ctrl = wpaCtrl()
+    local ticks, cancelled = 0, false
+    local tick
+    tick = function()
+        if cancelled then return end
+        ticks = ticks + 1
+        if ctrl and lfs.attributes(ctrl, "mode") == "socket" then
+            local r = os.execute(string.format(
+                "wpa_cli -i %s disable_network all >/dev/null 2>&1", wpaIface()))
+            if execOK(r) then return on_ready(true) end
+        end
+        if ticks >= RADIO_MAX_TICKS then
+            logger.warn("network-tweaks: Wi-Fi radio didn't come up")
+            return on_ready(false)
+        end
+        UIManager:scheduleIn(RADIO_TICK_S, tick)
     end
-    logger.warn("network-tweaks: couldn't stop wpa_supplicant from auto-joining")
-    return false
+    UIManager:scheduleIn(RADIO_TICK_S, tick)
+    return function() cancelled = true; UIManager:unschedule(tick) end
 end
 
 -- Progress message in the notification style. With on_cancel, tapping it
@@ -1017,19 +1054,16 @@ local function scanAsync(on_done)
         return function() cancelled = true; finish() end
     end
 
-    local ticks, got = 0, false
+    local ticks = 0
     tick = function()
         if finished then return end
         ticks = ticks + 1
         local evs = {}
         local ok_e, incoming = pcall(wcli.waitForEvent, wcli, 0)
         if ok_e and incoming then pcall(wcli.readAllEvents, wcli, evs) end
-        -- Results arrived on an earlier tick and nothing new since: done.
-        if got and #evs == 0 then return finish(results()) end
+        -- Results are ready the moment wpa_supplicant says so.
         for _i, ev in ipairs(evs) do
-            local m = ev.msg or ""
-            if m == "CTRL-EVENT-SCAN-RESULTS" then got = true
-            elseif m == "CTRL-EVENT-SCAN-STARTED" or m == "CTRL-EVENT-NETWORK-NOT-FOUND" then got = false end
+            if ev.msg == "CTRL-EVENT-SCAN-RESULTS" then return finish(results()) end
         end
         if ticks >= SCAN_MAX_TICKS then return finish(results()) end
         UIManager:scheduleIn(SCAN_TICK_S, tick)
@@ -1094,15 +1128,23 @@ local function finishPicker(state)
     state.finished = true
     if state.radio_only and not state.picked then
         logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
+        os.execute("pkill -TERM -f '[e]nable-wifi.sh' 2>/dev/null")
         UIManager:nextTick(function() NetworkMgr:disableWifi(nil, true) end)
     end
+end
+
+local function closePicker(state)
+    local d = state.dlg
+    state.dlg = nil
+    if d then UIManager:close(d) end
 end
 
 local function connectTo(state, nw)
     if nw.flags:find("WEP") then
         note(_("WEP networks aren't supported"), _("WEP not supported"), 3)
-        return showPicker(state)
+        return
     end
+    closePicker(state)
     -- Only one network at a time.
     for _i, other in ipairs(state.list) do
         if other.connected and other ~= nw then
@@ -1173,8 +1215,7 @@ local function askPassword(state, nw, saved)
         text_type = "password",
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function()
-                UIManager:close(dlg)
-                showPicker(state)
+                UIManager:close(dlg) -- the list is still underneath
             end },
             { text = _("Connect"), is_enter_default = true, callback = go },
         }},
@@ -1192,7 +1233,8 @@ end
 local function networkActions(state, nw)
     local saved = savedNetworks()[nw.ssid] ~= nil
     local dlg
-    local function back() UIManager:close(dlg); showPicker(state) end
+    -- The list stays open underneath: Back just closes this, no rebuild.
+    local function back() UIManager:close(dlg) end
     local function row(text, fn)
         return {{ text = text, callback = function() UIManager:close(dlg); fn() end }}
     end
@@ -1234,29 +1276,42 @@ local function networkActions(state, nw)
         title = nw.ssid,
         title_align = "center",
         buttons = buttons,
-        tap_close_callback = function() showPicker(state) end,
     }
     UIManager:show(dlg)
 end
 
+-- Rows shown before "More networks…": building the dialog is the slow part
+-- on e-ink devices (every row is laid out), and busy areas list dozens.
+local PICKER_ROWS = 12
+
 showPicker = function(state)
     if state.finished then return end
+    closePicker(state)
     local saved = savedNetworks()
     local dlg
     local buttons = {}
     local status_w = Screen:scaleBySize(130)
-    for _i, nw in ipairs(state.list) do
+    local shown = state.show_all and #state.list or math.min(#state.list, PICKER_ROWS)
+    for i = 1, shown do
+        local nw = state.list[i]
         local status
         if nw.connected then status = _("Connected")
         elseif nw.away then status = _("Saved · away")
         elseif saved[nw.ssid] then status = _("Saved")
         elseif not nw.flags:find("WPA") then status = _("Open")
         else status = _("Join") end
-        local function tap() UIManager:close(dlg); networkActions(state, nw) end
+        local function tap() networkActions(state, nw) end
         table.insert(buttons, {
             { text = nw.ssid, align = "left", callback = tap },
             { text = status, width = status_w, callback = tap },
         })
+    end
+    if shown < #state.list then
+        table.insert(buttons, {{ text = string.format(_("More networks (%d)…"), #state.list - shown),
+            callback = function()
+                state.show_all = true
+                showPicker(state)
+            end }})
     end
     if #buttons == 0 then
         table.insert(buttons, {{ text = _("No networks found"), enabled = false }})
@@ -1277,7 +1332,6 @@ showPicker = function(state)
                         nw.password, nw.psk = nil, nil
                         if nw.away then table.remove(state.list, i) end
                     end
-                    UIManager:close(dlg)
                     showPicker(state)
                 end,
             })
@@ -1285,11 +1339,11 @@ showPicker = function(state)
     end
     table.insert(buttons, {
         { text = _("Rescan"), callback = function()
-            UIManager:close(dlg)
+            closePicker(state)
             startScan(state)
         end },
         { text = _("Close"), callback = function()
-            UIManager:close(dlg)
+            closePicker(state)
             finishPicker(state)
         end },
     })
@@ -1297,41 +1351,64 @@ showPicker = function(state)
         title = _("Wi-Fi networks"),
         title_align = "center",
         buttons = buttons,
-        rows_per_page = 9,
-        tap_close_callback = function() finishPicker(state) end,
+        rows_per_page = 14,
+        tap_close_callback = function()
+            state.dlg = nil
+            finishPicker(state)
+        end,
     }
+    state.dlg = dlg
     UIManager:show(dlg)
 end
 
 startScan = function(state)
-    local cancel
+    local cancel_step
     local done = false
-    local info = progress(_("Scanning for networks…"), function()
+    local info
+    info = progress(_("Scanning for networks…"), function()
         if done then return end
         done = true
-        if cancel then cancel() end
-        logger.info("network-tweaks: network scan cancelled")
+        if cancel_step then cancel_step() end
+        -- Banner / corner note stay until closed (a Normal popup closes
+        -- itself when tapped).
+        if info and info.toast then UIManager:close(info) end
         finishPicker(state)
     end)
+
+    local function scan()
+        if done then return end
+        cancel_step = scanAsync(function(results, err)
+            if done then return end
+            done = true
+            UIManager:close(info)
+            if not results then
+                if connectStyle() == "normal" then
+                    UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
+                else
+                    note(err or _("Couldn't scan for networks"), _("Scan failed"), 3)
+                end
+                return finishPicker(state)
+            end
+            state.list = buildList(results)
+            showPicker(state)
+        end)
+    end
+
     if state.radio_only and not state.radio_up then
         state.radio_up = true
-        radioOnly()
-    end
-    if done then return end -- cancelled while the radio came up
-    cancel = scanAsync(function(results, err)
-        if done then return end
-        done = true
-        UIManager:close(info)
-        if not results then
-            note(err or _("Couldn't scan for networks"), _("Scan failed"), 3)
-            if connectStyle() == "normal" then
-                UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
+        cancel_step = radioOnlyAsync(function(ok)
+            if done then return end
+            if not ok then
+                done = true
+                UIManager:close(info)
+                note(_("Wi-Fi didn't come up"), _("Wi-Fi failed"), 3)
+                return finishPicker(state)
             end
-            return finishPicker(state)
-        end
-        state.list = buildList(results)
-        showPicker(state)
-    end)
+            scan()
+        end)
+    else
+        scan()
+    end
 end
 
 -- Opens the network list, never connecting on its own.
