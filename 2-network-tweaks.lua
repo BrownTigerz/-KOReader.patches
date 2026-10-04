@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.6.2
+Version: 1.7.0
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -18,16 +18,15 @@ Menu: Settings (gear) → Network → Network Tweaks
     Handy for pushing patches.
 
   Choose network…
-    Opens the network list without connecting to anything by itself. With
-    Wi-Fi off (Kobo), the radio comes up just for the scan; close the list
-    without picking and Wi-Fi goes back off. Elsewhere, KOReader's own
-    long-press flow is used.
-
-  Saved networks
-    Networks saved in KOReader: tap one to forget it, or clear them all.
-    Background connect uses the device's own saved networks instead (on
-    Kobo, the ones joined in Kobo's Wi-Fi settings); these don't change
-    those.
+    Scans (tap the scanning message to cancel) and lists networks:
+    Connected, Saved, Saved · away (saved, not in range) or Open. Tap one
+    for Reconnect / Edit password / Forget, or Disconnect when connected.
+    Forget all saved, Rescan and Close at the bottom. Never connects by
+    itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and
+    closing the list without picking puts Wi-Fi back off. "Saved" here is
+    KOReader's list; background connect uses the device's own saved
+    networks (on Kobo, the ones joined in Kobo's Wi-Fi settings).
+    Devices without wpa_supplicant use KOReader's own list.
 
   Notifications                                 (default: Banner)
     One style for Wi-Fi on/off, SSH on/off and the Calibre wireless
@@ -62,6 +61,14 @@ Menu: Settings (gear) → Network → Network Tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog
+  1.7.0  Own network list (Choose network, toolbar Wi-Fi hold): the scan no
+         longer freezes the screen and can be cancelled (tap the banner /
+         corner note, or the popup in Normal). Networks show Connected,
+         Saved, Saved · away or Open; tap one for Reconnect / Edit password /
+         Forget / Disconnect. Forget all saved, Rescan and Close at the
+         bottom. Connecting uses one styled message instead of the stock
+         popups (Minimal / Banner). Saved networks submenu removed (it's in
+         the list now).
   1.6.2  Choose network (and the toolbar Wi-Fi hold) never connects on its
          own. With Wi-Fi off (Kobo), the radio comes up without joining any
          saved network, the list opens, and if you close it without picking
@@ -125,16 +132,18 @@ Changelog
   1.0.0  First release. Replaces ssh-stop-on-sleep 1.1.0.
 --]]
 
-local PATCH_VERSION = "1.6.2"
+local PATCH_VERSION = "1.7.0"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Event = require("ui/event")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local ButtonDialog = require("ui/widget/buttondialog")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Geom = require("ui/geometry")
 local InfoMessage = require("ui/widget/infomessage")
+local InputDialog = require("ui/widget/inputdialog")
 local NetworkMgr = require("ui/network/manager")
 local Notification = require("ui/widget/notification")
 local Size = require("ui/size")
@@ -213,6 +222,7 @@ local CornerNote = WidgetContainer:extend{
     toast = true,
     text = "",
     timeout = 2,
+    on_tap = nil, -- optional: tap on the note (e.g. cancel a scan)
 }
 
 function CornerNote:init()
@@ -231,6 +241,18 @@ function CornerNote:init()
     local y = margin
     for _i, n in ipairs(corner_open) do y = y + n.dimen.h + margin end
     self.dimen = Geom:new{ x = Screen:getWidth() - sz.w - margin, y = y, w = sz.w, h = sz.h }
+end
+
+function CornerNote:onGesture(ev)
+    if not self.on_tap then return false end
+    if ev and ev.pos and self.dimen and ev.pos:intersectWith(self.dimen) then
+        local is_tap = ev.ges == "tap"
+        -- Toasts can't stop propagation: neuter it so the page underneath
+        -- doesn't also get the tap.
+        ev.ges = "network_tweaks_note"
+        if is_tap then self.on_tap() end
+    end
+    return false
 end
 
 function CornerNote:onShow()
@@ -303,11 +325,15 @@ function Banner:onKeyRepeat() return false end
 -- swallowed (that's how the SSH plugin reports failure).
 -- InfoMessages aren't even built: the plugin just gets its own arguments
 -- back (text, icon), which is all the show() check below looks at.
+-- Stand-in for an InfoMessage that's never built: just its own arguments,
+-- plus enough to survive the caller closing it.
+local STUB_MT = { __index = { __nt_stub = true, handleEvent = function() return false end } }
+
 local function withoutPopups(fn, ...)
     local warned = false
     local own_new = rawget(InfoMessage, "new") -- normally nil (inherited)
-    InfoMessage.new = function(_cls, o) return o or {} end
-    local orig_show = UIManager.show
+    InfoMessage.new = function(_cls, o) return setmetatable(o or {}, STUB_MT) end
+    local orig_show, orig_close = UIManager.show, UIManager.close
     UIManager.show = function(um, widget, ...)
         if type(widget) == "table" and widget.text and not widget.toast then
             if widget.icon == "notice-warning" then warned = true end
@@ -315,8 +341,12 @@ local function withoutPopups(fn, ...)
         end
         return orig_show(um, widget, ...)
     end
+    UIManager.close = function(um, widget, ...)
+        if type(widget) == "table" and widget.__nt_stub then return end
+        return orig_close(um, widget, ...)
+    end
     local ok, err = pcall(fn, ...)
-    UIManager.show = orig_show
+    UIManager.show, UIManager.close = orig_show, orig_close
     InfoMessage.new = own_new
     return ok, err, warned
 end
@@ -879,15 +909,39 @@ if ok_nl and type(NetworkListener) == "table" then
 end
 
 ---------------------------------------------------------------------------
--- Choose network / saved networks
+-- Choose network
 ---------------------------------------------------------------------------
+-- Own network list instead of KOReader's: scans without freezing the screen
+-- (cancellable), marks Connected / Saved networks, offers Reconnect / Forget
+-- / Disconnect per network, Forget all saved, Rescan and Close. Built from a
+-- plain button dialog, so it's one light widget; the scan result is reused
+-- after each action, no rescan unless you ask.
+
+-- KOReader's saved networks (settings/network.lua), keyed by SSID.
+local function savedNetworks()
+    local ok, nw = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
+    return ok and nw and type(nw.data) == "table" and nw.data or {}
+end
+
+-- Same SSID decoding as KOReader's wpa_supplicant backend.
+local function decodeSSID(ssid)
+    local decoded = ssid:gsub("%f[\\]\\x(%x%x)", function(b)
+        local c = string.char(tonumber(b, 16))
+        return c == "\\" and "\\\\" or c
+    end)
+    return (decoded:gsub("\\\\", "\\"))
+end
+
+local function wpaCtrl()
+    return Device:hasWifiManager() and type(NetworkMgr.wpa_supplicant) == "table"
+        and NetworkMgr.wpa_supplicant.ctrl_interface or nil
+end
 
 -- Kobo: power the radio up for a scan without joining anything.
 -- enable-wifi.sh (the same script KOReader uses) starts wpa_supplicant, which
 -- joins any network in the device's config on its own. Disabling them all
 -- (in memory only: they're back next time Wi-Fi is turned on) leaves it
--- scanning but unassociated. Picking a network in the list adds and enables
--- it as usual.
+-- scanning but unassociated. Picking a network adds and enables it as usual.
 local function radioOnly()
     logger.info("network-tweaks: Wi-Fi radio on for the network list (no auto-join)")
     os.execute("./enable-wifi.sh")
@@ -903,151 +957,406 @@ local function radioOnly()
     return false
 end
 
--- Scan and show KOReader's network list. The "Scanning…" message follows
--- the notification style (the scan briefly holds the UI, so it's drawn
--- first). No re-DHCP like the stock flow does when already connected.
--- radio_only: Wi-Fi was off; power it up without joining, and power it back
--- down if the list is closed without picking a network.
-local function showNetworkList(radio_only)
+-- Progress message in the notification style. With on_cancel, tapping it
+-- cancels (banner / corner note: tap it; Normal: tap to dismiss).
+local function progress(text, on_cancel)
     local style = connectStyle()
-    local info
+    local w
     if style == "banner" then
-        info = Banner:new{ text = _("Scanning for networks…") }
+        w = Banner:new{ text = on_cancel and (text .. _(" · tap to cancel")) or text, on_tap = on_cancel }
     elseif style == "silent" then
-        info = CornerNote:new{ text = _("Scanning…"), timeout = 60 }
+        w = CornerNote:new{ text = on_cancel and (text .. _(" · tap to cancel")) or text,
+                            timeout = 120, on_tap = on_cancel }
     else
-        info = InfoMessage:new{ text = _("Scanning for networks…") }
+        w = InfoMessage:new{ text = text, dismiss_callback = on_cancel }
     end
-    UIManager:show(info)
+    UIManager:show(w)
     UIManager:forceRePaint()
+    return w
+end
 
-    local function backOff()
-        if radio_only then NetworkMgr:disableWifi(nil, true) end
+-- Scan without blocking: start it, then check for results every 250ms
+-- (non-blocking reads) until wpa_supplicant reports them. Returns a cancel
+-- function. Backends other than wpa_supplicant fall back to the stock
+-- (blocking, not cancellable) scan.
+local SCAN_TICK_S = 0.25
+local SCAN_MAX_TICKS = 48 -- ~12s, stock waits up to 20s
+
+local function scanAsync(on_done)
+    local ctrl = wpaCtrl()
+    local ok_w, WpaClient = pcall(require, "lj-wpaclient/wpaclient")
+    if not (ctrl and ok_w) then
+        UIManager:nextTick(function() on_done(NetworkMgr:getNetworkList()) end)
+        return function() end
+    end
+    local wcli, err = WpaClient.new(ctrl)
+    if not wcli then
+        UIManager:nextTick(function() on_done(nil, err) end)
+        return function() end
     end
 
-    if radio_only then radioOnly() end
-    local list, err = NetworkMgr:getNetworkList()
-    if list and #list == 0 then -- same rescan workaround as stock
-        list, err = NetworkMgr:getNetworkList()
+    local cancelled, finished = false, false
+    local tick
+    local function finish(results, e)
+        if finished then return end
+        finished = true
+        UIManager:unschedule(tick)
+        pcall(wcli.close, wcli)
+        if not cancelled then on_done(results, e) end
     end
+    local function results()
+        local ok, res, e = pcall(wcli.getScanResults, wcli)
+        if ok then return res, e end
+        return nil, res
+    end
+
+    pcall(wcli.attach, wcli)
+    local ok_s, reply, serr = pcall(wcli.doScan, wcli)
+    if not ok_s or reply == nil then
+        UIManager:nextTick(function() finish(nil, ok_s and serr or reply) end)
+        return function() cancelled = true; finish() end
+    end
+
+    local ticks, got = 0, false
+    tick = function()
+        if finished then return end
+        ticks = ticks + 1
+        local evs = {}
+        local ok_e, incoming = pcall(wcli.waitForEvent, wcli, 0)
+        if ok_e and incoming then pcall(wcli.readAllEvents, wcli, evs) end
+        -- Results arrived on an earlier tick and nothing new since: done.
+        if got and #evs == 0 then return finish(results()) end
+        for _i, ev in ipairs(evs) do
+            local m = ev.msg or ""
+            if m == "CTRL-EVENT-SCAN-RESULTS" then got = true
+            elseif m == "CTRL-EVENT-SCAN-STARTED" or m == "CTRL-EVENT-NETWORK-NOT-FOUND" then got = false end
+        end
+        if ticks >= SCAN_MAX_TICKS then return finish(results()) end
+        UIManager:scheduleIn(SCAN_TICK_S, tick)
+    end
+    UIManager:scheduleIn(SCAN_TICK_S, tick)
+    return function() cancelled = true; finish() end
+end
+
+-- One entry per SSID (strongest access point), with saved/connected state.
+-- Connected first, then saved, then by signal; saved networks that aren't
+-- in range go last so they can still be forgotten.
+local function buildList(results)
+    local saved = savedNetworks()
+    local cur
+    local ok_c, c = pcall(NetworkMgr.getCurrentNetwork, NetworkMgr)
+    if ok_c and type(c) == "table" and c.ssid then cur = c end
+    local cur_ssid = cur and decodeSSID(cur.ssid)
+
+    local best, list = {}, {}
+    for _i, r in ipairs(results or {}) do
+        local ssid = r.ssid and decodeSSID(r.ssid) or ""
+        if ssid ~= "" then
+            local q = (r.getSignalQuality and r:getSignalQuality()) or r.signal_quality or 0
+            local e = best[ssid]
+            if not e or q > e.signal_quality then
+                r.ssid, r.signal_quality, r.flags = ssid, q, r.flags or ""
+                best[ssid] = r
+            end
+        end
+    end
+    for ssid, nw in pairs(best) do
+        local s = saved[ssid]
+        if s then nw.password, nw.psk = s.password, s.psk end
+        if cur_ssid == ssid then
+            nw.connected = true
+            nw.wpa_supplicant_id = cur.id
+        end
+        list[#list + 1] = nw
+    end
+    local function rank(nw) return nw.connected and 0 or (saved[nw.ssid] and 1 or 2) end
+    table.sort(list, function(a, b)
+        if rank(a) ~= rank(b) then return rank(a) < rank(b) end
+        return a.signal_quality > b.signal_quality
+    end)
+    local away = {}
+    for ssid, s in pairs(saved) do
+        if not best[ssid] then
+            away[#away + 1] = { ssid = ssid, password = s.password, psk = s.psk, flags = "", away = true }
+        end
+    end
+    table.sort(away, function(a, b) return a.ssid:lower() < b.ssid:lower() end)
+    for _i, nw in ipairs(away) do list[#list + 1] = nw end
+    return list
+end
+
+local startScan, showPicker -- forward declarations
+
+-- Done with the list. If the radio was only brought up for it and nothing
+-- got connected, Wi-Fi goes back off.
+local function finishPicker(state)
+    if state.finished then return end
+    state.finished = true
+    if state.radio_only and not state.picked then
+        logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
+        UIManager:nextTick(function() NetworkMgr:disableWifi(nil, true) end)
+    end
+end
+
+local function connectTo(state, nw)
+    if nw.flags:find("WEP") then
+        note(_("WEP networks aren't supported"), _("WEP not supported"), 3)
+        return showPicker(state)
+    end
+    -- Only one network at a time.
+    for _i, other in ipairs(state.list) do
+        if other.connected and other ~= nw then
+            pcall(NetworkMgr.disconnectNetwork, NetworkMgr, other)
+            pcall(NetworkMgr.releaseIP, NetworkMgr)
+            other.connected = nil
+        end
+    end
+
+    local ok, err
+    local function auth() ok, err = NetworkMgr:authenticateNetwork(nw) end
+    if connectStyle() == "normal" then
+        local pok, perr = pcall(auth)
+        if not pok then ok, err = false, perr end
+    else
+        -- Stock "Authenticating…" popups replaced by one styled message.
+        local info = progress(_("Connecting to ") .. nw.ssid .. "…")
+        local pok, perr = withoutPopups(auth)
+        UIManager:close(info)
+        if not pok then ok, err = false, perr end
+    end
+    if not ok then
+        logger.warn("network-tweaks: couldn't connect to", nw.ssid, err)
+        note(err or _("Couldn't connect"), _("Couldn't connect"), 3)
+        return showPicker(state)
+    end
+
+    local info = progress(_("Obtaining IP address…"))
+    NetworkMgr:obtainIP()
     UIManager:close(info)
-    if not list then
-        backOff()
-        if style == "normal" then
-            UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
-        else
-            note(_("Couldn't scan for networks"), _("Scan failed"), 3)
-        end
-        return
+    nw.connected = true
+    state.picked = true
+    logger.info("network-tweaks: connected to", nw.ssid, "from the network list")
+    -- Announce it like any other connect, so the toolbar, "SSH follows
+    -- Wi-Fi" and auto-restore on wake see it.
+    markUserConnect()
+    if not NetworkMgr.pending_connectivity_check then
+        NetworkMgr:scheduleConnectivityCheck()
     end
-    table.sort(list, function(l, r) return (l.signal_quality or 0) > (r.signal_quality or 0) end)
+    if connectStyle() == "normal" then
+        UIManager:show(InfoMessage:new{ text = _("Connected to ") .. nw.ssid, timeout = 3 })
+    else
+        note(_("Connected to ") .. nw.ssid, _("Wi-Fi connected"))
+    end
+    finishPicker(state)
+end
 
-    local picked = false
-    local widget = require("ui/widget/networksetting"):new{
-        network_list = list,
-        connect_callback = function()
-            picked = true
-            -- Picking a network: announce it like any other connect, so the
-            -- toolbar, "SSH follows Wi-Fi" and auto-restore on wake see it.
-            markUserConnect()
-            if not NetworkMgr.pending_connectivity_check then
-                NetworkMgr:scheduleConnectivityCheck()
-            end
-        end,
+local function askPassword(state, nw, saved)
+    local dlg
+    local function go()
+        local pw = dlg:getInputText() or ""
+        if #pw == 0 and nw.flags:find("WPA") then
+            UIManager:show(InfoMessage:new{ text = _("Password cannot be empty."), timeout = 2 })
+            return
+        end
+        UIManager:close(dlg)
+        if pw ~= nw.password then
+            nw.password, nw.psk = pw, nil
+            NetworkMgr:saveNetwork(nw)
+        end
+        connectTo(state, nw)
+    end
+    dlg = InputDialog:new{
+        title = nw.ssid,
+        input = saved and nw.password or "",
+        input_hint = _("password (leave empty for open networks)"),
+        input_type = "text",
+        text_type = "password",
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function()
+                UIManager:close(dlg)
+                showPicker(state)
+            end },
+            { text = _("Connect"), is_enter_default = true, callback = go },
+        }},
     }
-    if radio_only then
-        local orig_close = widget.onCloseWidget
-        widget.onCloseWidget = function(self, ...)
-            local res = orig_close and orig_close(self, ...)
-            if not picked then
-                logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
-                UIManager:nextTick(backOff)
-            end
-            return res
-        end
-    end
-    UIManager:show(widget)
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
 end
 
--- Opens the network list, never connecting on its own.
--- Wi-Fi on: the list straight away. Wi-Fi off (Kobo): radio up without
--- joining anything, then the list; closed without a pick, Wi-Fi goes back
--- off. Wi-Fi off elsewhere: KOReader's long-press flow (which may reconnect
--- to a known network first). Shared as NetworkMgr.__network_tweaks_choose_network
--- (toolbar hold on Wi-Fi).
-local function chooseNetwork()
-    if not Device:hasWifiToggle() then return end
-    if quiet then cancelQuiet(true) end -- you asked for the list instead
+local function forget(nw)
+    NetworkMgr:deleteNetwork(nw)
+    nw.password, nw.psk = nil, nil
+end
 
-    if not NetworkMgr:isWifiOn() then
-        if Device:isKobo() then
-            showNetworkList(true)
+-- Per-network actions.
+local function networkActions(state, nw)
+    local saved = savedNetworks()[nw.ssid] ~= nil
+    local dlg
+    local function back() UIManager:close(dlg); showPicker(state) end
+    local function row(text, fn)
+        return {{ text = text, callback = function() UIManager:close(dlg); fn() end }}
+    end
+
+    local buttons = {}
+    if nw.connected then
+        table.insert(buttons, row(_("Disconnect"), function()
+            pcall(NetworkMgr.disconnectNetwork, NetworkMgr, nw)
+            pcall(NetworkMgr.releaseIP, NetworkMgr)
+            nw.connected = nil
+            stateChanged()
+            showPicker(state)
+        end))
+    elseif not nw.away then
+        if saved then
+            table.insert(buttons, row(_("Reconnect"), function() connectTo(state, nw) end))
+            table.insert(buttons, row(_("Edit password"), function() askPassword(state, nw, true) end))
+        elseif not nw.flags:find("WPA") then
+            -- Open network: nothing to ask.
+            nw.password = ""
+            return connectTo(state, nw)
         else
-            markUserConnect()
-            NetworkMgr:toggleWifiOn(nil, true, true)
+            return askPassword(state, nw, false)
         end
-        return
     end
-    showNetworkList(false)
+    if saved then
+        table.insert(buttons, row(_("Forget"), function()
+            forget(nw)
+            if nw.away then
+                for i, other in ipairs(state.list) do
+                    if other == nw then table.remove(state.list, i) break end
+                end
+            end
+            showPicker(state)
+        end))
+    end
+    table.insert(buttons, {{ text = _("Back"), callback = back }})
+    dlg = ButtonDialog:new{
+        title = nw.ssid,
+        title_align = "center",
+        buttons = buttons,
+        tap_close_callback = function() showPicker(state) end,
+    }
+    UIManager:show(dlg)
 end
-NetworkMgr.__network_tweaks_choose_network = chooseNetwork
 
--- KOReader's saved networks (settings/network.lua), keyed by SSID.
-local function savedNetworks()
-    local ok, nw = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
-    return ok and nw and type(nw.data) == "table" and nw.data or {}
-end
-
-local function savedNetworksMenu()
-    local ssids = {}
-    for ssid in pairs(savedNetworks()) do ssids[#ssids + 1] = ssid end
-    table.sort(ssids, function(a, b) return a:lower() < b:lower() end)
-
-    local items = {}
-    for _i, ssid in ipairs(ssids) do
-        items[#items + 1] = {
-            text = ssid,
-            -- Greys out once forgotten (the list is rebuilt next time it's opened).
-            enabled_func = function() return savedNetworks()[ssid] ~= nil end,
-            keep_menu_open = true,
-            callback = function(touchmenu)
-                UIManager:show(ConfirmBox:new{
-                    text = _("Forget this network?") .. "\n\n" .. ssid,
-                    ok_text = _("Forget"),
-                    ok_callback = function()
-                        NetworkMgr:deleteNetwork({ ssid = ssid })
-                        if touchmenu then touchmenu:updateItems() end
-                    end,
-                })
-            end,
-        }
+showPicker = function(state)
+    if state.finished then return end
+    local saved = savedNetworks()
+    local dlg
+    local buttons = {}
+    local status_w = Screen:scaleBySize(130)
+    for _i, nw in ipairs(state.list) do
+        local status
+        if nw.connected then status = _("Connected")
+        elseif nw.away then status = _("Saved · away")
+        elseif saved[nw.ssid] then status = _("Saved")
+        elseif not nw.flags:find("WPA") then status = _("Open")
+        else status = _("Join") end
+        local function tap() UIManager:close(dlg); networkActions(state, nw) end
+        table.insert(buttons, {
+            { text = nw.ssid, align = "left", callback = tap },
+            { text = status, width = status_w, callback = tap },
+        })
     end
-    if #items == 0 then
-        items[1] = { text = _("No saved networks"), enabled = false }
+    if #buttons == 0 then
+        table.insert(buttons, {{ text = _("No networks found"), enabled = false }})
     end
-    items[#items].separator = true
-
-    items[#items + 1] = {
-        text = _("Clear all saved networks"),
-        enabled_func = function() return next(savedNetworks()) ~= nil end,
-        keep_menu_open = true,
-        callback = function(touchmenu)
+    if next(saved) then
+        table.insert(buttons, {{ text = _("Forget all saved networks"), callback = function()
             UIManager:show(ConfirmBox:new{
                 text = _("Forget all saved networks?"),
                 ok_text = _("Forget all"),
                 ok_callback = function()
-                    local ok, nw = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
-                    if ok and nw then
-                        for ssid in pairs(savedNetworks()) do nw:delSetting(ssid) end
-                        nw:flush()
+                    local ok, nws = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
+                    if ok and nws then
+                        for ssid in pairs(savedNetworks()) do nws:delSetting(ssid) end
+                        nws:flush()
                     end
-                    if touchmenu then touchmenu:updateItems() end
+                    for i = #state.list, 1, -1 do
+                        local nw = state.list[i]
+                        nw.password, nw.psk = nil, nil
+                        if nw.away then table.remove(state.list, i) end
+                    end
+                    UIManager:close(dlg)
+                    showPicker(state)
                 end,
             })
-        end,
+        end }})
+    end
+    table.insert(buttons, {
+        { text = _("Rescan"), callback = function()
+            UIManager:close(dlg)
+            startScan(state)
+        end },
+        { text = _("Close"), callback = function()
+            UIManager:close(dlg)
+            finishPicker(state)
+        end },
+    })
+    dlg = ButtonDialog:new{
+        title = _("Wi-Fi networks"),
+        title_align = "center",
+        buttons = buttons,
+        rows_per_page = 9,
+        tap_close_callback = function() finishPicker(state) end,
     }
-    return items
+    UIManager:show(dlg)
 end
+
+startScan = function(state)
+    local cancel
+    local done = false
+    local info = progress(_("Scanning for networks…"), function()
+        if done then return end
+        done = true
+        if cancel then cancel() end
+        logger.info("network-tweaks: network scan cancelled")
+        finishPicker(state)
+    end)
+    if state.radio_only and not state.radio_up then
+        state.radio_up = true
+        radioOnly()
+    end
+    if done then return end -- cancelled while the radio came up
+    cancel = scanAsync(function(results, err)
+        if done then return end
+        done = true
+        UIManager:close(info)
+        if not results then
+            note(err or _("Couldn't scan for networks"), _("Scan failed"), 3)
+            if connectStyle() == "normal" then
+                UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
+            end
+            return finishPicker(state)
+        end
+        state.list = buildList(results)
+        showPicker(state)
+    end)
+end
+
+-- Opens the network list, never connecting on its own.
+-- Wi-Fi on: scan and list. Wi-Fi off (Kobo): radio up without joining
+-- anything, then the list; closed without a pick, Wi-Fi goes back off.
+-- Other devices (no wpa_supplicant): KOReader's own long-press flow.
+-- Shared as NetworkMgr.__network_tweaks_choose_network (toolbar hold).
+local function chooseNetwork()
+    if not Device:hasWifiToggle() then return end
+    if quiet then cancelQuiet(true) end -- you asked for the list instead
+    local wifi_on = NetworkMgr:isWifiOn()
+
+    if not wpaCtrl() or (not wifi_on and not Device:isKobo()) then
+        markUserConnect()
+        if wifi_on and NetworkMgr.reconnectOrShowNetworkMenu then
+            NetworkMgr.wifi_toggle_long_press = true
+            NetworkMgr:reconnectOrShowNetworkMenu(nil, true)
+        else
+            NetworkMgr:toggleWifiOn(nil, true, true)
+        end
+        return
+    end
+    startScan({ radio_only = not wifi_on })
+end
+NetworkMgr.__network_tweaks_choose_network = chooseNetwork
 
 ---------------------------------------------------------------------------
 -- Menu: Settings → Network → Network Tweaks (or Tools → Add-ons)
@@ -1095,11 +1404,6 @@ local function menuTable()
                     text = _("Choose network…"),
                     enabled_func = function() return Device:hasWifiToggle() end,
                     callback = function() chooseNetwork() end,
-                },
-                {
-                    text = _("Saved networks"),
-                    help_text = _("Networks saved in KOReader. Background connect uses the device's own saved networks (on Kobo, the ones joined in Kobo's Wi-Fi settings), which these don't change."),
-                    sub_item_table_func = savedNetworksMenu,
                 },
                 {
                     text_func = function()
