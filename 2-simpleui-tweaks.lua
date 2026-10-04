@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 1.9.0
+Version 1.10.3
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,21 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  1.10.3 Custom Reader Navigation and Back to File Browser tab icons now
+         show with SimpleUI versions that file them under the wrong tab ids
+         ("navigation" / "filebrowser" instead of KOReader's "navi" /
+         "filemanager"). Does nothing on versions that get it right.
+  1.10.2 Shortcuts Toolbar keeps working with custom File Browser Settings,
+         Navigation or Typeset tab icons, whatever toolbar version is
+         installed: once the tab bar is drawn, those tabs get their stock
+         icon names back (the toolbar recognises menus by them). Your custom
+         icons stay on screen.
+  1.10.1 Colour picker always fits on screen (it could run off the bottom
+         on high-resolution screens): 5 columns where there's room, swatch
+         height sized to the space left.
+  1.10.0 Colour picker: a grid of named colour swatches (shown as they'll
+         look on screen, Night Mode included), with hex entry for anything
+         else. Used by every colour setting.
   1.9.0  Per-module text colours (normal and Night Mode), like section
          titles: an "All modules" default, each module can override it.
   1.8.0  Renamed to SimpleUI Tweaks (settings kept). Settings are saved to
@@ -42,7 +57,7 @@ Changelog
          colours, progress & border colours.
 ]]
 
-local VERSION = "1.9.0"
+local VERSION = "1.10.3"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -643,6 +658,42 @@ end
 
 local wrapped = setmetatable({}, { __mode = "k" })
 
+-- Tabs other plugins recognise menus by, with KOReader's stock icon name.
+-- Shortcuts Toolbar looks for these names to tell the library and reader
+-- menus apart; SimpleUI's custom tab icons replace them.
+local STOCK_TAB_ICON = {
+    filemanager_settings = "appbar.filebrowser",
+    navi                 = "appbar.navigation",
+    typeset              = "appbar.typeset",
+}
+
+-- Some SimpleUI versions file two reader tab icons under ids KOReader doesn't
+-- use, so those custom icons never show. KOReader's id -> SimpleUI's id.
+local SUI_TAB_ID_ALIAS = { navi = "navigation", filemanager = "filebrowser" }
+
+-- Applies those two custom icons ourselves, only when SimpleUI's own slot
+-- uses the wrong id (a SimpleUI that gets it right is left alone).
+local function applyMissedSimpleUITabIcons(menu)
+    local S = package.loaded["features/sui_style"]
+    if type(S) ~= "table" or type(S.SLOTS) ~= "table" or type(S.getIcon) ~= "function"
+            or type(S.registerTabIconName) ~= "function" then return end
+    local tabs = type(menu) == "table" and menu.tab_item_table
+    if type(tabs) ~= "table" then return end
+    for _i, tab in ipairs(tabs) do
+        local wrong_id = type(tab) == "table" and SUI_TAB_ID_ALIAS[tab.id]
+        if wrong_id then
+            for _j, slot in ipairs(S.SLOTS) do
+                if type(slot) == "table" and slot.tab_id == wrong_id then
+                    local raw = S.getIcon(slot.id)
+                    local name = raw and S.registerTabIconName(slot.id, raw)
+                    if name then tab.icon = name end
+                    break
+                end
+            end
+        end
+    end
+end
+
 -- ---- KOReader's own menu: tab icons and arrows ------------------------------------
 local seen_tabs = {}   -- tab icon names seen this session, in order
 -- The menu is created each time it opens, so a toggle applies on the next
@@ -664,6 +715,7 @@ do
         end
         local orig_menu_init = TouchMenu.init
         TouchMenu.init = function(self, ...)
+            pcall(applyMissedSimpleUITabIcons, self)
             return scoped("menu_arrow", cfg.menu_icons.arrows, orig_menu_init, self, ...)
         end
         if type(TouchMenuBar) == "table" and type(TouchMenuBar.init) == "function" then
@@ -685,6 +737,12 @@ do
                             seen_tabs[id] = true
                             seen_tabs[#seen_tabs + 1] = id
                         end
+                        -- The icons are drawn now: give these tabs their stock
+                        -- name back so other plugins still recognise the menu.
+                        -- SimpleUI sets the custom name again before the menu
+                        -- is next drawn.
+                        local stock = STOCK_TAB_ICON[id]
+                        if stock and tab.icon ~= stock then tab.icon = stock end
                     end
                 end
                 return unpack(res, 1, res.n)
@@ -1159,6 +1217,163 @@ local function customColorDialog(current, on_save)
     dlg:onShowKeyboard()
 end
 
+-- ---- Colour picker: named swatches, shown as they'll look on screen -------------------
+local PALETTE = {
+    { "Black",      "#000000" }, { "Charcoal",   "#333333" }, { "Dark grey", "#555555" }, { "Grey",   "#888888" },
+    { "Silver",     "#AAAAAA" }, { "Light grey", "#CCCCCC" }, { "White",     "#FFFFFF" }, { "Navy",   "#1F3A68" },
+    { "Blue",       "#2E6FD8" }, { "Sky",        "#6FB7E9" }, { "Teal",      "#1B8A8A" }, { "Green",  "#2E8B57" },
+    { "Olive",      "#6B8E23" }, { "Gold",       "#D4A017" }, { "Orange",    "#E07B24" }, { "Red",    "#C62828" },
+    { "Maroon",     "#7B1E2B" }, { "Pink",       "#E78FB3" }, { "Purple",    "#6A3D9A" }, { "Brown",  "#7A4E2D" },
+}
+
+local function paletteName(hex)
+    if type(hex) ~= "string" then return nil end
+    for _i, p in ipairs(PALETTE) do
+        if p[2] == hex:upper() then return p[1] end
+    end
+    return nil
+end
+
+-- Black or white label, whichever reads better on this swatch.
+local function labelOn(hex)
+    local r, g, b = parseRGB(hex)
+    local lum = (0.299 * r + 0.587 * g + 0.114 * b)
+    return lum < 140 and "#FFFFFF" or "#000000"
+end
+
+local function showColourPicker(current, on_pick)
+    local UIManager       = orig_require("ui/uimanager")
+    local InputContainer  = orig_require("ui/widget/container/inputcontainer")
+    local FrameContainer  = orig_require("ui/widget/container/framecontainer")
+    local CenterContainer = orig_require("ui/widget/container/centercontainer")
+    local VerticalGroup   = orig_require("ui/widget/verticalgroup")
+    local HorizontalGroup = orig_require("ui/widget/horizontalgroup")
+    local VerticalSpan    = orig_require("ui/widget/verticalspan")
+    local HorizontalSpan  = orig_require("ui/widget/horizontalspan")
+    local TextWidget      = orig_require("ui/widget/textwidget")
+    local ButtonTable     = orig_require("ui/widget/buttontable")
+    local Font            = orig_require("ui/font")
+    local Geom            = orig_require("ui/geometry")
+    local GestureRange    = orig_require("ui/gesturerange")
+    local Size            = orig_require("ui/size")
+
+    -- What you pick is what you see: in Night Mode the swatch is drawn
+    -- pre-inverted, so after the screen's inversion it shows the real colour.
+    local function drawn(hex) return colorOf(hex, Screen.night_mode) end
+
+    local sw, sh = Screen:getWidth(), Screen:getHeight()
+    local gap = Screen:scaleBySize(6)
+    local width = math.floor(math.min(sw, sh) * 0.9)
+    -- 5 columns when swatches stay wide enough to read, else 4
+    local cols = 5
+    if (width - gap * 6) / 5 < Screen:scaleBySize(90) then cols = 4 end
+    local nrows = math.ceil(#PALETTE / cols)
+    local cell_w = math.floor((width - gap * (cols + 1)) / cols)
+    -- Height: whatever fits. Title, buttons, padding and gaps are set aside
+    -- first; the swatches share the rest (never taller than comfortable).
+    local reserved = Screen:scaleBySize(40) + Screen:scaleBySize(70) + gap * (nrows + 6)
+    local fit = math.floor((sh * 0.9 - reserved) / nrows)
+    local cell_h = math.max(Screen:scaleBySize(28), math.min(Screen:scaleBySize(52), fit))
+    local face = Font:getFace("cfont", cell_h < Screen:scaleBySize(40) and 14 or 16)
+    local cur = type(current) == "string" and current:upper() or nil
+
+    local picker
+    local cells, box
+
+    -- Builds the dialog with swatches of the given height.
+    local function build(ch)
+        cells = {}
+        local rows = VerticalGroup:new{ align = "center" }
+        local row
+        for i, p in ipairs(PALETTE) do
+            if (i - 1) % cols == 0 then
+                row = HorizontalGroup:new{ align = "center" }
+                rows[#rows + 1] = VerticalSpan:new{ width = gap }
+                rows[#rows + 1] = row
+            else
+                row[#row + 1] = HorizontalSpan:new{ width = gap }
+            end
+            local selected = (cur == p[2])
+            local frame = FrameContainer:new{
+                background = drawn(p[2]),
+                color = drawn("#000000"),
+                bordersize = selected and Size.border.thick * 2 or Size.border.thin,
+                padding = 0, margin = 0,
+                CenterContainer:new{
+                    dimen = Geom:new{ w = cell_w, h = ch },
+                    TextWidget:new{
+                        text = (selected and "\u{2713} " or "") .. p[1],
+                        face = face,
+                        fgcolor = drawn(labelOn(p[2])),
+                        max_width = cell_w - gap,
+                    },
+                },
+            }
+            cells[#cells + 1] = { frame = frame, hex = p[2] }
+            row[#row + 1] = frame
+        end
+
+        local buttons = ButtonTable:new{
+            width = width - gap * 2,
+            buttons = {{
+                { text = _("Hex code…"), callback = function()
+                    UIManager:close(picker)
+                    customColorDialog(current, on_pick)
+                end },
+                { text = _("Cancel"), callback = function() UIManager:close(picker) end },
+            }},
+        }
+
+        box = FrameContainer:new{
+            background = Blitbuffer.COLOR_WHITE,
+            bordersize = Size.border.window,
+            radius = Size.radius.window,
+            padding = gap,
+            VerticalGroup:new{
+                align = "center",
+                TextWidget:new{ text = _("Pick a colour"), face = Font:getFace("tfont", 20) },
+                rows,
+                VerticalSpan:new{ width = gap * 2 },
+                buttons,
+            },
+        }
+    end
+
+    -- Measure the real dialog and shrink the swatches until it fits.
+    local limit = math.floor(sh * 0.94)
+    for _try = 1, 6 do
+        build(cell_h)
+        local h = box:getSize().h
+        if h <= limit or cell_h <= Screen:scaleBySize(24) then break end
+        cell_h = math.max(Screen:scaleBySize(24), cell_h - math.ceil((h - limit) / nrows) - 1)
+    end
+
+    picker = InputContainer:new{
+        dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
+        CenterContainer:new{ dimen = Geom:new{ w = sw, h = sh }, box },
+    }
+    picker.ges_events = {
+        TapSelect = { GestureRange:new{ ges = "tap", range = Geom:new{ x = 0, y = 0, w = sw, h = sh } } },
+    }
+    function picker:onTapSelect(_arg, ges)
+        for _i, c in ipairs(cells) do
+            if c.frame.dimen and c.frame.dimen:contains(ges.pos) then
+                UIManager:close(self)
+                on_pick(c.hex)
+                return true
+            end
+        end
+        if box.dimen and not box.dimen:contains(ges.pos) then
+            UIManager:close(self)   -- tap outside: cancel
+        end
+        return true
+    end
+    function picker:onCloseWidget()
+        UIManager:setDirty(nil, "ui", self.dimen)
+    end
+    UIManager:show(picker)
+end
+
 -- get() returns the stored value; put(v) stores it (nil = inherit).
 -- inherit_label: adds a "same as ..." choice stored as nil.
 local function colorMenuWith(get, put, off_label, inherit_label)
@@ -1182,9 +1397,9 @@ local function colorMenuWith(get, put, off_label, inherit_label)
         text_func = function()
             local v = get()
             if v ~= nil and v ~= "none" and not isPreset(v) then
-                return _("Custom") .. " (" .. tostring(v) .. ")"
+                return _("More colours") .. " (" .. (paletteName(v) or tostring(v)) .. ")"
             end
-            return _("Custom…")
+            return _("More colours…")
         end,
         radio = true,
         checked_func = function()
@@ -1193,7 +1408,7 @@ local function colorMenuWith(get, put, off_label, inherit_label)
         end,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
-            customColorDialog(get(), function(v)
+            showColourPicker(get(), function(v)
                 put(v)
                 if touchmenu_instance then touchmenu_instance:updateItems() end
             end)
