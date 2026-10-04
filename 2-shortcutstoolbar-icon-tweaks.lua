@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.10.0
+Version: 1.11.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -23,8 +23,8 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     mode toggles keep the toolbar open when tapped (like the built-in Wi-Fi
     button), so you see the icon change. Other actions still close it.
   • Hold the built-in Wi-Fi button: network list (Network Tweaks' picker
-    when installed). Hold the built-in Restart button: Restart / Exit
-    KOReader, Reboot, Power off. Tap does what it always did.
+    when installed). Hold the built-in Restart or Search button: Restart /
+    Exit KOReader, Reboot, Power off. Tap does what it always did.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
 home-screen module. Does not modify any plugin files. Compatible with
@@ -46,6 +46,8 @@ and SSH indicators also run at most one short catch-up timer after a tap
 while asleep.
 
 Changelog
+  1.11.0 Holding the built-in Search button (reader) opens the same power
+         options as Restart. Tap still searches.
   1.10.0 Hold actions: built-in Wi-Fi opens the network list (Network
          Tweaks 1.6.0's "Choose network" when installed, else KOReader's
          own), built-in Restart opens Restart / Exit KOReader / Reboot /
@@ -100,7 +102,7 @@ Changelog
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.10.0"
+local PATCH_VERSION = "1.11.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (follow UI)" },
@@ -642,7 +644,11 @@ local function holdPower()
     UIManager:show(dialog)
 end
 
-local HOLD = { wifi = holdWifi, restart = holdPower }
+local HOLD = {
+    wifi    = holdWifi,
+    restart = holdPower,
+    search  = holdPower, -- reader search button: tap searches, hold = power
+}
 
 -- Work out which shortcut keys will become IconButtons, in order, so each
 -- captured button can be matched back to its key.
