@@ -1,7 +1,7 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.10.0
--- Checked against: ShelfSync 1.5.0, goodreadskosync 2.0.0 (bundled login code)
+-- Version 1.11.0
+-- Checked against: ShelfSync 1.7.0, goodreadskosync 2.0.0 (bundled login code)
 -- Notes follow Network Tweaks' notification style when it is installed.
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
@@ -49,7 +49,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.10.0"
+local PATCH_VERSION = "1.11.0"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -239,7 +239,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
     -- Fixed-size, scrollable cookie editor. ShelfSync's own dialog grows with
     -- the text, and a long Goodreads cookie pushes Save/Cancel off-screen.
-    local function cookieDialog(title, settings, key)
+    local function cookieDialog(title, settings, key, on_saved)
         local InputDialog = require("ui/widget/inputdialog")
         local Screen = require("device").screen
         local dialog
@@ -259,6 +259,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                         local value = (dialog:getInputText() or ""):gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
                         settings:updateSetting(key, value)
                         UIManager:close(dialog)
+                        if on_saved then on_saved() end
                     end,
                 },
             } },
@@ -441,6 +442,41 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         return items
     end
     end -- __ss_login_patched
+
+    -- Hardcover: the API token fallback is a long JWT, so its dialog grows
+    -- off-screen like the Goodreads cookie one. Same fixed-size editor.
+    local ok_hc, HardcoverMenu = pcall(require, "shelfsync/lib/hardcover/menu")
+    if ok_hc and HardcoverMenu and HardcoverMenu.getAuthSubMenuItems
+            and not HardcoverMenu.__ss_token_patched then
+        HardcoverMenu.__ss_token_patched = true
+        local orig_hc_auth = HardcoverMenu.getAuthSubMenuItems
+        HardcoverMenu.getAuthSubMenuItems = function(self)
+            local items = orig_hc_auth(self)
+            local title = _("Hardcover API Token fallback")
+            local found = false
+            for _i, item in ipairs(items) do
+                local t = item.text
+                if not t and item.text_func then
+                    local ok_t, v = pcall(item.text_func)
+                    t = ok_t and v or nil
+                end
+                if type(t) == "string" and t:find(title, 1, true) == 1 then
+                    item.callback = function(menu_instance)
+                        cookieDialog(title, self.settings, SETTING.HARDCOVER.API_TOKEN, function()
+                            if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+                        end)
+                    end
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                require("logger").warn("ShelfSync tweaks: menu item '" .. title
+                    .. "' not found -- ShelfSync wording changed? Fixed-size token dialog not applied.")
+            end
+            return items
+        end
+    end
 
     -- StoryGraph: same saved-login behaviour on ShelfSync's own login ------
     local ok_sg, StoryGraphMenu = pcall(require, "shelfsync/lib/storygraph/menu")
