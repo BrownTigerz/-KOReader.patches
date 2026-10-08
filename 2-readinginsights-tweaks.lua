@@ -1,6 +1,6 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 1.1.0
+    Version: 1.1.2
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin). Each one is on its own toggle.
 
@@ -61,6 +61,17 @@
       1.0.0  2026-10-02  First release.
       1.1.0  2026-10-03  Record covers are tappable (book details, open book). Menu
                          renamed to Reading Insights Tweaks.
+      1.1.1  2026-10-04  Dialogs opened from Reading Insights' popups (day details,
+                         record book) and the sleep card now show on top instead
+                         of behind: Reading Insights' popups are modal, and
+                         KOReader stacks non-modal windows below modal ones.
+      1.1.2  2026-10-08  Reading Insights 6.15+ support: its streak grid now also
+                         returns day positions (for its new tap-a-day book list);
+                         the cover grid returns them too, so the calendar no
+                         longer errors with covers on. Reading Insights' own day
+                         tap is used when present (works across the full height
+                         of tall cover cells); this patch's day dialog and its
+                         toggle remain only for older Reading Insights.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -95,7 +106,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.1.0" -- the only number to change when updating
+local PATCH_VERSION = "1.1.2" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -520,7 +531,7 @@ end
 -- =============================================================================================
 -- 1-3. Streak calendar
 -- =============================================================================================
-local Hook = { caps = {}, day_cells = {} }
+local Hook = { caps = {}, day_cells = {}, version = PATCH_VERSION }
 package.loaded[HOOK_NAME] = Hook
 
 local function coverCell(info, books, cw, ch, is_today, no_bg)
@@ -596,6 +607,11 @@ local function buildCoverGrid(year, month, read_set, fonts, cell, week_start_wd)
     local small = (type(fonts) == "table" and fonts.small) or Font:getFace("cfont", 12)
     local grid = VerticalGroup:new{ align = "center" }
     local cells = {}
+    local row_gap = S(6)
+    -- Same shape as Reading Insights' own day_meta (6.15+): it builds one tap zone
+    -- per day cell from this. Older versions ignore the second return value.
+    local meta = { cell = cell, cell_h = ch, grid_w = grid_w, week_prefix_w = 0,
+        row_pitch = ch + row_gap, dates = {} }
 
     local header = HorizontalGroup:new{}
     for i = 0, 6 do
@@ -605,17 +621,20 @@ local function buildCoverGrid(year, month, read_set, fonts, cell, week_start_wd)
     end
     table.insert(grid, header)
     table.insert(grid, whiteBar(grid_w, Size.padding.small))
+    meta.top = header:getSize().h + Size.padding.small
 
     local first_wd = tonumber(os.date("%w", os.time{ year = year, month = month, day = 1, hour = 12 }))
     local lead = (first_wd - week_start_wd + 7) % 7
     local dim = tonumber(os.date("%d", os.time{ year = year, month = month + 1, day = 0, hour = 12 }))
     for r = 0, 5 do
-        if r > 0 then table.insert(grid, whiteBar(grid_w, S(6))) end
+        if r > 0 then table.insert(grid, whiteBar(grid_w, row_gap)) end
         local row = HorizontalGroup:new{}
+        meta.dates[r + 1] = {}
         for col = 0, 6 do
             local cd = 1 - lead + r * 7 + col
             local t = os.time{ year = year, month = month, day = cd, hour = 12 }
             local day_str = os.date("%Y-%m-%d", t)
+            meta.dates[r + 1][col + 1] = day_str
             local num = tostring(tonumber(day_str:sub(9, 10)))
             local is_today = day_str == today_str
             local w
@@ -638,16 +657,17 @@ local function buildCoverGrid(year, month, read_set, fonts, cell, week_start_wd)
         table.insert(grid, row)
     end
     Hook.day_cells = cells
+    Hook.cell_h = ch
     flushExtraction()
-    return grid
+    return grid, meta
 end
 
 function Hook.wrap(orig)
     return function(year, month, read_set, fonts, cell, week_start_wd, show_week, ...)
-        Hook.day_cells = {}
+        Hook.day_cells, Hook.cell_h = {}, nil
         if getSetting("enabled") and not show_week and type(cell) == "number" then
-            local ok, grid = pcall(buildCoverGrid, year, month, read_set, fonts, cell, week_start_wd or 1)
-            if ok and grid then return grid end
+            local ok, grid, meta = pcall(buildCoverGrid, year, month, read_set, fonts, cell, week_start_wd or 1)
+            if ok and grid then return grid, meta end
             logger.warn(TAG, "cover grid failed, using stock grid:", grid)
         end
         return orig(year, month, read_set, fonts, cell, week_start_wd, show_week, ...)
@@ -663,7 +683,7 @@ local function showDayDialog(cell)
     local date_str = os.date("%A, %B ", cell.t) .. tonumber(os.date("%d", cell.t))
     local info = cell.info
     if not info then
-        UIManager:show(InfoMessage:new{ text = date_str .. "\n" .. _("No reading this day."), timeout = 2 })
+        UIManager:show(InfoMessage:new{ text = date_str .. "\n" .. _("No reading this day."), timeout = 2, modal = true })
         return
     end
     local dlg
@@ -683,6 +703,7 @@ local function showDayDialog(cell)
     table.insert(buttons, { { text = _("Close"), callback = function() UIManager:close(dlg) end } })
     local goal_note = goalLevel(info.dur) == 5 and (" · " .. _("goal met")) or ""
     dlg = ButtonDialog:new{
+        modal = true, -- Reading Insights' popups are modal; non-modal would open behind them
         title = date_str .. "\n" .. fmtDuration(info.dur) .. " · " .. info.pages .. " " .. _("pages") .. goal_note,
         title_align = "center",
         buttons = buttons,
@@ -692,6 +713,16 @@ end
 
 function Hook.wrapTap(orig)
     return function(self, arg, ges_ev, ...)
+        if Hook.caps.native_day_tap then
+            -- Reading Insights handles day taps itself; its zones are square
+            -- (cell x cell), so stretch them to the full height of tall cover cells.
+            if Hook.cell_h and type(self._day_zones) == "table" then
+                for _i, z in ipairs(self._day_zones) do
+                    if z.dimen then z.dimen.h = Hook.cell_h end
+                end
+            end
+            return orig(self, arg, ges_ev, ...)
+        end
         if ges_ev and ges_ev.pos and getSetting("enabled") and getSetting("day_tap") then
             local x, y = ges_ev.pos.x, ges_ev.pos.y
             for _i, c in ipairs(Hook.day_cells or {}) do
@@ -869,6 +900,7 @@ local function showRecordBook(tile)
     lines[#lines + 1] = tile.label .. (tile.when and (" · " .. tile.when) or "")
     local dlg
     dlg = ButtonDialog:new{
+        modal = true, -- Reading Insights' popups are modal; non-modal would open behind them
         title = table.concat(lines, "\n"),
         title_align = "center",
         buttons = {
@@ -1074,6 +1106,10 @@ local EDITS = {
                 "StreakDatePopup.onTap = H.wrapTap(StreakDatePopup.onTap) end end ",
         },
         {
+            cap = "native_day_tap", -- Reading Insights 6.15+: its own tap-a-day book list
+            detect = "self._day_zones",
+        },
+        {
             cap = "tall",
             replace = "    if UI.isLandscapeScreen() then\n        local target_h = math.floor(screen_h * 0.94)",
             with = "    if UI.isLandscapeScreen() or (" .. HK .. " and " .. HK .. ".tall()) then\n" ..
@@ -1114,9 +1150,12 @@ local function loadEdited(path, edits)
     f:close()
     local applied = 0
     for _i, e in ipairs(edits) do
+        if e.detect then Hook.caps[e.cap] = src:find(e.detect, 1, true) and true or nil end
         local ok_req = (not e.requires or src:find(e.requires, 1, true))
             and (not e.requires2 or src:find(e.requires2, 1, true))
-        if e.before then
+        if e.detect then -- luacheck: ignore 542
+            -- detection only, no edit
+        elseif e.before then
             local at = ok_req and countOf(src, e.before) == 1 and src:find(e.before, 1, true)
             local req_at = e.requires and src:find(e.requires, 1, true)
             if at and (not req_at or req_at < at) then
@@ -1140,7 +1179,7 @@ local function loadEdited(path, edits)
     if applied == 0 then return nil end
     local chunk, err = loadstring(src, "@" .. path)
     if not chunk then
-        for _i, e in ipairs(edits) do Hook.caps[e.cap] = nil end
+        for _i, e in ipairs(edits) do if not e.detect then Hook.caps[e.cap] = nil end end
         logger.warn(TAG, "edit failed, stock file used:", err)
         return nil
     end
@@ -1244,7 +1283,10 @@ local function buildSleepCard(plugin)
     }
 end
 
-local SleepCard = WidgetContainer:extend{ name = "ri_sleep_card" }
+local SleepCard = WidgetContainer:extend{
+    name = "ri_sleep_card",
+    modal = true, -- Reading Insights' sleep screen is a modal popup; stay above it
+}
 
 function SleepCard:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
@@ -1316,12 +1358,11 @@ local function toggle(text, key, depends)
 end
 
 local function menuItem()
-    return {
+    local item = {
         text = _("Reading Insights Tweaks"),
         sub_item_table = {
             toggle(_("Streak calendar: book covers"), "enabled"),
             toggle(_("Streak calendar: taller cover cells"), "tall", "enabled"),
-            toggle(_("Streak calendar: tap a day for details"), "day_tap", "enabled"),
             toggle(_("Book calendar: cover header"), "book_header"),
             toggle(_("Heatmap: shade by daily goal"), "heatmap_goal"),
             toggle(_("Records: book covers"), "records"),
@@ -1345,6 +1386,13 @@ local function menuItem()
             },
         },
     }
+    -- Reading Insights 6.15+ has its own tap-a-day book list; this toggle is only
+    -- for older versions (shown once Reading Insights has loaded its calendar view).
+    if not Hook.caps.native_day_tap then
+        table.insert(item.sub_item_table, 3,
+            toggle(_("Streak calendar: tap a day for details"), "day_tap", "enabled"))
+    end
+    return item
 end
 
 -- Tweaks & Mods (2-tweaks-menu.lua) registry
