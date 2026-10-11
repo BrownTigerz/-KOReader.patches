@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 1.10.3
+Version 2.8.1
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,51 +13,80 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
-  1.10.3 Custom Reader Navigation and Back to File Browser tab icons now
-         show with SimpleUI versions that file them under the wrong tab ids
-         ("navigation" / "filebrowser" instead of KOReader's "navi" /
-         "filemanager"). Does nothing on versions that get it right.
-  1.10.2 Shortcuts Toolbar keeps working with custom File Browser Settings,
-         Navigation or Typeset tab icons, whatever toolbar version is
-         installed: once the tab bar is drawn, those tabs get their stock
-         icon names back (the toolbar recognises menus by them). Your custom
-         icons stay on screen.
-  1.10.1 Colour picker always fits on screen (it could run off the bottom
-         on high-resolution screens): 5 columns where there's room, swatch
-         height sized to the space left.
-  1.10.0 Colour picker: a grid of named colour swatches (shown as they'll
-         look on screen, Night Mode included), with hex entry for anything
-         else. Used by every colour setting.
-  1.9.0  Per-module text colours (normal and Night Mode), like section
-         titles: an "All modules" default, each module can override it.
-  1.8.0  Renamed to SimpleUI Tweaks (settings kept). Settings are saved to
-         disk straight away, so they survive a crash, power-off or patch
-         update. Works with SimpleUI's own "Don't Invert Colored Icons in
-         Night Mode" (no double flip) and with its custom tab icons (icon
-         list lookup no longer blocked). File renamed to
-         2-simpleui-tweaks.lua (delete 2-simpleui-mod.lua).
-  1.7.2  Menu tabs matched by menu id, so tabs with a custom icon from
-         SimpleUI's System Icons work (Navigation, Back to file browser…).
-         File browser settings and Back to file browser are separate.
-         Fix: Shortcuts Toolbar stopped showing when those tabs had a custom
-         icon (it recognised menus by icon name only).
-  1.7.1  Menu tab icons chosen one by one (e.g. only Tools).
-  1.7.0  Original colours in Night Mode for KOReader's menu tab icons, menu
-         arrows and Quick Actions icons (each a toggle, off by default).
-  1.6.0  Backup patch support. Fixed a duplicate status bar timer. Section
-         title size only applied while titles are built. Hardened loading.
-  1.5.0  Add-ons menu support (incl. on/off). Settings menu built only when
-         opened.
-  1.4.0  Lighter: no status popup, leaner hot paths. Menu grouped by area.
-  1.3.0  Per-section titles: colour, bold and size (presets or custom).
-  1.2.0  Bold for modules, nav bar and status bar. Section title size.
-  1.1.0  Night Mode day look for section titles, status bar and the whole nav
-         bar (Framed style fixed). Original-colour nav icons.
-  1.0.0  Settings menu (Tools > SimpleUI Mod): module text and Night Mode
-         colours, progress & border colours.
+  2.8.1  Shared notification contract v1: status notes (restart prompt,
+         colour/size validation) go through Network Tweaks' or ReadMastery
+         notify's style when installed, else the InfoMessage default.
+  2.8.0  Fixed two silently-dead features on SimpleUI 2.7.5. Section titles
+         are built by engines/sui_section_label now, not the screen engine,
+         so the old sectionLabel hook never installed: title colour, bold
+         and Night Mode day-look work again. The nav bar patcher was never
+         defined, so nav labels/icons Night Mode treatment never installed
+         either: it now wraps the bar builders. Also: plain (non-mask)
+         makeColoredText lets the active colour through again, which titles
+         need.
+  2.7.0  Windows opened from the menu while it stays open (e.g. Shortcuts
+         Toolbar: ReadMastery quests) keep SimpleUI home underneath, so
+         closing them goes back to the menu over the home instead of the
+         stock library.
+  2.6.0  Close Bookshelf goes straight to SimpleUI home (when it's your
+         start screen) instead of showing the stock library for a moment
+         first. Nothing to set.
+  2.5.0  Removed Series folders (2.4.x): they only fix SimpleUI's own library
+         file browser, and the library here is Bookshelf, which groups series
+         itself. Its hooks on the file browser and Cover Browser are gone.
+  2.4.2  The file browser check behind the series fixes' backup never
+         matched (it looked for the name "filemanager", which is the file
+         list's name, not the file browser's), so the backup never ran.
+  2.4.1  Series folder fixes are hooked in once per SimpleUI install. Before,
+         if another patch or plugin also hooked the file browser, each time
+         the file browser opened could add another copy of them.
+  2.4.0  Series folders (fixes for SimpleUI's series grouping, each a toggle
+         under SimpleUI Tweaks > Series folders, all on by default):
+         new series group as soon as Cover Browser has scanned the books
+         (no more opening and closing a book first); closing a book from a
+         series returns to that book's page instead of page 1; books with
+         the same or no series number keep a fixed order.
+  2.3.2  Trimmed: removed settings conversions from 1.x versions and the
+         one-time Bold move from 2.0.0 (both long done), shorter changelog.
+  2.3.1  Colour picker no longer looks cut off at the bottom: it now asks
+         for its own screen refresh over the whole dialog instead of relying
+         on the menu's, which only updated the area the menu covered.
+  2.3.0  Faster Quote of the Day module. Each time it picked a quote,
+         SimpleUI rewrote its whole settings file to disk three times and
+         wrote debug lines to crash.log. Now the quote position is kept in
+         memory and saved when the Kobo sleeps or KOReader closes (as
+         SimpleUI already does for everything), and those debug lines are
+         skipped. Nothing changes on screen.
+  2.2.0  Removed the Colour boost for e-ink setting (it only changes
+         coloured text, so it made no visible difference here). Colours
+         are drawn exactly as picked again. The deep "Ink" swatches in the
+         colour picker stay.
+  2.1.1  A module set to "SimpleUI default" text colour keeps it when it
+         refreshes in place (e.g. stats after closing a book); it could pick
+         up the All modules colour there. Hardening for future SimpleUI
+         versions: a missing palette colour can't leave an override behind,
+         and the clock hook only wraps a real function.
+  2.1.0  Colour boost for e-ink (Off / Medium / Strong): text colours you
+         pick are drawn deeper and more saturated so they hold up on colour
+         e-ink, which washes colours out. Hue is kept; black, white and greys
+         are untouched; in Night Mode colours stay bright enough to read on
+         the dark background. Applies to module text (normal and Night Mode,
+         all modules and per module) and section titles, not to progress
+         bars or borders. The colour picker previews text colours with the
+         boost, and has a new row of deep "Ink" shades made for colour
+         e-ink.
+  2.0.0  For SimpleUI 2.7.5. Removed what SimpleUI now does itself: module
+         Bold (SimpleUI: each module's Text > Style) and nav bar Bold labels
+         (SimpleUI: nav bar label Style). Your Bold choices are moved into
+         SimpleUI's own settings once, so nothing changes on screen, and the
+         two can no longer stack (double bold). Also removed: the reader tab
+         id workaround (fixed in SimpleUI 2.7.5) and the old Shortcuts
+         Toolbar fix that looked for its internals (1.10.2's covers every
+         version).
+  1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "1.10.3"
+local VERSION = "2.8.1"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -87,10 +116,8 @@ local DEFAULTS = {
     topbar_day_night = true,        -- status bar looks the same in Night Mode
     bold = {                        -- bold text (applies after restart,
         topbar  = true,             -- except the status bar: instant)
-        nav     = false,
-        titles  = false,
-        modules = {},               -- [module id] = true
-    },
+        titles  = false,            -- (module and nav bar text: SimpleUI's own
+    },                              --  Text > Style since SimpleUI 2.7.5)
     title_size       = 100,         -- section title size, % (x SimpleUI's own label scale)
     titles           = {},          -- per-section overrides: [module id] = { color, bold, size }
     module_colors    = {},          -- per-module text: [module id] = { text, night }
@@ -119,7 +146,7 @@ local function merged(def, saved)
             out[k] = v
         end
     end
-    -- keep saved keys that have no default (e.g. per-module bold flags)
+    -- keep saved keys that have no default (e.g. per-module colours, per-section titles)
     if type(saved) == "table" then
         for k, v in pairs(saved) do
             if out[k] == nil and def[k] == nil then out[k] = v end
@@ -131,30 +158,9 @@ end
 local function loadConfig()
     local saved = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
     local m = merged(DEFAULTS, saved)
-    -- the old 3-way nav icon setting became an on/off switch
-    if saved.nav_icons_original == nil and saved.nav_icon_night == "off" then
-        m.nav_icons_original = false
-    end
-    m.topbar_bold, m.show_popup, m.nav_icon_night = nil, nil, nil   -- retired settings
-    -- 1.7.0 had one switch for all tab icons; 1.7.1 keyed tabs by icon name
-    local by_icon = {
-        ["appbar.filebrowser"] = { "filemanager_settings", "filemanager" },
-        ["appbar.settings"] = { "setting" }, ["appbar.tools"] = { "tools" },
-        ["appbar.search"] = { "search" }, ["appbar.menu"] = { "main" },
-        ["appbar.navigation"] = { "navi" }, ["appbar.typeset"] = { "typeset" },
-    }
-    if m.menu_icons.tabs == true then
-        for _icon, ids in pairs(by_icon) do
-            for _i, id in ipairs(ids) do m.menu_icons.tab[id] = true end
-        end
-    end
-    for icon, ids in pairs(by_icon) do
-        if m.menu_icons.tab[icon] then
-            m.menu_icons.tab[icon] = nil
-            for _i, id in ipairs(ids) do m.menu_icons.tab[id] = true end
-        end
-    end
-    m.menu_icons.tabs = nil
+    -- retired settings
+    m.topbar_bold, m.show_popup, m.nav_icon_night, m.colour_boost, m.series = nil, nil, nil, nil, nil
+    m.bold.modules, m.bold.nav, m.menu_icons.tabs = nil, nil, nil
     for k in pairs(cfg) do cfg[k] = nil end
     for k, v in pairs(m) do cfg[k] = v end
 end
@@ -268,7 +274,6 @@ end
 
 -- ---- scopes -----------------------------------------------------------------------
 local cur_color = nil  -- colour applied to text built right now
-local cur_bold  = false -- bold applied to text built right now (modules)
 local suspended = 0    -- > 0: don't recolour (mask internals)
 local flip_kind = nil  -- "nav" | "title" | "topbar" while building those
 local icon_kind = nil  -- icons only: "quick_actions" | "menu_tab" | "menu_arrow"
@@ -276,8 +281,16 @@ local in_mask   = 0    -- > 0: painting through an alpha mask
 
 local function pack(...) return { n = select("#", ...), ... } end
 
+local keep_own  = 0    -- > 0: inside a module/title set to SimpleUI's own colour
+
 local function withColor(c, fn, ...)
-    if not c then return fn(...) end
+    if not c then
+        keep_own = keep_own + 1
+        local res = pack(pcall(fn, ...))
+        keep_own = keep_own - 1
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2, res.n)
+    end
     local prev = cur_color
     cur_color = c
     local res = pack(pcall(fn, ...))
@@ -286,30 +299,10 @@ local function withColor(c, fn, ...)
     return unpack(res, 2, res.n)
 end
 
-local function withBold(on, fn, ...)
-    if not on then return fn(...) end
-    local prev = cur_bold
-    cur_bold = true
-    local res = pack(pcall(fn, ...))
-    cur_bold = prev
-    if not res[1] then error(res[2], 0) end
-    return unpack(res, 2, res.n)
-end
-
 local function tabOn(name)
     return type(name) == "string" and cfg.menu_icons.tab[name] == true
 end
 local function anyTabOn() return next(cfg.menu_icons.tab) ~= nil end
-
-local function boldForModule(id)
-    local mods = cfg.bold.modules
-    if type(id) ~= "string" then return false end
-    if mods[id] then return true end
-    for key, on in pairs(mods) do
-        if on and id:sub(1, #key) == key then return true end
-    end
-    return false
-end
 
 -- ---- section titles: which module a title belongs to, and its settings --------
 local cur_title_id  = nil  -- module id of the title being built right now
@@ -339,7 +332,6 @@ end
 
 local function boldForKind(kind)
     if kind == "topbar" then return cfg.bold.topbar end
-    if kind == "nav"    then return cfg.bold.nav end
     if kind == "title"  then return titleBold(cur_title_id) end
     return false
 end
@@ -490,19 +482,26 @@ local function rebuildAccentTables()
 end
 
 -- Swap the palette, returning the previous values in `saved` (caller-owned).
+-- A key the palette didn't have is saved as `false`, so restoring clears it.
 local function swapAccents(C, saved)
     local ovr = Screen.night_mode and acc_ovr_night or acc_ovr_day
     for i = 1, #ACC_KEYS do
         local k = ACC_KEYS[i]
         local v = ovr[k]
-        if v then saved[k] = C[k]; C[k] = v end
+        if v then
+            local was = C[k]
+            if was then saved[k] = was else saved[k] = false end
+            C[k] = v
+        end
     end
 end
 local function restoreAccents(C, saved)
     for i = 1, #ACC_KEYS do
         local k = ACC_KEYS[i]
-        -- truthiness only: comparing a colour with nil crashes (its __eq)
-        if saved[k] then C[k] = saved[k]; saved[k] = nil end
+        -- rawequal/truthiness only: comparing a colour with nil crashes (its __eq)
+        local was = saved[k]
+        if rawequal(was, false) then C[k] = nil; saved[k] = nil
+        elseif was then C[k] = was; saved[k] = nil end
     end
 end
 
@@ -567,12 +566,12 @@ local function hookTextInit(modname)
     -- tail call - no table allocations per widget.
     W.init = function(self, ...)
         -- Fast path: outside SimpleUI builds this is a single check.
-        if cur_color or cur_bold or flip_kind then
+        if cur_color or flip_kind then
             if cur_color and suspended == 0 and shouldRecolor(self.fgcolor) then
                 self.fgcolor = cur_color
             end
             -- bold also applies inside masks (the mask shape IS the glyphs)
-            if cur_bold or (flip_kind and boldForKind(flip_kind)) then self.bold = true end
+            if flip_kind and boldForKind(flip_kind) then self.bold = true end
             if flip_kind and suspended == 0 then makeNightAwareText(self, flip_kind) end
         end
         if orig_init then return orig_init(self, ...) end
@@ -667,33 +666,6 @@ local STOCK_TAB_ICON = {
     typeset              = "appbar.typeset",
 }
 
--- Some SimpleUI versions file two reader tab icons under ids KOReader doesn't
--- use, so those custom icons never show. KOReader's id -> SimpleUI's id.
-local SUI_TAB_ID_ALIAS = { navi = "navigation", filemanager = "filebrowser" }
-
--- Applies those two custom icons ourselves, only when SimpleUI's own slot
--- uses the wrong id (a SimpleUI that gets it right is left alone).
-local function applyMissedSimpleUITabIcons(menu)
-    local S = package.loaded["features/sui_style"]
-    if type(S) ~= "table" or type(S.SLOTS) ~= "table" or type(S.getIcon) ~= "function"
-            or type(S.registerTabIconName) ~= "function" then return end
-    local tabs = type(menu) == "table" and menu.tab_item_table
-    if type(tabs) ~= "table" then return end
-    for _i, tab in ipairs(tabs) do
-        local wrong_id = type(tab) == "table" and SUI_TAB_ID_ALIAS[tab.id]
-        if wrong_id then
-            for _j, slot in ipairs(S.SLOTS) do
-                if type(slot) == "table" and slot.tab_id == wrong_id then
-                    local raw = S.getIcon(slot.id)
-                    local name = raw and S.registerTabIconName(slot.id, raw)
-                    if name then tab.icon = name end
-                    break
-                end
-            end
-        end
-    end
-end
-
 -- ---- KOReader's own menu: tab icons and arrows ------------------------------------
 local seen_tabs = {}   -- tab icon names seen this session, in order
 -- The menu is created each time it opens, so a toggle applies on the next
@@ -715,7 +687,6 @@ do
         end
         local orig_menu_init = TouchMenu.init
         TouchMenu.init = function(self, ...)
-            pcall(applyMissedSimpleUITabIcons, self)
             return scoped("menu_arrow", cfg.menu_icons.arrows, orig_menu_init, self, ...)
         end
         if type(TouchMenuBar) == "table" and type(TouchMenuBar.init) == "function" then
@@ -770,14 +741,13 @@ local function wrapDescriptor(m, fallback_id)
         end
         local accent = isAccentModule(id)
         local ok, w
-        local bold = boldForModule(id)
         -- Quick Actions icons get the Night Mode switch (checked when drawn)
         local prev_icon_kind = icon_kind
         if type(id) == "string" and id:sub(1, 13) == "quick_actions" then icon_kind = "quick_actions" end
         if accent then
-            ok, w = pcall(withBold, bold, withAccents, withColor, colorForModule(id), orig, ...)
+            ok, w = pcall(withAccents, withColor, colorForModule(id), orig, ...)
         else
-            ok, w = pcall(withBold, bold, withColor, colorForModule(id), orig, ...)
+            ok, w = pcall(withColor, colorForModule(id), orig, ...)
         end
         icon_kind = prev_icon_kind
         if ok then
@@ -799,11 +769,10 @@ local function wrapDescriptor(m, fallback_id)
             m[fname] = function(...)
                 local id = (type(m.id) == "string" and m.id) or fallback_id
                 local res
-                local bold = boldForModule(id)
                 if isAccentModule(id) then
-                    res = pack(pcall(withBold, bold, withAccents, withColor, colorForModule(id), orig_upd, ...))
+                    res = pack(pcall(withAccents, withColor, colorForModule(id), orig_upd, ...))
                 else
-                    res = pack(pcall(withBold, bold, withColor, colorForModule(id), orig_upd, ...))
+                    res = pack(pcall(withColor, colorForModule(id), orig_upd, ...))
                 end
                 if res[1] then return unpack(res, 2, res.n) end
                 logger.warn(TAG, fname, "failed for", id, res[2])
@@ -812,6 +781,45 @@ local function wrapDescriptor(m, fallback_id)
         end
     end
     return orig
+end
+
+-- Quote module: picking a quote saves its place in the shuffled deck as three
+-- settings, and each save rewrites SimpleUI's whole settings file to disk;
+-- it also writes debug lines to crash.log on every build. While it builds,
+-- deck saves stay in memory (SimpleUI writes everything to disk on sleep and
+-- exit) and those debug lines are skipped. Real warnings still get through.
+local QUOTE_DEBUG = { "^simpleui quote: ", "^simpleui: quote: build source=", "^simpleui: quote: showing highlight" }
+local function isQuoteDebug(msg)
+    if type(msg) ~= "string" then return false end
+    for i = 1, #QUOTE_DEBUG do
+        if msg:find(QUOTE_DEBUG[i]) then return true end
+    end
+    return false
+end
+local function quietQuoteBuild(M)
+    if type(M.build) ~= "function" or M._sui_tweaks_quiet then return end
+    local Store = package.loaded["infra/sui_store"]
+    if type(Store) ~= "table" or type(Store.saveSetting) ~= "function"
+            or type(Store.setNoFlush) ~= "function" then return end
+    M._sui_tweaks_quiet = true
+    local orig_build = M.build
+    M.build = function(...)
+        local orig_save, orig_warn = Store.saveSetting, logger.warn
+        Store.saveSetting = function(self, key, value, ...)
+            if type(key) == "string" and key:find("^simpleui_quote_.*deck_") then
+                return Store.setNoFlush(self, key, value)
+            end
+            return orig_save(self, key, value, ...)
+        end
+        logger.warn = function(msg, ...)
+            if isQuoteDebug(msg) then return end
+            return orig_warn(msg, ...)
+        end
+        local res = pack(pcall(orig_build, ...))
+        Store.saveSetting, logger.warn = orig_save, orig_warn
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2, res.n)
+    end
 end
 
 local function patchModule(name, M)
@@ -830,12 +838,13 @@ local function patchModule(name, M)
         end
         wrapped[M.makeInstance] = true
     end
+    if file_id == "quote" then quietQuoteBuild(M) end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
-        if lb then
+        if type(lb) == "function" then
             debug.setupvalue(orig, idx, function(...)
-                return withBold(boldForModule("clock"), withColor, colorForModule("clock"), lb, ...)
+                return withColor(colorForModule("clock"), lb, ...)
             end)
         end
     end
@@ -856,9 +865,14 @@ local function patchCore(UI)
                 o.fgcolor = c
                 opts = o
             end
-            suspended = suspended + 1   -- inner text must stay black (it's the mask)
+            -- Only the mask path renders its inner text black (tinted
+            -- afterwards), so only it needs the inner text kept black.
+            -- A plain TextWidget (no fgcolor) takes the active colour like
+            -- any other text.
+            local masked = type(opts) == "table" and opts.fgcolor ~= nil
+            if masked then suspended = suspended + 1 end
             local ok, res = pcall(orig, opts)
-            suspended = suspended - 1
+            if masked then suspended = suspended - 1 end
             if not ok then error(res, 0) end
             if flip_kind and type(res) == "table" then
                 if res._fg then makeNightAwareMask(res, flip_kind)
@@ -887,7 +901,9 @@ local function patchCore(UI)
     if type(orig_upd) == "function" and not ours[orig_upd] then
         UI.updateColoredText = mine(function(wgt, txt, fg)
             if cfg.recolor_all and fg and shouldRecolor(fg) then
-                fg = cur_color or colorForModule(nil) or fg
+                if cur_color then fg = cur_color
+                elseif keep_own == 0 then fg = colorForModule(nil) or fg end
+                -- else: this module/title uses SimpleUI's own colour, leave it
             end
             return orig_upd(wgt, txt, fg)
         end)
@@ -906,44 +922,37 @@ local function patchCore(UI)
     return core_ok
 end
 
-local function patchEngine(E)
+-- Section titles: SimpleUI builds (and caches) them in
+-- engines/sui_section_label (M.get) now, not in the screen engine, so hook
+-- that. The module id comes along directly - no label lookup needed.
+local function patchSectionLabel(SL)
+    if type(SL) ~= "table" or type(SL.get) ~= "function" then return false end
+    local orig = SL.get
+    if ours[orig] then return true end
+    SL.get = mine(function(cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, ...)
+        local prev = cur_title_id
+        cur_title_id = id
+        in_title = in_title + 1
+        local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
+                               orig, cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, ...))
+        in_title = in_title - 1
+        cur_title_id = prev
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2, res.n)
+    end)
+    return true
+end
+
+-- Nav bar: wrap the bar builders so nav labels/icons get the Night Mode
+-- treatment (day-look labels, original icon colours) at paint time.
+local function patchBottombar(BB)
+    if type(BB) ~= "table" then return false end
     local done = false
-    local function tryFn(fn)
-        local orig_label, idx = findUpvalue(fn, "sectionLabel")
-        if type(orig_label) == "function" then
-            if ours[orig_label] then return true end
-            debug.setupvalue(fn, idx, mine(function(text, w, right_text, page_nav, lf, ...)
-                local id = (type(page_nav) == "table" and page_nav.mod_id)
-                        or (type(text) == "string" and label_to_id[text])
-                        or last_mod_id
-                local prev = cur_title_id
-                cur_title_id = id
-                in_title = in_title + 1
-                local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
-                                       orig_label, text, w, right_text, page_nav, lf, ...))
-                in_title = in_title - 1
-                cur_title_id = prev
-                if not res[1] then error(res[2], 0) end
-                return unpack(res, 2, res.n)
-            end))
-            return true
-        end
-    end
-    for _i, v in pairs(E or {}) do
-        if done then break end
-        if type(v) == "function" then
-            if tryFn(v) then done = true break end
-            local i = 1
-            while not done do
-                local n, uv = debug.getupvalue(v, i)
-                if n == nil then break end
-                if type(uv) == "table" then
-                    for _i, m in pairs(uv) do
-                        if type(m) == "function" and tryFn(m) then done = true break end
-                    end
-                end
-                i = i + 1
-            end
+    for _i, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows", "buildBarWidgetWithKeyFocus" }) do
+        local orig = BB[fname]
+        if type(orig) == "function" and not ours[orig] then
+            BB[fname] = mine(function(...) return flipScope("nav", orig, ...) end)
+            done = true
         end
     end
     return done
@@ -960,146 +969,19 @@ local function patchTopbar(T)
     return true
 end
 
--- ---- nav bar "day look" for backgrounds/borders (fixes the Framed style) ------
--- In Night Mode the bar's own fills, borders and indicator would stay
--- inverted while its labels/icons get the day look, so e.g. black icons end
--- up on a black frame. Flip those too, at paint time.
-local function cachedInv(self, slot, c)
-    local src_slot = slot .. "_of"
-    if not self[slot] or not rawequal(self[src_slot], c) then
-        self[slot], self[src_slot] = invColor(c), c
-    end
-    return self[slot]
-end
-
-local function makeNightAwareFill(node)
-    if node._sui_fill_night then return end
-    node._sui_fill_night = true
-    local orig = node.paintTo
-    node.paintTo = function(self, bb, x, y)
-        if cfg.nav_labels_black and Screen.night_mode and in_mask == 0 then
-            local bg, col, bc = rawget(self, "background"), self.color, rawget(self, "border_color")
-            if bg  then self.background   = cachedInv(self, "_sui_inv_bg", bg) end
-            if col then self.color        = cachedInv(self, "_sui_inv_col", col) end
-            if bc  then self.border_color = cachedInv(self, "_sui_inv_bc", bc) end
-            local ok, err = pcall(orig, self, bb, x, y)
-            if bg then self.background = bg end
-            if col then self.color = col end
-            if bc then self.border_color = bc end
-            if not ok then error(err, 0) end
-            return
-        end
-        return orig(self, bb, x, y)
-    end
-end
-
-local function walkNav(node, depth, seen)
-    if type(node) ~= "table" or depth > 14 or seen[node] then return end
-    seen[node] = true
-    if not rawget(node, "_sui_nav_night") and not rawget(node, "_fg")
-       and type(node.paintTo) == "function"
-       and (rawget(node, "background") or rawget(node, "border_color")
-            or (tonumber(rawget(node, "bordersize")) or 0) > 0) then
-        makeNightAwareFill(node)
-    end
-    for i = 1, #node do walkNav(node[i], depth + 1, seen) end
-end
-
--- Backdrops/scrims read the palette at paint time: swap it for the bar.
-local NAV_PALETTE_KEYS = { "surface", "surface_flat", "gray" }
-local function makeNavPalettePaint(w)
-    if type(w) ~= "table" or w._sui_nav_palette then return end
-    w._sui_nav_palette = true
-    local orig = w.paintTo
-    local saved, inv_cache = {}, {}
-    w.paintTo = function(self, bb, x, y)
-        local C = accentPalette()
-        if not (C and cfg.nav_labels_black and Screen.night_mode and in_mask == 0) then
-            return orig(self, bb, x, y)
-        end
-        for i = 1, #NAV_PALETTE_KEYS do
-            local k = NAV_PALETTE_KEYS[i]
-            local v = C[k]
-            if v then
-                if not inv_cache[k] or not rawequal(inv_cache[k .. "_of"], v) then
-                    inv_cache[k], inv_cache[k .. "_of"] = invColor(v), v
-                end
-                saved[k] = v
-                C[k] = inv_cache[k]
-            end
-        end
-        local ok, err = pcall(orig, self, bb, x, y)
-        for i = 1, #NAV_PALETTE_KEYS do
-            local k = NAV_PALETTE_KEYS[i]
-            if saved[k] then C[k] = saved[k]; saved[k] = nil end   -- truthiness only
-        end
-        if not ok then error(err, 0) end
-    end
-end
-
-local function dayLookNav(w, whole_bar)
-    walkNav(w, 0, {})
-    if whole_bar then makeNavPalettePaint(w) end
-end
-
--- Section title size: SimpleUI sizes titles from Config.getLabelScale().
--- Only scale while a section title is being built, so any other caller
--- (none today) is never affected.
-local function patchConfig(Cf)
-    if type(Cf) ~= "table" or type(Cf.getLabelScale) ~= "function" then
-        return false
-    end
-    local orig = Cf.getLabelScale
-    if not ours[orig] then
-        Cf.getLabelScale = mine(function(...)
-            local v = orig(...)
-            if in_title == 0 then return v end
-            local pct = titleSize(cur_title_id)
-            if type(v) == "number" and pct ~= 100 then return v * pct / 100 end
-            return v
-        end)
-    end
-    return true
-end
-
-local function patchBottombar(B)
-    if type(B) ~= "table" then return end
-    local n = 0
-    for _i, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows",
-                             "buildBarWidgetWithKeyFocus", "buildTabCell",
-                             "buildNavpagerArrowCell" }) do
-        local orig = B[fname]
-        if ours[orig] then
-            n = n + 1
-        elseif type(orig) == "function" then
-            local whole_bar = fname:find("^buildBarWidget") ~= nil
-            B[fname] = mine(function(...)
-                local outermost = flip_kind == nil
-                local res = pack(flipScope("nav", orig, ...))
-                -- post-process once, on the outermost call (whole bar, or a
-                -- single cell rebuilt on its own e.g. after a page change)
-                if outermost and type(res[1]) == "table" then
-                    pcall(dayLookNav, res[1], whole_bar)
-                end
-                return unpack(res, 1, res.n)
-            end)
-            n = n + 1
-        end
-    end
-    return n > 0
-end
-
 -- ---- install on load ------------------------------------------------------------------
 local handled = {}
 local attempts = {}
 local MAX_ATTEMPTS = 3
 
+local patchBookshelfPark   -- Bookshelf: Close Bookshelf -> SimpleUI home (defined below)
+
 local function patcherFor(name)
+    if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
-    if name == "engines/sui_screen_engine" then return patchEngine end
+    if name == "engines/sui_section_label" then return patchSectionLabel end
     if name == "screens/sui_bottombar" then return patchBottombar end
     if name == "screens/sui_topbar" then return patchTopbar end
-    if name == "infra/sui_config" then return patchConfig end
     if name:find("^modules/module_") then
         return function(mod) patchModule(name, mod); return true end
     end
@@ -1157,6 +1039,108 @@ local function suiInstance()
     if type(p) == "table" and p.ui ~= nil then return p end
 end
 
+-- ---- Bookshelf: Close Bookshelf goes straight to SimpleUI home ----------------------
+-- With SimpleUI home as the start screen, "Close Bookshelf" showed the stock
+-- library for a moment: SimpleUI only brings its home back on the next tick,
+-- and KOReader's menu redraws the screen in between (it repaints right after
+-- a menu item's action). Here the home is shown in the same step the shelf
+-- closes, so that redraw already shows it. Only for a user's Close Bookshelf
+-- with no book held behind the shelf (Bookshelf asks its reader-park module
+-- first, every time); everything else Bookshelf closes for is left alone.
+local bs_close_home = false
+
+patchBookshelfPark = function(Park)
+    if type(Park) ~= "table" or type(Park.closeShelfToFileManager) ~= "function" then return false end
+    local orig = Park.closeShelfToFileManager
+    if ours[orig] then return true end
+    Park.closeShelfToFileManager = mine(function(...)
+        local res = pack(orig(...))
+        if not res[1] then
+            -- no book held: the caller now closes the shelf itself
+            bs_close_home = true
+            local UIManager = orig_require("ui/uimanager")
+            UIManager:nextTick(function() bs_close_home = false end)
+        end
+        return unpack(res, 1, res.n)
+    end)
+    return true
+end
+
+local function showSimpleUIHome()
+    if not (G_reader_settings and G_reader_settings:readSetting("start_with") == "homescreen_simpleui") then return end
+    local UIManager = orig_require("ui/uimanager")
+    if UIManager._exit_code ~= nil or UIManager._simpleui_exiting then return end
+    local RUI = package.loaded["apps/reader/readerui"]
+    if type(RUI) == "table" and RUI.instance then return end
+    local HS = package.loaded["screens/sui_homescreen"]
+    if type(HS) ~= "table" or HS._instance then return end
+    local FM = package.loaded["apps/filemanager/filemanager"]
+    local fm = type(FM) == "table" and FM.instance
+    local plugin = type(fm) == "table" and (fm._simpleui_plugin or fm[sui_name])
+    if type(plugin) ~= "table" or type(plugin._navigate) ~= "function" then return end
+    plugin:_navigate("homescreen", plugin.ui or fm, nil, false)
+end
+
+do
+    local UIManager = orig_require("ui/uimanager")
+    local orig_close = UIManager.close
+    if type(orig_close) == "function" and not ours[orig_close] then
+        UIManager.close = mine(function(self, w, ...)
+            if not (bs_close_home and type(w) == "table" and w.name == "bookshelf") then
+                return orig_close(self, w, ...)
+            end
+            bs_close_home = false
+            local res = pack(orig_close(self, w, ...))
+            local ok, err = pcall(showSimpleUIHome)
+            if not ok then logger.warn(TAG, "Bookshelf close -> home failed:", err) end
+            return unpack(res, 1, res.n)
+        end)
+    end
+end
+
+-- ---- Keep SimpleUI home under windows opened from the menu ---------------------------
+-- SimpleUI closes its home whenever a full-screen window opens, and brings it
+-- back when that window closes, unless a dialog is still open. KOReader's
+-- menu counts as one, so with the menu left open (e.g. Shortcuts Toolbar
+-- items), closing the window showed the stock library behind the menu until
+-- the menu closed too. When a full-screen window opens on top of the menu
+-- while the home is under that menu, the home is kept (SimpleUI's own
+-- _sui_keep_homescreen flag), so closing the window goes back to menu + home.
+local function isTouchMenuContainer(w)
+    local tm = type(w) == "table" and w[1]
+    return type(tm) == "table" and type(tm.tab_item_table) == "table"
+end
+
+local function homeUnderOpenMenu()
+    local UIManager = orig_require("ui/uimanager")
+    local stack = UIManager._window_stack
+    if type(stack) ~= "table" then return false end
+    local hs_at
+    for i = 1, #stack do
+        local w = stack[i] and stack[i].widget
+        if type(w) == "table" then
+            if w.name == "homescreen" and not w._parked then hs_at = i
+            elseif hs_at and isTouchMenuContainer(w) then return true end
+        end
+    end
+    return false
+end
+
+do
+    local UIManager = orig_require("ui/uimanager")
+    local orig_show = UIManager.show
+    if type(orig_show) == "function" and not ours[orig_show] then
+        UIManager.show = mine(function(self, w, ...)
+            if type(w) == "table" and w.covers_fullscreen and w.name ~= "homescreen"
+                    and w.name ~= "ReaderUI" and not w._sui_keep_homescreen then
+                local ok, yes = pcall(homeUnderOpenMenu)
+                if ok and yes then w._sui_keep_homescreen = true end
+            end
+            return orig_show(self, w, ...)
+        end)
+    end
+end
+
 local function refreshTopbarNow()
     local T = package.loaded["screens/sui_topbar"]
     local p = suiInstance()
@@ -1166,11 +1150,31 @@ local function refreshTopbarNow()
     -- no instance found: the change shows on SimpleUI's next minute tick
 end
 
+-- Shared notification contract v1: user-facing status notes go through the
+-- installed notifier with the best style, in priority order: Network Tweaks,
+-- ReadMastery notify, then our own InfoMessage default. Checks run at call
+-- time, so patch load order doesn't matter. Never over the sleep screen.
+local function shared_note(banner_text, minimal_text, timeout)
+    local Device = orig_require("device")
+    if Device.screen_saver_mode then return true end
+    local NetworkMgr = orig_require("ui/network/manager")
+    if type(NetworkMgr.__network_tweaks_note) == "function" then
+        local ok, handled = pcall(NetworkMgr.__network_tweaks_note, banner_text, minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    local rm = _G.__readmastery_note
+    if type(rm) == "function" then
+        local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    return false
+end
+
 local function askRestart()
     local UIManager = orig_require("ui/uimanager")
     if UIManager.askForRestart then
         UIManager:askForRestart(_("Restart KOReader to apply this change to the home screen."))
-    else
+    elseif not shared_note(_("Restart KOReader to apply this change.")) then
         UIManager:show(orig_require("ui/widget/infomessage"):new{
             text = _("Restart KOReader to apply this change."),
         })
@@ -1204,8 +1208,10 @@ local function customColorDialog(current, on_save)
                   local v = dlg:getInputText():gsub("%s", "")
                   if v:sub(1, 1) ~= "#" then v = "#" .. v end
                   if not parseRGB(v) then
-                      UIManager:show(orig_require("ui/widget/infomessage"):new{
-                          text = _("Not a valid colour. Use #RRGGBB."), timeout = 3 })
+                      if not shared_note(_("Not a valid colour. Use #RRGGBB."), nil, 3) then
+                          UIManager:show(orig_require("ui/widget/infomessage"):new{
+                              text = _("Not a valid colour. Use #RRGGBB."), timeout = 3 })
+                      end
                       return
                   end
                   UIManager:close(dlg)
@@ -1221,9 +1227,12 @@ end
 local PALETTE = {
     { "Black",      "#000000" }, { "Charcoal",   "#333333" }, { "Dark grey", "#555555" }, { "Grey",   "#888888" },
     { "Silver",     "#AAAAAA" }, { "Light grey", "#CCCCCC" }, { "White",     "#FFFFFF" }, { "Navy",   "#1F3A68" },
-    { "Blue",       "#2E6FD8" }, { "Sky",        "#6FB7E9" }, { "Teal",      "#1B8A8A" }, { "Green",  "#2E8B57" },
+    { "Blue",       "#2E6FD8" }, { "Sky",        "#6FB7E9" }, { "Teal",       "#1B8A8A" }, { "Green",  "#2E8B57" },
     { "Olive",      "#6B8E23" }, { "Gold",       "#D4A017" }, { "Orange",    "#E07B24" }, { "Red",    "#C62828" },
     { "Maroon",     "#7B1E2B" }, { "Pink",       "#E78FB3" }, { "Purple",    "#6A3D9A" }, { "Brown",  "#7A4E2D" },
+    -- deep, fully saturated shades that hold up on colour e-ink
+    { "Ink blue",   "#0040B0" }, { "Ink green",  "#00753A" }, { "Ink red",   "#B00018" }, { "Ink purple", "#5A14A0" },
+    { "Ink orange", "#C25400" },
 }
 
 local function paletteName(hex)
@@ -1371,7 +1380,13 @@ local function showColourPicker(current, on_pick)
     function picker:onCloseWidget()
         UIManager:setDirty(nil, "ui", self.dimen)
     end
-    UIManager:show(picker)
+    -- Ask for our own screen refresh over the whole dialog. Without it the
+    -- picker relied on whatever refresh was already queued (e.g. just the
+    -- menu's area), so the part below the menu could stay un-updated and
+    -- look cut off. "flashui": a clean redraw so the swatch colours show true.
+    UIManager:show(picker, function()
+        return "flashui", box.dimen or picker.dimen
+    end)
 end
 
 -- get() returns the stored value; put(v) stores it (nil = inherit).
@@ -1480,8 +1495,10 @@ local function sizeMenuWith(get, put, inherit_label)
                       callback = function()
                           local n = tonumber(dlg:getInputText())
                           if not n or n < 50 or n > 300 then
-                              UIManager:show(orig_require("ui/widget/infomessage"):new{
-                                  text = _("Enter a number from 50 to 300."), timeout = 3 })
+                              if not shared_note(_("Enter a number from 50 to 300."), nil, 3) then
+                                  UIManager:show(orig_require("ui/widget/infomessage"):new{
+                                      text = _("Enter a number from 50 to 300."), timeout = 3 })
+                              end
                               return
                           end
                           UIManager:close(dlg)
@@ -1571,35 +1588,7 @@ end
 
 local function buildMenu()
     local function boldTbl() return cfg.bold end
-    local function boldMods() return cfg.bold.modules end
     local function accentMods() return cfg.accent_modules end
-
-    -- Bold > Modules
-    local bold_module_items = {
-        {
-            text = _("All modules"),
-            checked_func = function()
-                for _i, m in ipairs(ALL_MODULES) do
-                    if not cfg.bold.modules[m[1]] then return false end
-                end
-                return true
-            end,
-            callback = function(touchmenu_instance)
-                local all = true
-                for _i, m in ipairs(ALL_MODULES) do
-                    if not cfg.bold.modules[m[1]] then all = false break end
-                end
-                for _i, m in ipairs(ALL_MODULES) do cfg.bold.modules[m[1]] = not all end
-                saveConfig()
-                if touchmenu_instance then touchmenu_instance:updateItems() end
-                askRestart()
-            end,
-            separator = true,
-        },
-    }
-    for _i, m in ipairs(ALL_MODULES) do
-        bold_module_items[#bold_module_items + 1] = item(m[2], toggle(boldMods, m[1], askRestart))
-    end
 
     -- Colours > Progress colours for
     local accent_items = {}
@@ -1749,7 +1738,6 @@ local function buildMenu()
                     { text = _("Use progress colours in"),
                       sub_item_table = accent_items,
                       separator = true },
-                    { text = _("Bold"), sub_item_table = bold_module_items },
                     { text = _("Quick Actions icons keep original colours in Night Mode"),
                       checked_func = function() return cfg.qa_icons_original end,
                       callback = function() set("qa_icons_original", not cfg.qa_icons_original) end },
@@ -1762,7 +1750,6 @@ local function buildMenu()
             {
                 text = _("Nav bar"),
                 sub_item_table = {
-                    item(_("Bold labels"), toggle(boldTbl, "nav", askRestart)),
                     { text = _("Day look in Night Mode"),
                       checked_func = function() return cfg.nav_labels_black end,
                       callback = function() set("nav_labels_black", not cfg.nav_labels_black) end },
@@ -1908,48 +1895,7 @@ do
     end
 end
 
--- ---- Shortcuts Toolbar compatibility ---------------------------------------------------
--- Shortcuts Toolbar tells the file browser and reader menus apart by tab icon
--- name (appbar.filebrowser / appbar.navigation / appbar.typeset). A custom tab
--- icon from SimpleUI's System Icons renames it, so the toolbar stopped
--- showing. Teach its two checks to also recognise those tabs by menu id.
-userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
-    if type(plugin) ~= "table" or plugin._sui_mod_menu_compat then return end
-    local menuConfig = findUpvalue(plugin.onSwitchTab, "menuConfig")
-        or findUpvalue(plugin.onMenuInit, "menuConfig")
-    if type(menuConfig) ~= "function" then return end
-    local orig_reader, ri = findUpvalue(menuConfig, "isReaderMenu")
-    local orig_fb, fi = findUpvalue(menuConfig, "isFileBrowserMenu")
-    if type(orig_reader) ~= "function" or type(orig_fb) ~= "function" then return end
-    plugin._sui_mod_menu_compat = true
-
-    local function hasTab(menu, ids)
-        if type(menu) ~= "table" or type(menu.tab_item_table) ~= "table" then return false end
-        for _i, tab in ipairs(menu.tab_item_table) do
-            if type(tab) == "table" and ids[tab.id] then return true end
-        end
-        return false
-    end
-    local READER_TABS = { navi = true, typeset = true }
-    local FB_TABS = { filemanager_settings = true }
-
-    -- shared by every function in the plugin that uses these checks
-    debug.setupvalue(menuConfig, ri, function(menu)
-        if orig_reader(menu) then return true end
-        local R = package.loaded["apps/reader/readerui"]
-        local inst = type(R) == "table" and R.instance
-        return inst ~= nil and inst ~= false and not inst.tearing_down and hasTab(menu, READER_TABS)
-    end)
-    debug.setupvalue(menuConfig, fi, function(menu)
-        if orig_fb(menu) then return true end
-        local F = package.loaded["apps/filemanager/filemanager"]
-        local inst = type(F) == "table" and F.instance
-        return inst ~= nil and inst ~= false and not inst.tearing_down
-            and not hasTab(menu, READER_TABS) and hasTab(menu, FB_TABS)
-    end)
-end)
-
--- Remember SimpleUI's plugin name (its folder name), for suiInstance().
 userpatch.registerPatchPluginFunc("simpleui", function(plugin)
+    -- Remember SimpleUI's plugin name (its folder name), for suiInstance().
     if type(plugin) == "table" and type(plugin.name) == "string" then sui_name = plugin.name end
 end)
