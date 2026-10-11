@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.3
+Version 1.1.5
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -58,6 +58,11 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.1.5  Orphaned diagnostic .state deletes are legitimate now (menu
+         sweeps them) — no longer flagged.
+  1.1.4  Delete all logs now removes any .log except version.log/crash.log:
+         no longer flags those deletes as unexpected; state files count as
+         owned; orphan note reworded.
   1.1.3  Shared log contract v1: the menu rewriting diagnostics.log (tag
          filtering) is a recognized write, not unexpected; Combine check
          counts the shared log once; identical log prefixes no longer flag
@@ -84,7 +89,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.3"
+local DIAG_VERSION = "1.1.5"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -297,6 +302,7 @@ local function collect()
         if d.guessed then d.logs = { (b:gsub("^%d+%-", ""):gsub("^zz%-", "")) .. ".log" } end
         d.prefixes = {}
         for _j, n in ipairs(d.logs) do d.prefixes[#d.prefixes + 1] = (n:gsub("%.log$", "")) end
+        d.states = sourceStates(d.on and on_path or d.copies[1])
     end
     return diags, order, hidden, stray
 end
@@ -306,8 +312,25 @@ local function ownedBy(name, diags)
         for _i, p in ipairs(d.prefixes) do
             if startsWith(name, p) then return d.base end
         end
+        for _i, s in ipairs(d.states or {}) do
+            if name == s then return d.base end
+        end
     end
     return nil
+end
+
+-- State files keep each diagnostic's time window; the menu finds them
+-- per diagnostic so Delete all logs restarts the windows.
+local function sourceStates(path)
+    local f = io.open(path, "r")
+    if not f then return {} end
+    local src = f:read("*a") or ""
+    f:close()
+    local names, seen = {}, {}
+    for n in src:gmatch('"/([%w_%.%-]+%.state)"') do
+        if not seen[n] then seen[n] = true names[#names + 1] = n end
+    end
+    return names
 end
 
 local function copiesOf(b)
@@ -375,7 +398,7 @@ local function inventory(why)
                 if (low:find("diagnostic") or low:find("buildtime"))
                         and lfs.attributes(dir .. "/" .. entry, "mode") == "file"
                         and not ownedBy(entry, diags) then
-                    flag("ORPHAN: %s/%s (%s); no diagnostic owns it, Delete all logs won't remove it",
+                    flag("ORPHAN: %s/%s (%s); no diagnostic owns it (leftover or stray)",
                         dir == DATA and "koreader" or "settings", entry, kb(lfs.attributes(dir .. "/" .. entry, "size")))
                 end
             end
@@ -679,8 +702,16 @@ os.remove = function(path)
         local c = concern("delete", p)
         local d = dirOf(p)
         if not c and (d == DATA or d == SETTINGS_DIR) and p ~= COMBINED then
-            local diags = cachedDiags()
-            if not ownedBy(baseName(p), diags) then c = "no diagnostic owns this file" end
+            -- Delete all logs removes any .log except version.log/crash.log,
+            -- plus orphaned diagnostic .state files left by removed patches
+            local low = baseName(p):lower()
+            local is_log = low:sub(-4) == ".log" or low:sub(-8) == ".log.old"
+            local is_state = low:sub(-6) == ".state"
+                and (low:find("diagnostic", 1, true) or low:find("buildtime", 1, true))
+            if not is_log and not is_state then
+                local diags = cachedDiags()
+                if not ownedBy(baseName(p), diags) then c = "no diagnostic owns this file" end
+            end
         end
         if c then flag("  UNEXPECTED delete (%s): %s", c, p) end
     end)
