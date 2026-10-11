@@ -18,21 +18,27 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 1.9.0 |
-| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.1 |
-| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.1.0 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.7.0 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.0 |
-| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.1 |
-| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.1 |
-| [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.0 |
-| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.8.2 |
-| [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.11.0 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.8.1 |
+| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.3 |
+| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.1.2 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.0 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.8.1 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.10 |
+| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.3 |
+| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.2 |
+| [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.2 |
+| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.3 |
+| [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.1 |
 | [X-Ray Entity Footnotes](#x-ray-entity-footnotes) | `2-xray-entity-footnotes.lua` | xray.koplugin | 1.0.1 |
-| [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 1.1.2 |
+| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.5 |
+| [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 1.1.3 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
+
+## Diagnostic patches
+
+The `debug/` folder holds temporary troubleshooting companions for the main patches (`2-zz-*-diagnostics.lua`). They change nothing — each one watches its main patch and writes timestamped, tagged lines to one shared log (`koreader/diagnostics.log`) for a short window after every start, then goes quiet, and stops entirely 24 hours after install. Manage them with the Debugging Menu (toggle, view, combine, delete). See [debug/README.md](debug/README.md).
 
 ---
 
@@ -128,6 +134,18 @@ Needs a KOReader build with zip support (`ffi/archiver`, 2024+).
 
 ---
 
+## Debugging Menu
+
+Adds **Add-ons → Debugging** (file browser only): one place to switch diagnostic patches on and off and tidy their logs. Your diagnostic patches are never edited.
+
+- One master toggle plus a checkbox per diagnostic. Turning one off moves it to `patches/debug/`, so KOReader doesn't load it and it costs nothing. Changes apply after a restart (asked once).
+- All diagnostics write to one shared log (`koreader/diagnostics.log`), each line tagged with the diagnostic's short name, so a full test run reads as a single chronological file.
+- **Combine logs for sending:** writes the shared log plus the end of `crash.log` into one file: `koreader/debug-all.log`.
+- **Delete all logs:** clears the shared log and the diagnostics' stamp/state files, restarting their time windows. Asks first. Hold a diagnostic to filter its lines out of the shared log, or delete its log lines and the patch itself.
+- Shows `crash.log` size, with "Clear crash.log" to empty it. `version.log` (KOReader's update history) is never touched.
+
+---
+
 ## Network Tweaks
 
 Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network → Network Tweaks (or Tools → Add-ons with the Add-ons menu installed).
@@ -139,19 +157,20 @@ Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network
   - **Normal:** stock KOReader popups; Wi-Fi waits until connected.
   - **Minimal:** Wi-Fi connects in the background, with small corner notes (top right) like "Wi-Fi connected", "SSH on", "Calibre connected".
   - **Banner:** Wi-Fi connects in the background with a banner at the top ("Connecting to Wi-Fi… tap here to cancel", then "Connected to <network>"). SSH shows what you need to connect, for example `SSH on · 192.168.1.23:2222`, and Calibre shows the server it connected to.
+- **Shared notification style:** every patch's status notes use this style when Network Tweaks is installed — Banner, Minimal corner note, or Normal (the patch shows its own popup). Without Network Tweaks, patches fall back to ReadMastery Notify's style when that's installed, otherwise their own default. Nothing ever shows over the sleep screen.
 - **Cancel Wi-Fi connection** (only shown while connecting): stops a background connect. You can also tap the banner, or tap the Wi-Fi toggle again. A connect in progress is also cancelled when the device goes to sleep.
 
 A failed Wi-Fi connect always shows a note at the top; tap it to choose a network. Long-press the Wi-Fi toggle in the network menu for the normal flow with the network list.
 
 **Notes**
 - Background connect uses the device's own Wi-Fi config, the same one the automatic reconnect on wake uses. On Kobo that means networks joined in Kobo's own Wi-Fi settings; networks joined only in KOReader aren't in it. If that config has no networks, the Normal flow is used instead. Background connect needs Kobo or Kindle.
-- Other patches use the same style: ShelfSync Tweaks, Patch Backup & Restore, and Shortcuts Toolbar Icon Tweaks (whose SSH and Calibre indicators update the moment they change with Network Tweaks 1.4.0+).
+- Shortcuts Toolbar Icon Tweaks' SSH and Calibre indicators update the moment they change with Network Tweaks 1.4.0+.
 
 ---
 
 ## ShelfSync Tweaks
 
-Checked against ShelfSync 1.5.0 and goodreadskosync 2.0.0 (bundled login code). Sync messages follow Network Tweaks' notification style when it's installed.
+Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Sync messages follow the shared notification style when Network Tweaks or ReadMastery Notify is installed.
 
 - **Goodreads login on device:** a Log in button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
 - **Remember login** for Goodreads and StoryGraph: tap "Log in as…" to sign in with the saved login, long-press to edit, "Forget saved login" to remove it.
@@ -266,6 +285,15 @@ It doesn't modify xray.koplugin; it patches the plugin's class table at runtime.
 
 ---
 
+## X-Ray Direct Lookup
+
+For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
+
+- **Toggle:** bind "Toggle direct X-Ray lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
+- While X-Ray is open from a lookup, a small **Dictionary** button sits bottom-right; tapping it closes X-Ray and re-opens the standard word popup for the same word.
+
+---
+
 ## Reading Insights Tweaks
 
 Enhances Reading Insights and the built-in Statistics calendar with cover art, goal-shaded badges, interactive day views and sleep screen overlays. Each feature has its own toggle, and toggles apply without a restart.
@@ -299,3 +327,4 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art, g
 2. In the module's settings, set Source → Custom and pick the file.
 
 `Famous Quotes.txt` is a separate file for the sleep screen banner's quote fallback (see above).
+
