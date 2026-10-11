@@ -1,6 +1,6 @@
 --[[
 2-debugging-menu.lua
-Version 1.3.0
+Version 1.3.1
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
@@ -16,9 +16,11 @@ and off, and to tidy up their logs. Your diagnostic patches are never edited.
     diagnostics in patches/ are moved into debug/ the first time.
   • Combine logs for sending: writes the shared diagnostics log (once),
     plus the end of crash.log, into one file: koreader/debug-all.log.
-  • Delete all logs: removes the shared diagnostics log (.old too) and the
-    diagnostics' stamp/state files (this also restarts their time windows).
-    Asks first.
+  • Delete all logs: removes every .log file except version.log and
+    crash.log, plus the diagnostics' stamp/state files (this also
+    restarts their time windows), plus orphaned .state files left
+    behind by removed patches. Asks first. Clearing crash.log stays
+    a separate option below.
   • Hold a diagnostic: filter its lines out of the shared log, or delete
     its log lines and the patch itself.
   • crash.log: shows its size, "Clear crash.log" empties it (asks first).
@@ -32,6 +34,9 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.3.1  Delete all logs now removes every .log except version.log and
+       crash.log, plus state files (including orphaned .state files
+       from removed patches); Clear crash.log stays separate.
 1.3.0  Shared log contract v1: diagnostics write tagged lines to one
        shared koreader/diagnostics.log instead of individual files. The
        menu shows the shared log once, Combine includes it once, hold ->
@@ -54,7 +59,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -426,20 +431,66 @@ local function combine()
 end
 
 local function allLeftovers()
-    local files = {}
-    for _i, d in ipairs(scan()) do
-        for _j, p in ipairs(filesOf(d)) do files[#files + 1] = p end
+    -- every .log file except version.log and crash.log, plus each
+    -- diagnostic's state files (deleting those restarts time windows),
+    -- plus orphaned .state files no current diagnostic owns
+    -- (left behind after a patch file was deleted outright)
+    local files, seen = {}, {}
+    local function add(p)
+        if not seen[p] then seen[p] = true files[#files + 1] = p end
     end
-    if fileSize(SHARED_LOG) then files[#files + 1] = SHARED_LOG end
-    if fileSize(SHARED_LOG .. ".old") then files[#files + 1] = SHARED_LOG .. ".old" end
-    if fileSize(COMBINED) then files[#files + 1] = COMBINED end
+    local diags = scan()
+    for _i, dir in ipairs({ DATA, SETTINGS_DIR }) do
+        pcall(function()
+            for entry in lfs.dir(dir) do
+                local low = entry:lower()
+                if (low:sub(-4) == ".log" or low:sub(-8) == ".log.old")
+                   and entry ~= "version.log" and entry ~= "crash.log"
+                   and lfs.attributes(dir .. "/" .. entry, "mode") == "file" then
+                    add(dir .. "/" .. entry)
+                end
+            end
+        end)
+    end
+    for _i, d in ipairs(diags) do
+        for _j, n in ipairs(d.states or {}) do
+            for _k, dir in ipairs({ DATA, SETTINGS_DIR }) do
+                local p = dir .. "/" .. n
+                if lfs.attributes(p, "mode") == "file" then add(p) end
+            end
+        end
+    end
+    for _i, dir in ipairs({ DATA, SETTINGS_DIR }) do
+        pcall(function()
+            for entry in lfs.dir(dir) do
+                local low = entry:lower()
+                if low:sub(-6) == ".state"
+                   and (low:find("diagnostic", 1, true) or low:find("buildtime", 1, true))
+                   and lfs.attributes(dir .. "/" .. entry, "mode") == "file" then
+                    local is_owned = false
+                    for _j, d in ipairs(diags) do
+                        for _k, n in ipairs(d.states or {}) do
+                            if entry == n then is_owned = true break end
+                        end
+                        if not is_owned then
+                            for _k, p in ipairs(d.prefixes or {}) do
+                                if entry:sub(1, #p) == p then is_owned = true break end
+                            end
+                        end
+                        if is_owned then break end
+                    end
+                    if not is_owned then add(dir .. "/" .. entry) end
+                end
+            end
+        end)
+    end
     return files
 end
 
 local function deleteAll()
     local files = allLeftovers()
     if #files == 0 then notify("Debugging: no logs to delete") return end
-    confirm(string.format("Delete %d diagnostic log/state file%s?\n\ncrash.log and version.log are kept.",
+    confirm(string.format("Delete %d log/state file%s?\n\nOnly version.log and crash.log are kept.",
         #files, #files == 1 and "" or "s"), "Delete", function()
         local n = 0
         for _i, p in ipairs(files) do
