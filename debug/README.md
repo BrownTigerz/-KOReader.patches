@@ -1,0 +1,36 @@
+# Diagnostic Patches
+
+Temporary troubleshooting companions for the main patches. Each `2-zz-*-diagnostics.lua` watches its main patch from the outside and writes what it sees to one shared log. They change nothing — every hook passes straight through, and a diagnostic error can never break the original.
+
+## How they work
+
+- **Shared log:** every diagnostic appends timestamped, tagged lines to `koreader/diagnostics.log`. Tags are the patch's short name (`[network-tweaks]`, `[simpleui]`, …). The log rotates at 256 KB to `diagnostics.log.old`.
+- **Self-limiting:** each diagnostic logs for a few minutes after every KOReader start, then goes quiet. 24 hours after first install it stops hooking entirely — one line per start, then nothing. Re-copy the file for a fresh 24 hours. (The Debugging Menu's "Delete all logs" also restarts the windows.)
+- **State files:** `<name>-diagnostics.state` in the KOReader data dir holds the first-run stamp for the 24-hour expiry.
+- **Load order:** the `zz` in the name makes each diagnostic load after its main patch.
+- The debugging diagnostic (`2-zz-debugging-diagnostics.lua`) keeps its own separate log, because it watches the Debugging Menu itself.
+
+## Install
+
+Copy the diagnostics you want into KOReader's patches folder (the same place as the main patches) and restart. Delete the file and restart to remove one completely.
+
+## Managing them
+
+Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Debugging in the file browser): one master toggle plus a checkbox per diagnostic, view the shared log, combine everything into `koreader/debug-all.log` for sending, or delete one diagnostic's lines — or everything.
+
+## The files
+
+| Diagnostic | Watches | Version |
+|---|---|---|
+| `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.1.3 |
+| `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.1.3 |
+| `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.2.3 |
+| `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 1.1.4 |
+| `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.0.4 |
+| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.5 |
+| `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.0.5 |
+| `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.7.2 |
+| `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.0.4 |
+| `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.1.3 |
+| `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.0.3 |
+| `2-zz-xray-direct-lookup-diagnostics.lua` | X-Ray Direct Lookup | 1.2.3 |
