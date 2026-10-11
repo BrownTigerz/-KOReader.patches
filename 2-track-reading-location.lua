@@ -1,6 +1,6 @@
 --[[
     Track Reading Location
-    Version: 1.8.2
+    Version: 1.9.3
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
@@ -32,6 +32,9 @@
       it within this window, treating an unreturned skim-ahead (table of
       contents, a picture page, checking something) as intentional. The next
       real page turn after it hides becomes the new anchor.
+    - "Fast-skim detection": how many quick forward taps in a row count as a
+      skim-ahead (3-6 pages, default 4) and how close together they have to
+      land (1.0-3.0 seconds, default 1.5).
 
     With everything off, the button shrinks to just a small circular arrow.
 
@@ -75,6 +78,19 @@
 
     Changelog (from here forward - this patch's earlier history predates this
     numbering scheme and isn't repeated here):
+    1.9.3 - 2026-10-11 - Status toasts ("Current page set...", "Already at
+    furthest location") now go through the shared cross-patch notification
+    contract v1: Network Tweaks' banner style first, then ReadMastery
+    notify's style, falling back to the plain notification.
+    1.9.2 - 2026-10-11 - Taps landing on the 1px separator strip or the
+    button's outer border no longer die silently: they're inside the button
+    but in neither section's hit-box, so they now fall back to go-back.
+    1.9.1 - 2026-10-04 - Backing out of a list opened inside Settings (auto-dismiss,
+    fast-skim) no longer ends the live button preview early; only leaving
+    Settings does.
+    1.9.0 - 2026-10-03 - New Settings row, "Fast-skim detection": set the burst
+    pages (3-6) and max time between taps (1.0-3.0s) from the reader instead
+    of editing the file.
     1.8.2 - 2026-10-03 - After a forward popup times out, a big jump (search,
     TOC, progress bar) no longer becomes the anchor; the page you were on
     does, and the jump gets the usual go-back popup.
@@ -115,7 +131,7 @@ local Screen = Device.screen
 -- comment can't read a code constant) and needs updating by hand alongside
 -- this one; everything else - the menu's version row and both load logs -
 -- reads from here.
-local PATCH_VERSION = "1.8.2"
+local PATCH_VERSION = "1.9.3"
 
 logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
 
@@ -139,10 +155,13 @@ local SETTING_MODE_PERCENTAGE = "readingloc_mode_percentage"
 -- no single step looked like one. FAST_TURN_MAX_INTERVAL is how close
 -- together (in ms) consecutive page turns have to land to count as the same
 -- burst; FAST_FORWARD_BURST_PAGES is how many pages forward a burst has to
--- cover before it's treated as a jump instead of quick reading. Both are
--- heuristic, chosen without on-device testing - adjust if they feel off.
+-- cover before it's treated as a jump instead of quick reading. These two are
+-- the defaults - both are adjustable from Settings > Fast-skim detection
+-- (saved under the keys below), so no need to edit them here.
 local FAST_TURN_MAX_INTERVAL_MS = 1500
 local FAST_FORWARD_BURST_PAGES = 4
+local SETTING_BURST_PAGES = "readingloc_burst_pages"
+local SETTING_BURST_INTERVAL_MS = "readingloc_burst_interval_ms"
 
 -- The button is always docked to its fixed bottom-left/bottom-right corner.
 -- Its distance from the bottom edge, and from whichever side edge (left or
@@ -519,6 +538,10 @@ function ReadingLocationOverlay:_activate(pos)
         ReadingLocationTracker.onCancel(self.ui)
     elseif self.goback_dimen and self.goback_dimen:contains(pos) then
         ReadingLocationTracker.onGoBack(self.ui)
+    else
+        -- The 1px separator strip and the outer border are inside the button
+        -- but in neither section's hit-box: fall back to the primary action.
+        ReadingLocationTracker.onGoBack(self.ui)
     end
     return true
 end
@@ -701,6 +724,32 @@ end
 -- seconds: a positive number, or nil/false for "Off".
 function ReadingLocationTracker.setForwardDismissSeconds(seconds)
     G_reader_settings:saveSetting(SETTING_FORWARD_DISMISS_SECONDS, seconds or false)
+end
+
+-- Fast-skim detection settings (see FAST_TURN_MAX_INTERVAL_MS above). Anything
+-- unset or not a sane number falls back to the default.
+function ReadingLocationTracker.getBurstPages()
+    local v = G_reader_settings:readSetting(SETTING_BURST_PAGES)
+    if type(v) == "number" and v >= 2 then
+        return v
+    end
+    return FAST_FORWARD_BURST_PAGES
+end
+
+function ReadingLocationTracker.setBurstPages(pages)
+    G_reader_settings:saveSetting(SETTING_BURST_PAGES, pages)
+end
+
+function ReadingLocationTracker.getBurstIntervalMs()
+    local v = G_reader_settings:readSetting(SETTING_BURST_INTERVAL_MS)
+    if type(v) == "number" and v > 0 then
+        return v
+    end
+    return FAST_TURN_MAX_INTERVAL_MS
+end
+
+function ReadingLocationTracker.setBurstIntervalMs(ms)
+    G_reader_settings:saveSetting(SETTING_BURST_INTERVAL_MS, ms)
 end
 
 function ReadingLocationTracker.isPercentageModeEnabled()
@@ -1022,6 +1071,27 @@ end
 -- showing (unlike onCancel, which only ever runs from an active overlay tap/
 -- hold, where the button vanishing is already visible feedback). Shows a
 -- notification here instead, since there's otherwise no visible confirmation.
+
+-- Shared cross-patch notification contract v1: user-facing status notes go
+-- through Network Tweaks' banner style first (if installed), then ReadMastery
+-- notify's style (if installed), falling back to this patch's plain
+-- Notification. The checks run at call time, so patch load order doesn't
+-- matter.
+local function shared_note(banner_text, minimal_text, timeout)
+    if Device.screen_saver_mode then return true end -- never over the sleep screen
+    local NetworkMgr = require("ui/network/manager")
+    if type(NetworkMgr.__network_tweaks_note) == "function" then
+        local ok, handled = pcall(NetworkMgr.__network_tweaks_note, banner_text, minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    local rm = _G.__readmastery_note
+    if type(rm) == "function" then
+        local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    return false
+end
+
 function ReadingLocationTracker.setCurrentPageAsReadingLocation(ui)
     if not ui or type(ui._rlt_current_page) ~= "number" then
         return
@@ -1036,9 +1106,11 @@ function ReadingLocationTracker.setCurrentPageAsReadingLocation(ui)
     end
     refreshRegion(ui, region)
     ReadingLocationTracker.persistAnchor(ui)
-    UIManager:show(Notification:new{
-        text = _("Current page set as reading location."),
-    })
+    if not shared_note(_("Current page set as reading location.")) then
+        UIManager:show(Notification:new{
+            text = _("Current page set as reading location."),
+        })
+    end
 end
 
 -- Whether the current page already IS the tracked reading location - true
@@ -1054,9 +1126,11 @@ end
 
 function ReadingLocationTracker.goToFurthestReadingLocation(ui)
     if ReadingLocationTracker.isAtReadingLocation(ui) then
-        UIManager:show(Notification:new{
-            text = _("You're already at your furthest reading location."),
-        })
+        if not shared_note(_("You're already at your furthest reading location.")) then
+            UIManager:show(Notification:new{
+                text = _("You're already at your furthest reading location."),
+            })
+        end
         return
     end
     ReadingLocationTracker.onGoBack(ui)
@@ -1227,7 +1301,7 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
     -- driving the button's visibility/label.
     local anchor = ReadingLocationTracker.resolveAnchorPage(ui)
 
-    -- Fast-forward burst tracking (see FAST_TURN_MAX_INTERVAL_MS above):
+    -- Fast-forward burst tracking (see the burst settings near the top):
     -- a burst "continues" from the previous page update if the two arrived
     -- within the interval, otherwise it restarts from wherever we already
     -- were (previous_page). previous_page is read before ui._rlt_current_page
@@ -1235,7 +1309,7 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
     -- update, not this one.
     local now = time.now()
     local is_fast_turn = ui._rlt_last_turn_time ~= nil
-        and time.to_ms(now - ui._rlt_last_turn_time) <= FAST_TURN_MAX_INTERVAL_MS
+        and time.to_ms(now - ui._rlt_last_turn_time) <= ReadingLocationTracker.getBurstIntervalMs()
     if not is_fast_turn then
         ui._rlt_burst_start_page = previous_page or new_page_no
     end
@@ -1265,7 +1339,7 @@ function ReadingLocationTracker.onPageUpdate(reader_module, new_page_no, is_roll
         -- tap, progress bar, TOC) that happens to land near the anchor is
         -- a return, not a skim, so it must not roll the anchor back.
         local step = new_page_no - (previous_page or new_page_no)
-        if burst_forward_span >= FAST_FORWARD_BURST_PAGES and step <= 2 then
+        if burst_forward_span >= ReadingLocationTracker.getBurstPages() and step <= 2 then
             -- Each individual step here was small enough to silently
             -- advance on its own, but this many of them this close
             -- together add up to more page-flipping than anyone reads at.
@@ -1468,6 +1542,11 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                     -- closing the whole menu outright - stop forcing the preview
                     -- and let the button go back to reflecting the real page state,
                     -- as if these settings had never been touched.
+                    -- Stack depth of the Settings list itself, set once it's
+                    -- pushed at the bottom of this callback. Lists opened from
+                    -- inside Settings (auto-dismiss, fast-skim...) sit deeper,
+                    -- and backing out of those is still "in Settings".
+                    local settings_depth
                     local orig_backToUpperMenu = touchmenu_instance.backToUpperMenu
                     local orig_closeMenu = touchmenu_instance.closeMenu
                     local function exitPreview()
@@ -1480,7 +1559,14 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         refreshFloatingButtonPreview(ui, true)
                     end
                     touchmenu_instance.backToUpperMenu = function(self, ...)
-                        exitPreview()
+                        -- Only leaving the Settings list itself ends the
+                        -- preview. If the depth can't be read for any reason,
+                        -- end it (the old behavior) rather than risk leaving
+                        -- the button stuck on.
+                        local depth = self.item_table_stack and #self.item_table_stack or 0
+                        if not settings_depth or depth <= settings_depth then
+                            exitPreview()
+                        end
                         return orig_backToUpperMenu(self, ...)
                     end
                     touchmenu_instance.closeMenu = function(self, ...)
@@ -1641,6 +1727,116 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             },
                         },
                         {
+                            text = _("Fast-skim detection"),
+                            sub_item_table = {
+                                {
+                                    text_func = function()
+                                        return T(_("Pages to trigger: %1"), ReadingLocationTracker.getBurstPages())
+                                    end,
+                                    sub_item_table = {
+                                        {
+                                            text = _("3 pages"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstPages() == 3
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstPages(3)
+                                            end,
+                                        },
+                                        {
+                                            text = _("4 pages"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstPages() == 4
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstPages(4)
+                                            end,
+                                        },
+                                        {
+                                            text = _("5 pages"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstPages() == 5
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstPages(5)
+                                            end,
+                                        },
+                                        {
+                                            text = _("6 pages"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstPages() == 6
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstPages(6)
+                                            end,
+                                        },
+                                    },
+                                },
+                                {
+                                    text_func = function()
+                                        return T(_("Max time between taps: %1s"),
+                                            string.format("%.1f", ReadingLocationTracker.getBurstIntervalMs() / 1000))
+                                    end,
+                                    sub_item_table = {
+                                        {
+                                            text = _("1.0 seconds"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstIntervalMs() == 1000
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstIntervalMs(1000)
+                                            end,
+                                        },
+                                        {
+                                            text = _("1.5 seconds"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstIntervalMs() == 1500
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstIntervalMs(1500)
+                                            end,
+                                        },
+                                        {
+                                            text = _("2.0 seconds"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstIntervalMs() == 2000
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstIntervalMs(2000)
+                                            end,
+                                        },
+                                        {
+                                            text = _("2.5 seconds"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstIntervalMs() == 2500
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstIntervalMs(2500)
+                                            end,
+                                        },
+                                        {
+                                            text = _("3.0 seconds"),
+                                            radio = true,
+                                            checked_func = function()
+                                                return ReadingLocationTracker.getBurstIntervalMs() == 3000
+                                            end,
+                                            callback = function()
+                                                ReadingLocationTracker.setBurstIntervalMs(3000)
+                                            end,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        {
                             text_func = function()
                                 return T(_("Bottom offset: %1"), ReadingLocationTracker.getBottomOffset())
                             end,
@@ -1682,6 +1878,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         },
                     }
                     table.insert(touchmenu_instance.item_table_stack, touchmenu_instance.item_table)
+                    settings_depth = #touchmenu_instance.item_table_stack
                     touchmenu_instance.parent_id = "reading_location_settings"
                     touchmenu_instance.item_table = sub_item_table
                     touchmenu_instance:updateItems(1)

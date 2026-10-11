@@ -1,55 +1,38 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.0
--- Checked against: ShelfSync 1.7.0, goodreadskosync 2.0.0 (bundled login code)
--- Notes follow Network Tweaks' notification style when it is installed.
+-- Version 1.11.10
+-- Changelog:
+--   1.11.10  Shared notification contract v1: styledNote falls back to
+--            ReadMastery's _G.__readmastery_note when Network Tweaks is
+--            absent (or its shared note doesn't handle it).
+--   1.11.9   Header only: bundled login code is a goodreadskosync 1.15.0
+--            snapshot (was mislabeled 2.0.0). No behavior change.
+-- Checked against: ShelfSync 1.7.0, goodreadskosync 1.15.0 (bundled login code)
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
--- 1) Goodreads "Log in" (email + password) in ShelfSync > Providers >
---    Goodreads > Account, same as StoryGraph's. Login code is bundled from
---    goodreadskosync (MIT) at the bottom -- that plugin is NOT needed.
--- 2) "Remember my login" for both Goodreads and StoryGraph. Tap "Log in as..."
---    to sign in with the saved login, long-press it to edit, or use
---    "Forget saved login". Saved encrypted with a device-local key when possible.
--- 3) Goodreads search / CSRF fetch routed around the AWS WAF bot check
---    (/book/auto_complete and /review/list instead of /search and /).
--- 4) ShelfSync > Settings, above "Verbose logging":
---      * Auto re-login when session expires (on by default)
---      * Retry autolink when Wi-Fi connects (on by default)
---      * Hide providers > Fable / Hardcover / Goodreads / Pagebound / StoryGraph
---        (all off by default). Hiding a provider also stops it doing anything.
---    WikiReader/Wikipedia articles: ShelfSync 1.4.0+ excludes these itself.
--- 5) ShelfSync > "Link & Update" (between Providers and Settings): every
---    enabled provider's Link book and Update status in one place, labelled.
---    Copies of the providers' own items -- the per-provider menus are untouched. Also 3 new gesture/Dispatcher
---    actions that open these pages directly:
---      ShelfSync: Link & Update menu
---      ShelfSync: Link book (all providers)
---      ShelfSync: Update status (all providers)
--- 6) "ShelfSync All: Update progress" action -- syncs progress (no menu) to
---    every ENABLED provider the book is linked to, then tells you which
---    enabled providers still need linking. Turns Wi-Fi on first if needed
---    (and back off afterwards); the hub shortcuts also connect first.
---    Providers that fail get one automatic retry before Wi-Fi turns off.
--- 7) Autolink retry on connect: open a book offline and autolink can't reach
---    the internet, so the book stays unlinked. When Wi-Fi connects, any
---    enabled provider still unlinked for the open book tries again -- no
---    need to reopen the book. Toggle: Settings > "Retry autolink when Wi-Fi
---    connects" (on by default).
--- 8) ShelfSync's built-in "Update progress for all linked books" action also
---    turns Wi-Fi on first (and back off after), same as ShelfSync All.
--- 9) Auto re-login: when a Goodreads or StoryGraph session expires and you
---    have a saved login, sign in again once, then re-push progress for the
---    open book. Goodreads verification code / captcha still prompts you.
---    At most one attempt per provider per 30 min; if it fails you get
---    ShelfSync's normal "log in again" warning. Toggle: Settings >
---    "Auto re-login when session expires" (on by default).
+-- 1) Goodreads email + password "Log in" (code bundled from goodreadskosync,
+--    MIT, at the bottom -- that plugin is NOT needed).
+-- 2) Saved logins for Goodreads and StoryGraph (encrypted, on-device).
+--    Tap "Log in as..." to use, long-press to edit, or "Forget saved login".
+-- 3) Goodreads search / CSRF routed around the AWS WAF bot check.
+-- 4) Settings: Auto re-login, Retry autolink when Wi-Fi connects (both on),
+--    Hide providers submenu (all off). Hidden providers do nothing.
+-- 5) "Link & Update" menu: every enabled provider's Link book / Update
+--    status in one place, plus 3 gesture actions. Provider menus untouched.
+-- 6) "ShelfSync All: Update progress" action: Wi-Fi on if needed, sync every
+--    enabled linked provider (one retry), Wi-Fi back off, list unlinked ones.
+-- 7) Unlinked providers retry autolink when Wi-Fi connects.
+-- 8) ShelfSync's own "Update progress for all linked books" connects first too.
+-- 9) Auto re-login once per provider per 30 min when a session expires,
+--    then re-push progress. Captcha / verification code still prompts.
 --
--- Menu changes (Hide providers) show after reopening the book / file browser.
+-- Notes follow Network Tweaks' style when installed, ReadMastery's notify
+-- style when it is, else KOReader popups. Hide changes show after reopening
+-- the book / file browser.
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.0"
+local PATCH_VERSION = "1.11.10"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -63,6 +46,10 @@ local CACHE = {
     uid = nil,     -- Goodreads user id
     relink = {},   -- [provider label] = { file, at } last autolink retry on connect
     reauth = {},   -- [provider label] = { at, running } last auto re-login
+    net_users = 0, -- update actions currently using Wi-Fi
+    net_ours = false, -- Wi-Fi is on because this patch turned it on
+    ss_restore = nil, -- ShelfSync's pending Wi-Fi restore check (see AutoWifi hook)
+    sleep_gen = 0, -- bumped on every sleep
 }
 -- Login: single attempt (no hidden 2s/4s sleep-and-retry that freezes the
 -- screen), 10s socket timeout instead of 15. Saved login = one tap to retry.
@@ -76,7 +63,8 @@ local RELOGIN_COOLDOWN = 1800 -- seconds: max one auto re-login per provider per
 local WIFI_SETTLE = 3           -- seconds to let a fresh Wi-Fi connection settle
 local WIFI_ONLINE_WAIT = 10     -- then wait up to this long for DNS to work
 local WIFI_CONNECT_TIMEOUT = 30 -- give up if Wi-Fi hasn't connected by then
-local RETRY_DELAY = 3 -- seconds before retrying providers that failed
+local WIFI_JOIN_WAIT = 12       -- radio already on: wait this long for that connect first
+local RETRY_DELAY = 5 -- seconds before retrying providers that failed
 local CSRF_TTL = 120 -- seconds; Goodreads rotates tokens, same TTL goodreadskosync uses
 
 userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
@@ -108,14 +96,27 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         return "banner"
     end
 
+    -- Shared notification contract v1, priority (2): ReadMastery's notify
+    -- style via _G.__readmastery_note(text, timeout). Returns true when it
+    -- handled the note. Checked at call time: no load-order issues.
+    local function readMasteryNote(text, timeout)
+        local rm = _G.__readmastery_note
+        if type(rm) ~= "function" then return false end
+        local ok, handled = pcall(rm, text, timeout)
+        return ok and handled
+    end
+
     -- banner_text: Banner style (and Normal popup), minimal_text: Minimal
     -- corner note. opts.warn = failure (warning icon in Normal, shown longer).
     local function styledNote(banner_text, minimal_text, opts)
         opts = opts or {}
         local Device = require("device")
         if Device.screen_saver_mode then return end -- never over the sleep screen
-        local style = noteStyle()
+        local NetworkMgr = require("ui/network/manager")
         local timeout = opts.timeout or (opts.warn and 4 or 2)
+        -- Contract v1 (2): Network Tweaks absent -> try ReadMastery first.
+        if not NetworkMgr.__network_tweaks and readMasteryNote(banner_text, timeout) then return end
+        local style = noteStyle()
         if style == "normal" then
             UIManager:show(InfoMessage:new{
                 text = banner_text,
@@ -124,17 +125,68 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             })
             return
         end
-        local NetworkMgr = require("ui/network/manager")
         local shared = NetworkMgr.__network_tweaks_note
         if type(shared) == "function" then
             -- Network Tweaks 1.5.1+: same widgets, same corner stacking
             local ok = pcall(shared, banner_text, minimal_text or banner_text, timeout)
             if ok then return end
         end
+        -- Contract v1 (2): Network Tweaks' shared note didn't handle it.
+        if readMasteryNote(banner_text, timeout) then return end
         UIManager:show(require("ui/widget/notification"):new{
             text = style == "silent" and (minimal_text or banner_text) or banner_text,
             timeout = timeout,
         })
+    end
+
+    -- ShelfSync's "Wi-Fi on demand" turns Wi-Fi on, then waits for KOReader's
+    -- connectivity check. Anything that unschedules that check (cancelling a
+    -- connect, Network Tweaks starting its own) orphans the restore: 46 s
+    -- later it times out, fails whatever ShelfSync queued on it and turns
+    -- Wi-Fi OFF -- even if Wi-Fi has been connected since. Keep its check
+    -- callback so it can be completed once Wi-Fi is actually up.
+    local ok_aw, AutoWifi = pcall(require, "shelfsync/lib/common/auto_wifi")
+    if ok_aw and type(AutoWifi) == "table" and type(AutoWifi.withWifi) == "function"
+            and not AutoWifi.__ss_orphan_patched then
+        AutoWifi.__ss_orphan_patched = true
+        local orig_withWifi = AutoWifi.withWifi
+        AutoWifi.withWifi = function(self, ...)
+            local NetworkMgr = require("ui/network/manager")
+            local orig_sched = NetworkMgr.scheduleConnectivityCheck
+            if type(orig_sched) ~= "function" then return orig_withWifi(self, ...) end
+            -- Only the first check scheduled during this call is ShelfSync's
+            local temp
+            temp = function(nm, cb, ...)
+                NetworkMgr.scheduleConnectivityCheck = orig_sched
+                if type(cb) ~= "function" then return orig_sched(nm, cb, ...) end
+                local wrapped
+                wrapped = function(...)
+                    if CACHE.ss_restore == wrapped then CACHE.ss_restore = nil end
+                    return cb(...)
+                end
+                CACHE.ss_restore = wrapped
+                return orig_sched(nm, wrapped, ...)
+            end
+            NetworkMgr.scheduleConnectivityCheck = temp
+            local ok, err = pcall(orig_withWifi, self, ...)
+            -- Nothing scheduled (Wi-Fi already on, queued, ...): put it back
+            if NetworkMgr.scheduleConnectivityCheck == temp then
+                NetworkMgr.scheduleConnectivityCheck = orig_sched
+            end
+            if not ok then error(err, 0) end
+        end
+    end
+
+    -- Complete an orphaned ShelfSync restore (no-op if there isn't one, or if
+    -- its own check already ran). Call only when Wi-Fi is connected.
+    local function completeShelfSyncRestore()
+        local cb = CACHE.ss_restore
+        if not cb then return end
+        CACHE.ss_restore = nil
+        local ok, err = pcall(cb)
+        if not ok then
+            require("logger").warn("ShelfSync tweaks: completing ShelfSync's Wi-Fi restore failed: " .. tostring(err))
+        end
     end
 
     -- Saved login ---------------------------------------------------------
@@ -658,8 +710,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 self.last_user_id = self.last_user_id or CACHE.uid
                 return self.last_csrf, self.last_user_id
             end
-            local code, html, headers = self:request("https://www.goodreads.com/review/list", "GET")
-            if code == 200 and html then
+            local function fetch(url)
+                local code, html, headers = self:request(url, "GET")
+                if not (code == 200 and html) then return nil, code end
                 -- extract_csrf() returns the PREVIOUS token when the page has
                 -- none, which would get cached as fresh. Clear it first so a
                 -- missing token is actually detected.
@@ -669,11 +722,46 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if not csrf then self.last_csrf = prev end
                 local final_url = headers and headers["x-final-url"] or ""
                 local uid = final_url:match("/review/list/(%d+)") or html:match("/user/show/(%d+)")
-                if uid then self.last_user_id = uid; CACHE.uid = uid end
-                if csrf then
-                    CACHE.csrf, CACHE.csrf_at = csrf, os.time()
-                    return csrf, self.last_user_id
+                if uid then
+                    self.last_user_id = uid
+                    if CACHE.uid ~= uid then
+                        CACHE.uid = uid
+                        -- Remembered across restarts: the first token fetch of
+                        -- a session can then skip the redirect too
+                        pcall(function()
+                            local ls = require("luasettings"):open(
+                                require("datastorage"):getSettingsDir() .. "/shelfsync_tweaks.lua")
+                            ls:saveSetting("goodreads_uid", uid)
+                            ls:flush()
+                        end)
+                    end
                 end
+                return csrf, code
+            end
+            -- With the user id known: straight to the user's own list (skips
+            -- the redirect) and only one book on it (the full page is ~270 KB
+            -- just to read one token).
+            if not CACHE.uid then
+                pcall(function()
+                    local v = require("luasettings"):open(
+                        require("datastorage"):getSettingsDir() .. "/shelfsync_tweaks.lua"):readSetting("goodreads_uid")
+                    if type(v) == "string" and v:match("^%d+$") then CACHE.uid = v end
+                end)
+            end
+            local uid = CACHE.uid or self.last_user_id
+            local first_url = uid and ("https://www.goodreads.com/review/list/" .. uid .. "?per_page=1")
+                or "https://www.goodreads.com/review/list"
+            local csrf, code = fetch(first_url)
+            if not csrf then
+                -- One more try on the plain page: a tap can cancel the request
+                -- (it runs in a dismissable background task), and the light
+                -- page could in theory lack the token.
+                logger.info("Goodreads: CSRF fetch got no token (code=" .. tostring(code) .. "), retrying once")
+                csrf, code = fetch("https://www.goodreads.com/review/list")
+            end
+            if csrf then
+                CACHE.csrf, CACHE.csrf_at = csrf, os.time()
+                return csrf, self.last_user_id
             end
             logger.info("Goodreads: /review/list CSRF fetch failed (code=" .. tostring(code) .. "), falling back to /")
             return orig_refreshSession(self)
@@ -711,6 +799,15 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local ok_se, SyncEngine = pcall(require, "shelfsync/lib/common/sync_engine")
     if ok_se and SyncEngine and not SyncEngine.__ss_hide_patched then
         SyncEngine.__ss_hide_patched = true
+        -- Count sleeps, so an update that was running when the device went to
+        -- sleep is abandoned after waking instead of carrying on with Wi-Fi off.
+        local orig_onSuspend = SyncEngine.onSuspend
+        if type(orig_onSuspend) == "function" then
+            SyncEngine.onSuspend = function(self, ...)
+                CACHE.sleep_gen = CACHE.sleep_gen + 1
+                return orig_onSuspend(self, ...)
+            end
+        end
         local orig_isActive = SyncEngine.isActive
         SyncEngine.isActive = function(self)
             -- Back-reference so an api can find ITS engine (per book/instance;
@@ -737,6 +834,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         -- counts as "ran", so without this the book stays unlinked until reopened.
         local orig_onNetworkConnected = SyncEngine.onNetworkConnected
         SyncEngine.onNetworkConnected = function(self, ...)
+            if CACHE.ss_restore then UIManager:nextTick(completeShelfSyncRestore) end
             if not tweak("relink_on_connect") then
                 return orig_onNetworkConnected(self, ...)
             end
@@ -754,28 +852,47 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 return ret
             end
 
+            -- Mark the cooldown now, not when the timer fires: Wi-Fi flapping
+            -- on and off would otherwise queue a retry per connect.
+            CACHE.relink[engine.label] = { file = file, at = os.time() }
+
+            local function stillOpen()
+                return engine.ui and engine.ui.document and engine.ui.document.file == file
+            end
+            local function setting(name)
+                local ok_s, v = pcall(engine.settings[name], engine.settings)
+                return ok_s and v
+            end
+
             -- Short delay: let the connection settle and ShelfSync's own
             -- on-connect work start first
             UIManager:scheduleIn(RELINK_DELAY, function()
                 local NetworkMgr = require("ui/network/manager")
+                if require("device").screen_saver_mode then return end
                 if not NetworkMgr:isConnected() then return end
-                if not (engine.ui and engine.ui.document and engine.ui.document.file == file) then return end
+                if not stillOpen() then return end
                 local ok_a, active = pcall(engine.isActive, engine)
                 if not (ok_a and active) then return end
                 if not tweak("relink_on_connect") then return end
-                if engine.settings:bookLinked() then return end
-                if not engine.settings:autolinkEnabled() then return end
+                if setting("bookLinked") then return end
+                if not setting("autolinkEnabled") then return end
 
-                CACHE.relink[engine.label] = { file = file, at = os.time() }
-                engine.settings:debugLog(engine.label .. ": network connected, retrying autolink for unlinked book")
-                engine.provider:tryAutolink(function()
-                    if engine.settings:bookLinked() then
+                pcall(engine.settings.debugLog, engine.settings,
+                    engine.label .. ": network connected, retrying autolink for unlinked book")
+                local ok_t, err = pcall(engine.provider.tryAutolink, engine.provider, function()
+                    -- The search takes seconds: the book may be closed by now
+                    if not stillOpen() then return end
+                    if setting("bookLinked") then
                         -- Linked now: restart ShelfSync's startup work so status
                         -- loading and progress tracking kick in as normal
                         engine.state.read_cache_started = false
-                        engine:startReadCache()
+                        pcall(engine.startReadCache, engine)
                     end
                 end)
+                if not ok_t then
+                    require("logger").warn("ShelfSync tweaks: autolink retry failed for "
+                        .. tostring(engine.label) .. ": " .. tostring(err))
+                end
             end)
             return ret
         end
@@ -932,20 +1049,25 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         return out
     end
 
-
-    local function updateAllEnabled(app, done)
+    local function updateAllEnabled(app, done, gen)
         done = done or function() end
+        gen = gen or CACHE.sleep_gen
         if not (app.ui and app.ui.document) then
             styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
             return done()
         end
-        local linked, unlinked = {}, {}
+        local file = app.ui.document.file
+        local function stillOpen()
+            return app.ui and app.ui.document and app.ui.document.file == file
+        end
+        local linked, unlinked, unlinked_entries = {}, {}, {}
         for _i, entry in ipairs(activeEngines(app)) do
             local ok, is_linked = pcall(entry.engine.settings.bookLinked, entry.engine.settings)
             if ok and is_linked then
                 linked[#linked + 1] = entry
             else
                 unlinked[#unlinked + 1] = entry.label
+                unlinked_entries[#unlinked_entries + 1] = entry
             end
         end
         local function names(list)
@@ -953,7 +1075,17 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             for _i, e in ipairs(list) do out[#out + 1] = e.label or e end
             return table.concat(out, ", ")
         end
-        local not_linked = #unlinked > 0 and (_(" · Not linked: ") .. table.concat(unlinked, ", ")) or ""
+        -- Autolink can finish while the update runs (it did, on a first open):
+        -- only report providers that are still unlinked when the note shows.
+        -- ShelfSync sends progress itself right after it links a book.
+        local function stillUnlinked()
+            local out = {}
+            for _i, e in ipairs(unlinked_entries) do
+                local ok_l, l = pcall(e.engine.settings.bookLinked, e.engine.settings)
+                if not (ok_l and l) then out[#out + 1] = e.label end
+            end
+            return out
+        end
 
         if #linked == 0 then
             if #unlinked == 0 then
@@ -969,11 +1101,19 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
         -- One pass over `list`. Provider popups are suppressed (ShelfSync
         -- 1.5.0+); results are collected and shown as one note at the end.
+        -- Stop (quietly) if the device went to sleep or the book was closed:
+        -- the rest would fail or, worse, turn Wi-Fi back on under the sleep
+        -- screen. ShelfSync keeps unsent progress and sends it later.
+        local function shouldStop()
+            return require("device").screen_saver_mode or CACHE.sleep_gen ~= gen or not stillOpen()
+        end
+
         local function runPass(list, on_finished)
             local ok_list, failed = {}, {}
             local function step(i)
                 local entry = list[i]
                 if not entry then return on_finished(ok_list, failed) end
+                if shouldStop() then return on_finished(ok_list, failed, true) end
                 local advanced = false
                 local function record(result, reason)
                     if advanced then return end
@@ -997,9 +1137,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         end
 
         local function summary(synced, failed)
+            local still = stillUnlinked()
+            local not_linked = #still > 0 and (_(" · Not linked: ") .. table.concat(still, ", ")) or ""
             if #failed == 0 then
                 styledNote(_("Progress synced · ") .. names(synced) .. not_linked,
-                    _("Progress synced"), { warn = #unlinked > 0, timeout = #unlinked > 0 and 4 or 2 })
+                    _("Progress synced"), { warn = #still > 0, timeout = #still > 0 and 4 or 2 })
                 return
             end
             local parts = {}
@@ -1013,7 +1155,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             styledNote(text, table.concat(fail_names, ", ") .. _(" sync failed"), { warn = true })
         end
 
-        runPass(linked, function(synced, failed)
+        runPass(linked, function(synced, failed, stopped)
+            if stopped then return done() end
             if #failed == 0 then
                 summary(synced, failed)
                 return done()
@@ -1021,9 +1164,14 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             -- One automatic retry, only for providers that failed
             local retry = {}
             for _i, f in ipairs(failed) do retry[#retry + 1] = f.entry end
+            if shouldStop() then return done() end
             styledNote(_("Retrying · ") .. names(retry), _("Retrying"), { timeout = 2 })
             UIManager:scheduleIn(RETRY_DELAY, function()
-                runPass(retry, function(synced2, failed2)
+                -- Asleep, or book closed (or another opened) in the meantime:
+                -- no retry, no stale "failed" note.
+                if shouldStop() then return done() end
+                runPass(retry, function(synced2, failed2, stopped2)
+                    if stopped2 then return done() end
                     for _i, e in ipairs(synced2) do synced[#synced + 1] = e end
                     summary(synced, failed2)
                     done()
@@ -1035,33 +1183,112 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     -- Turn Wi-Fi on and wait for a real connection before running `run(done)`.
     -- If we switched Wi-Fi on and `restore_after` is set, switch it back off
     -- once `done` is called (saves battery, same as ShelfSync's auto-wifi).
-    local function withNetwork(run, restore_after)
+    -- Wi-Fi this patch turned on is shared: if a second update starts while
+    -- the first is still running, Wi-Fi goes off when the LAST one is done.
+    local function releaseNetwork()
+        CACHE.net_users = math.max(0, CACHE.net_users - 1)
+        if CACHE.net_users == 0 and CACHE.net_ours then
+            CACHE.net_ours = false
+            local NetworkMgr = require("ui/network/manager")
+            NetworkMgr:turnOffWifi(function()
+                NetworkMgr.wifi_was_on = false
+                G_reader_settings:saveSetting("wifi_was_on", false)
+            end)
+        end
+    end
+
+    -- When ShelfSync's own "Wi-Fi on demand" turned Wi-Fi on (e.g. to load
+    -- the book on open), it switches it off as soon as ITS work is done --
+    -- which can be in the middle of our update. Hold one of its Wi-Fi leases
+    -- for the length of the update so it waits for us too. Returns a release
+    -- function, or nil when ShelfSync doesn't own the connection.
+    local function holdShelfSyncWifi(app)
+        if not (app and app.engines) then return nil end
+        -- Must be called from the main loop, not from inside a coroutine
+        local cur, is_main = coroutine.running()
+        if cur and not is_main then return nil end
+        for _k, e in pairs(app.engines) do
+            local w = e.wifi
+            if type(w) == "table" and type(w.withWifi) == "function"
+                    and type(w.turnedWifiOn) == "function" then
+                local ok_t, owns = pcall(w.turnedWifiOn, w)
+                if not (ok_t and owns) then return nil end
+                local held, released = nil, false
+                local ok_w = pcall(w.withWifi, w, function()
+                    -- Runs in its own coroutine (Trapper), now or -- if
+                    -- ShelfSync's connect is still pending -- once it's up.
+                    -- Parking it here keeps the lease until we resume it.
+                    if released then return end
+                    local co, is_main_co = coroutine.running()
+                    if co and not is_main_co then
+                        held = co
+                        coroutine.yield()
+                    end
+                end)
+                if not ok_w then return nil end
+                return function()
+                    released = true
+                    if held and coroutine.status(held) == "suspended" then
+                        local ok_r, err = coroutine.resume(held)
+                        if not ok_r then
+                            require("logger").warn("ShelfSync tweaks: releasing Wi-Fi lease failed: " .. tostring(err))
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function withNetwork(run, restore_after, app, on_abort)
         local NetworkMgr = require("ui/network/manager")
-        if NetworkMgr:isConnected() then
-            return run(function() end)
-        end
-        if G_reader_settings:isTrue("airplanemode") then
-            styledNote(_("Airplane mode is on · turn it off to sync"), _("Airplane mode on"), { warn = true })
-            return
-        end
-        local was_on = NetworkMgr:isWifiOn()
-        local finished, started_run = false, false
+        local finished = false
+        local release_lease
         local function finish()
             if finished then return end -- runs once: normal finish OR safety timeout
             finished = true
-            if restore_after and not was_on then
-                NetworkMgr:turnOffWifi(function()
-                    NetworkMgr.wifi_was_on = false
-                    G_reader_settings:saveSetting("wifi_was_on", false)
-                end)
-            end
+            if release_lease then release_lease(); release_lease = nil end
+            if restore_after then releaseNetwork() end
         end
+        if NetworkMgr:isConnected() then
+            if restore_after then
+                CACHE.net_users = CACHE.net_users + 1
+                release_lease = holdShelfSyncWifi(app)
+            end
+            completeShelfSyncRestore()
+            if restore_after then
+                -- Joining Wi-Fi we (or ShelfSync) turned on: same safety net,
+                -- so neither can be kept on forever
+                if CACHE.net_ours or release_lease then
+                    UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
+                end
+            end
+            return run(finish)
+        end
+        if G_reader_settings:isTrue("airplanemode") then
+            styledNote(_("Airplane mode is on · turn it off to sync"), _("Airplane mode on"), { warn = true })
+            if on_abort then on_abort() end
+            return
+        end
+        local was_on = NetworkMgr:isWifiOn()
+        if restore_after then
+            CACHE.net_users = CACHE.net_users + 1
+            if not was_on then CACHE.net_ours = true end
+        end
+        local started_run = false
         local function go()
             if started_run then return end
             started_run = true
+            -- A ShelfSync restore orphaned by this connect would otherwise
+            -- time out mid-update and switch Wi-Fi off; finish it and hold a
+            -- lease on it like in the already-connected case.
+            if restore_after and not release_lease then
+                release_lease = holdShelfSyncWifi(app)
+            end
+            completeShelfSyncRestore()
             -- Safety net: if a provider never reports back (error, cancelled
             -- request), don't leave Wi-Fi on draining the battery.
-            if restore_after and not was_on then
+            if restore_after and (CACHE.net_ours or release_lease) then
                 UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
             end
             run(finish)
@@ -1075,12 +1302,25 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             UIManager:scheduleIn(1, function() waitOnline(deadline) end)
         end
         local connect_started = os.time()
+        local saw_radio_on = was_on
         local function poll()
             if started_run then return end
             if NetworkMgr:isConnected() then
                 UIManager:scheduleIn(WIFI_SETTLE, function()
                     waitOnline(os.time() + WIFI_ONLINE_WAIT)
                 end)
+                return
+            end
+            -- Connect cancelled (banner / popup tapped): the radio went off
+            -- again, or never came on and nothing is connecting any more.
+            -- Stop now so the next press isn't blocked by "Already syncing".
+            if NetworkMgr:isWifiOn() then
+                saw_radio_on = true
+            elseif saw_radio_on or (not NetworkMgr.pending_connection
+                    and os.time() - connect_started >= 2) then
+                started_run = true
+                finish()
+                if on_abort then on_abort() end
                 return
             end
             if os.time() - connect_started >= WIFI_CONNECT_TIMEOUT then
@@ -1090,13 +1330,28 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 end
                 started_run = true
                 finish()
+                if on_abort then on_abort() end
                 return
             end
             UIManager:scheduleIn(1, poll)
         end
         -- Callback not relied on: a connect already in progress (or a
         -- background connect from Network Tweaks) may never call it.
-        NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
+        if was_on then
+            -- Radio already on but not connected: something is already
+            -- connecting (ShelfSync's on-demand Wi-Fi, the reconnect after
+            -- waking). Asking again here gets KOReader's blocking "Connecting
+            -- to Wi-Fi…" popup instead of the usual banner, so just wait for
+            -- it, with a note in the same style. Only if it's still not
+            -- connected after a while, ask KOReader to connect.
+            styledNote(_("Connecting to Wi-Fi…"), _("Connecting Wi-Fi"), { timeout = 3 })
+            UIManager:scheduleIn(WIFI_JOIN_WAIT, function()
+                if started_run or NetworkMgr:isConnected() then return end
+                NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
+            end)
+        else
+            NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
+        end
         UIManager:scheduleIn(1, poll)
     end
 
@@ -1167,6 +1422,30 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             local app = self
             withNetwork(function() showHub(hubStatusItems(app)) end, false); return true
         end
+        -- One update at a time: a second press while one is still running
+        -- (connecting, syncing or retrying) used to start a parallel run whose
+        -- requests collided with the first, failing providers that had synced.
+        local function updateAllOnce(app)
+            local running = CACHE.update_running
+            -- A run from before the device last slept is dead: don't let it block
+            if running and running.gen == CACHE.sleep_gen
+                    and os.time() - running.at < WIFI_SAFETY_TIMEOUT + WIFI_CONNECT_TIMEOUT then
+                styledNote(_("Already syncing progress…"), _("Already syncing"), { timeout = 2 })
+                return
+            end
+            local gen = CACHE.sleep_gen
+            local token = { at = os.time(), gen = gen }
+            CACHE.update_running = token
+            local function clear()
+                if CACHE.update_running == token then CACHE.update_running = nil end
+            end
+            withNetwork(function(done)
+                -- Slept while connecting: this run is over
+                if CACHE.sleep_gen ~= gen then clear(); return done() end
+                updateAllEnabled(app, function() clear(); done() end, gen)
+            end, true, app, clear)
+        end
+
         -- ShelfSync's built-in "Update progress for all linked books" has no
         -- Wi-Fi handling. Since 1.5.0 it also only syncs enabled providers, so
         -- it now runs the same flow as ShelfSync All: connect and settle
@@ -1178,8 +1457,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if not (self.ui and self.ui.document) then
                     return orig_updateAll(self)
                 end
-                local app = self
-                withNetwork(function(done) updateAllEnabled(app, done) end, true)
+                updateAllOnce(self)
                 return true
             end
         end
@@ -1191,7 +1469,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
                 return true
             end
-            withNetwork(function(done) updateAllEnabled(app, done) end, true); return true
+            updateAllOnce(app); return true
         end
     end
 
@@ -1225,10 +1503,15 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     -- After a successful re-login: re-send progress for the open book
     local function afterRelogin(engine, label)
         styledNote(label .. _(" session renewed"), label .. _(" renewed"))
-        if engine and engine.ui and engine.ui.document and engine.ui.document.file then
+        local file = engine and engine.ui and engine.ui.document and engine.ui.document.file
+        if file then
             local ok_l, linked = pcall(engine.settings.bookLinked, engine.settings)
             if ok_l and linked then
-                UIManager:scheduleIn(2, function() engine:onUpdateProgress(nil, false, true) end)
+                UIManager:scheduleIn(2, function()
+                    if require("device").screen_saver_mode then return end
+                    if not (engine.ui and engine.ui.document and engine.ui.document.file == file) then return end
+                    pcall(engine.onUpdateProgress, engine, nil, false, true)
+                end)
             end
         end
     end
@@ -1251,7 +1534,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         UIManager:scheduleIn(1, function()
             Trapper:wrap(function()
                 local info = InfoMessage:new{ text = _("Renewing ") .. label .. _(" session...") }
-                if noteStyle() == "normal" then
+                if require("device").screen_saver_mode then
+                    -- never over the sleep screen
+                elseif noteStyle() == "normal" then
                     UIManager:show(info)
                 else
                     styledNote(_("Renewing ") .. label .. _(" session…"), _("Renewing ") .. label, { timeout = 3 })
@@ -2277,7 +2562,9 @@ function Http.mergeSetCookie(jar, set_cookie)
     end
     local jar_map, order = {}, {}
     local function put(name, value)
-        if not jar_map[name] then order[#order + 1] = name end
+        -- == nil, not `not`: a cookie deleted (false) and set again in the
+        -- same header must not be listed twice
+        if jar_map[name] == nil then order[#order + 1] = name end
         jar_map[name] = value
     end
     for name, value in (jar or ""):gmatch("([%w_%-%.]+)=([^;]*)") do
