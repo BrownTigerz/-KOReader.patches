@@ -2,7 +2,7 @@
 ReadMastery - Notification Style Patch
 =======================================
 
-Version: 1.0.1
+Version: 1.0.3
 
 Drop this file, unmodified plugin included, into your KOReader
 `patches/` folder:
@@ -76,6 +76,16 @@ All settings are stored in their own file
 ReadMastery's own data file.
 
 Changelog:
+  1.0.3 (2026-10-11) - Shared notification contract v1: publishes
+    _G.__readmastery_note(text, timeout) on successful install, so
+    other patches can show a status note in the user's chosen style
+    (Banner with configured position, timeout overriding duration;
+    Compact/Full fall through to the CompactBox modal, same as
+    dispatch()). Not gated on the Notifications toggle - fires
+    whenever the patch is installed. Returns true when shown.
+  1.0.2 (2026-10-09) - Restored the one-shot guard on the achievement
+    detail popup's close hook, so a double onCloseWidget fire (tap plus
+    a second close path) can't reopen the achievements list twice.
   1.0.1 (2026-10-02) - Full style now always delegates streak-milestone
     notifications to the real plugin, even for milestone days this file
     doesn't have hardcoded itself (previously these were silently
@@ -117,7 +127,7 @@ local Screen = Device.screen
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.1"
+local PATCH_VERSION = "1.0.3"
 
 -- =================================================================
 -- Settings (own file - ReadMastery's own data.json is never touched)
@@ -587,13 +597,14 @@ end
 -- rather than let an unbounded backlog pile up.
 local MAX_QUEUE = 15
 
-local function enqueue(kind, title, text, ascii_art)
+local function enqueue(kind, title, text, ascii_art, duration_override)
     if #notify_queue >= MAX_QUEUE then
         table.remove(notify_queue, 1)
     end
     table.insert(notify_queue, {
         kind = kind, title = title, text = text, ascii_art = ascii_art,
-        duration = Notify.duration, position = Notify.position, font_path = Notify.font_path,
+        duration = duration_override or Notify.duration,
+        position = Notify.position, font_path = Notify.font_path,
     })
     showNextQueued()
 end
@@ -641,6 +652,26 @@ local function render(title, text, ascii_art)
     dispatch(title, text, ascii_art)
 end
 
+-- Shared notification contract v1: a generic entry point other
+-- patches call to show a plain status note in the user's chosen
+-- style. Deliberately NOT gated on Notify.enabled (unlike render()
+-- above) - this is a shared provider, not achievement spam: it fires
+-- whenever this patch is installed. Consumers call it defensively
+-- (type check + pcall) and only when a higher-priority provider
+-- didn't handle the note, so patch load order doesn't matter.
+-- Style mapping matches dispatch()'s fall-through: "banner" shows
+-- the Banner toast (configured position; timeout overrides the
+-- configured duration when given), anything else ("compact", "full")
+-- shows the CompactBox modal. Returns true when the note was
+-- accepted for display (shown immediately when the queue is idle,
+-- otherwise in order behind what's already showing).
+local function sharedNote(text, timeout)
+    if type(text) ~= "string" or text == "" then return false end
+    local kind = (Notify.style == "banner") and "banner" or "compact"
+    enqueue(kind, nil, text, nil, timeout)
+    return true
+end
+
 -- Small bridge so other patches (e.g. the quest-engine patch) can
 -- reuse this same styled + queued render pipeline instead of
 -- building their own separate notification look. Safe no-op for
@@ -685,8 +716,11 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         local popup = UIManager:getTopmostVisibleWidget()
         if popup then
             local orig_popup_close = popup.onCloseWidget
+            local chained = false
             popup.onCloseWidget = function(popup_self, ...)
                 if orig_popup_close then orig_popup_close(popup_self, ...) end
+                if chained then return end
+                chained = true
                 self:show()
             end
         end
@@ -977,6 +1011,9 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
     -- above throws, this stays false so the next plugin instantiation
     -- can retry instead of permanently skipping setup.
     classes_patched = true
+    -- Shared notification contract v1: published only on successful
+    -- install, so consumers never see a half-installed provider.
+    _G.__readmastery_note = sharedNote
     logger.info("ReadMastery Notify patch v" .. PATCH_VERSION .. " loaded")
 
     end) -- pcall
