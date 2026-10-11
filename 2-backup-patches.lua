@@ -1,10 +1,10 @@
 --[[
-2-backup-patches.lua                                     2.1.0 (2026-10-03)
+2-backup-patches.lua                                     2.1.2 (2026-10-11)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
 Tested with
-  backup.koplugin   26.9.28.3 (stable, no icons), 26.9.29-beta, 26.9.30-beta
+  backup.koplugin   26.10.8 (stable); earlier 26.9.28.3, 26.9.29/30-beta
   SimpleUI          simpleui.koplugin, 2026-09-30 (9492046)
   ShelfSync         Lyfts/ShelfSync, 2026-09-30 (a8a5c4a)
 Recheck after a major update to any of these: this patch relies on how they
@@ -32,7 +32,8 @@ Back up now       The target's settings, any settings files it keeps in
 Restore           Puts settings and files back, unpacks the icons into the
                   target's icon folder and points the settings there. Takes
                   a "before restore" backup first, then asks to restart.
-                  "Restore latest" skips the automatic safety backups.
+                  "Restore latest" picks your newest backup, never one of
+                  the automatic safety backups.
 
 Tidy icons        Copies every icon a target uses into its own folder, flat
                   (koreader/icons/<target>/; SimpleUI: its sui_icons/), and
@@ -85,6 +86,18 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.1.2  2026-10-11
+    - Result notes use the shared notification contract v1: Network Tweaks'
+      note first, then ReadMastery's, then the KOReader popup.
+  2.1.1  2026-10-09
+    - Device backups: a settings file holding logins that can't be read is
+      left out instead of going in whole; entry names starting "./" are
+      handled. The icon and logins handling only applies to the backup
+      being made, never to another file the plugin writes meanwhile.
+    - Per-target backups list only the icons that made it into the zip;
+      restore ignores icon names in a backup that aren't plain file names.
+    - Menu hook skips a menu it can't hook instead of failing.
+    - Tested with backup.koplugin 26.10.8 (stable, with icons).
   2.1.0  2026-10-03
     - Results (backed up, deleted) follow Network Tweaks' notification
       style: Banner, Minimal corner note, or Normal popup. Questions,
@@ -103,7 +116,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.1.0"
+local VERSION = "2.1.2"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -204,6 +217,13 @@ local function writeFile(path, data)
     f:write(data)
     f:close()
     return true
+end
+
+-- An icon file name from a backup's manifest: a plain name, never a path.
+-- (Spaces are fine; "SSH Server.svg" is a real one.)
+local function safeIconName(name)
+    return type(name) == "string" and name ~= "" and name ~= "." and name ~= ".."
+        and not name:find("[/\\%z]")
 end
 
 -- settings file names only (no folders, no "..") - they live in SETTINGS_DIR
@@ -397,28 +417,36 @@ local function makeBackup(target, tag)
         files = files, -- settings files, stored under files/
     }
 
-    local ok_d, manifest_src = pcall(dump, manifest)
-    if not ok_d then
-        logger.warn("backup_patches: could not serialise settings for", target.id, manifest_src)
-        return nil, _("Could not read these settings.")
-    end
-
     util.makePath(targetDir(target))
     local path = string.format("%s/%s_%s%s.zip", targetDir(target), target.id,
         os.date("%Y-%m-%d_%H%M%S"), tag and ("_" .. tag) or "")
 
     local w = Archiver.Writer:new()
     if not w:open(path, "zip") then return nil, w.err or _("Could not create zip.") end
-    local count = 0
-    local ok = w:addFileFromMemory(MANIFEST, "return " .. manifest_src)
+    -- Icons first: only the ones actually in the zip go in the manifest, so
+    -- a restore never expects an icon that isn't there.
+    local count, added = 0, {}
     for name, orig in pairs(icons) do
         local data = readFile(orig)
-        if data and w:addFileFromMemory("icons/" .. name, data) then count = count + 1 end
+        if data and w:addFileFromMemory("icons/" .. name, data) then
+            count = count + 1
+            added[name] = orig
+        end
     end
+    manifest.icons = added
+    local ok = true
     for _i, name in ipairs(files) do
         local data = readFile(SETTINGS_DIR .. "/" .. name)
         if not (data and w:addFileFromMemory("files/" .. name, data)) then ok = false end
     end
+    local ok_d, manifest_src = pcall(dump, manifest)
+    if not ok_d then
+        logger.warn("backup_patches: could not serialise settings for", target.id, manifest_src)
+        w:close()
+        os.remove(path)
+        return nil, _("Could not read these settings.")
+    end
+    if not w:addFileFromMemory(MANIFEST, "return " .. manifest_src) then ok = false end
     w:close()
     if not ok then
         os.remove(path)
@@ -457,7 +485,7 @@ local function restoreBackup(target, zip_path)
     local remap, count = {}, 0
     if next(manifest.icons or {}) then util.makePath(target.icon_dir) end
     for name, orig in pairs(manifest.icons or {}) do
-        local data = r:extractToMemory("icons/" .. name)
+        local data = safeIconName(name) and r:extractToMemory("icons/" .. name)
         local dest = target.icon_dir .. "/" .. name
         if data and writeFile(dest, data) then
             remap[orig] = dest
@@ -676,40 +704,33 @@ Backup.findUnusedIcons = findUnusedIcons
 -- Menu
 -- --------------------------------------------------------------------------
 
--- Notes in the Network Tweaks style (same approach as ShelfSync tweaks):
--- Banner = top banner, Minimal = small corner note that stacks with Network
--- Tweaks' own, Normal (or Network Tweaks not installed) = KOReader popup.
--- Used for results only: questions, restart prompts and failures stay
--- popups, since those need reading or a decision.
-local function noteStyle()
-    local NetworkMgr = package.loaded["ui/network/manager"]
-    if type(NetworkMgr) ~= "table" or not NetworkMgr.__network_tweaks then return "normal" end
-    local t = G_reader_settings:readSetting("network_tweaks") or {}
-    local style = t.connect_style
-    if style == "normal" or style == "silent" or style == "banner" then return style end
-    if t.quiet_connect == false then return "normal" end
-    if t.quiet_toast == false then return "silent" end
-    return "banner"
+-- Shared notification contract v1: result notes go through Network Tweaks'
+-- note first, then ReadMastery's, then a KOReader popup. Checks run at call
+-- time, so patch load order doesn't matter. Used for results only:
+-- questions, restart prompts and failures stay popups, since those need
+-- reading or a decision.
+local function shared_note(banner_text, minimal_text, timeout)
+    local Device = require("device")
+    if Device.screen_saver_mode then return true end -- never over the sleep screen
+    local NetworkMgr = require("ui/network/manager")
+    if type(NetworkMgr.__network_tweaks_note) == "function" then
+        local ok, handled = pcall(NetworkMgr.__network_tweaks_note, banner_text, minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    local rm = _G.__readmastery_note
+    if type(rm) == "function" then
+        local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    return false
 end
 
--- banner_text: Banner style and the Normal popup. minimal_text: Minimal.
+-- banner_text: the KOReader popup when no shared note handles it.
+-- minimal_text: the shorter text the shared notes prefer.
 local function styledNote(banner_text, minimal_text, timeout)
-    local UIManager = require("ui/uimanager")
-    if require("device").screen_saver_mode then return end
     timeout = timeout or 2
-    local style = noteStyle()
-    if style ~= "normal" then
-        local shared = package.loaded["ui/network/manager"].__network_tweaks_note
-        if type(shared) == "function"
-                and pcall(shared, banner_text, minimal_text or banner_text, timeout) then
-            return
-        end
-        UIManager:show(require("ui/widget/notification"):new{
-            text = style == "silent" and (minimal_text or banner_text) or banner_text,
-            timeout = timeout,
-        })
-        return
-    end
+    if shared_note(banner_text, minimal_text, timeout) then return end
+    local UIManager = require("ui/uimanager")
     UIManager:show(require("ui/widget/infomessage"):new{ text = banner_text, timeout = timeout + 1 })
 end
 
@@ -1075,7 +1096,10 @@ end
 
 local function hookMenu(module_path)
     local ok, Menu = pcall(require, module_path)
-    if not ok or Menu.__backup_patches_hooked then return end
+    if not ok or type(Menu) ~= "table" or Menu.__backup_patches_hooked
+            or type(Menu.setUpdateItemTable) ~= "function" then
+        return
+    end
     Menu.__backup_patches_hooked = true
     local orig = Menu.setUpdateItemTable
     Menu.setUpdateItemTable = function(self, ...)
@@ -1200,6 +1224,7 @@ local function hookArchiver(Arch)
             end
         end
         pending = {
+            path = options and options.archive_path,
             plan = plan,
             strip = not (G_reader_settings and G_reader_settings:isTrue(LOGINS_SETTING)),
         }
@@ -1209,12 +1234,13 @@ local function hookArchiver(Arch)
         return unpack(res, 2, res.n)
     end
 
-    -- createBackup opens exactly one writer. The rollback snapshot opens its
-    -- own outside createBackup, so it stays complete (it never leaves the
-    -- device, and Undo has to put the logins back too).
-    Arch.createWriter = function(...)
-        local w, err = orig_writer(...)
+    -- The job goes to the writer for this backup's own file only. Any other
+    -- writer (the plugin's rollback snapshot, which never leaves the device
+    -- and must keep logins for Undo) is left alone, whenever it's opened.
+    Arch.createWriter = function(filepath, ...)
+        local w, err = orig_writer(filepath, ...)
         local job = pending
+        if not job or (job.path and filepath ~= job.path) then return w, err end
         pending = nil
         if not w or not job then return w, err end
         local dump = require("dump")
@@ -1223,15 +1249,21 @@ local function hookArchiver(Arch)
             local orig_add = w.addDisk
             local left_out = 0
             w.addDisk = function(self, entry, disk, ...)
-                local rel = type(entry) == "string" and entry:match("^settings/(.+)$")
+                local rel = type(entry) == "string" and entry:gsub("^%./", ""):match("^settings/(.+)$")
                 if rel then
                     if isSecretFile(rel) then
                         left_out = left_out + 1
                         return false -- not added, not counted
                     end
                     local keys = Backup.secrets.keys[rel]
-                    local data = keys and loadLuaFile(disk)
-                    if data then
+                    if keys then
+                        local data = loadLuaFile(disk)
+                        if not data then
+                            -- Can't strip what can't be read: leave it out.
+                            logger.warn("backup_patches: couldn't read", rel, "- left out of device backup")
+                            left_out = left_out + 1
+                            return false
+                        end
                         for k in pairs(keys) do data[k] = nil end
                         return self:addMemory(entry, "-- backup_patches: logins removed\nreturn " .. dump(data))
                     end
