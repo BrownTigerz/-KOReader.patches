@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.1
+Version: 1.0.3
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -37,9 +37,19 @@ Changelog:
                      group lists tracked per menu; labels computed once when
                      sorting; full traceback in crash.log on sort errors;
                      version logged on startup and exposed as TM.version.
+  1.0.2  2026-10-09  A patch entry with a bad label or order can no longer
+                     turn off the whole Add-ons menu; a patch entry whose menu
+                     fails to build stays in "Choose what's in Add-ons" (marked
+                     Error) so you can turn it off; patch entries that only
+                     set text_func no longer show as "nil" in the chooser.
+  1.0.3  2026-10-11  Shared notification contract v1: status notes (new add-on
+                     notices, the restart reminder fallback) first try Network
+                     Tweaks' then ReadMastery's notification style, falling
+                     back to this patch's own; nothing is shown over the sleep
+                     screen. Menus and dialogs untouched.
 ]]
 
-local PATCH_VERSION = "1.0.1"
+local PATCH_VERSION = "1.0.3"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -173,6 +183,28 @@ local seen_groups = {}
 
 local function pack(...) return { n = select("#", ...), ... } end
 
+-- Shared notification contract v1: user-facing status notes first try the
+-- installed patches' styles (Network Tweaks, then ReadMastery notify),
+-- falling back to this patch's own default at each call site. Checked at
+-- call time, so patch load order doesn't matter. Returns true when the note
+-- was handled (or deliberately hidden, e.g. over the sleep screen).
+local function shared_note(banner_text, minimal_text, timeout)
+    local okd, Device = pcall(require, "device")
+    if okd and Device.screen_saver_mode then return true end -- never over the sleep screen
+    local okn, NetworkMgr = pcall(require, "ui/network/manager")
+    if okn and type(NetworkMgr) == "table"
+        and type(NetworkMgr.__network_tweaks_note) == "function" then
+        local ok, handled = pcall(NetworkMgr.__network_tweaks_note, banner_text, minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    local rm = _G.__readmastery_note
+    if type(rm) == "function" then
+        local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
+        if ok and handled then return true end
+    end
+    return false
+end
+
 -- ---- "Choose what's in Add-ons" ---------------------------------------------------
 -- KOReader builds its main menu once per file browser / book and can't safely
 -- rebuild it in place (the base entries are used up by the first build), so a
@@ -184,7 +216,11 @@ local function askRestart()
         UIManager:askForRestart(_("Restart KOReader to apply your Add-ons choices."))
     else
         local okm, InfoMessage = pcall(require, "ui/widget/infomessage")
-        if okm then UIManager:show(InfoMessage:new{ text = _("Restart KOReader to apply.") }) end
+        if okm then
+            if not shared_note(_("Restart KOReader to apply."), _("Restart to apply")) then
+                UIManager:show(InfoMessage:new{ text = _("Restart KOReader to apply.") })
+            end
+        end
     end
 end
 
@@ -292,23 +328,29 @@ local function itemLabel(item, id)
 end
 
 -- patch entries, sorted: { { id = ..., item = ... }, ... }
+-- A bad entry (odd text/order, failing build) only affects itself.
 local function buildEntries(where)
     local list = {}
     for id, e in pairs(TM.entries) do
-        if type(e) == "table" and type(e.build) == "function"
+        if type(id) == "string" and type(e) == "table" and type(e.build) == "function"
            and (e.where == nil or e.where == where) then
+            local order = tonumber(e.order) or 100
+            local named = type(e.text) == "string"
+            local label = named and e.text or id
             if excluded["patch:" .. id] then
                 -- turned off: listed in the chooser only, not built
-                list[#list + 1] = { id = id, order = e.order or 100, text = e.text or id, off = true }
+                list[#list + 1] = { id = id, order = order, text = label, off = true }
             else
                 -- one broken patch must not take the whole menu (or KOReader) down
                 local ok, item = pcall(e.build, where)
                 if ok and type(item) == "table" then
-                    if not item.text and not item.text_func then item.text = e.text or id end
-                    list[#list + 1] = { id = id, order = e.order or 100,
-                                        text = e.text or tostring(item.text), item = item }
-                elseif not ok then
-                    logger.warn(TAG, "menu build failed for", id, item)
+                    if not item.text and not item.text_func then item.text = label end
+                    list[#list + 1] = { id = id, order = order, item = item,
+                                        text = named and label or itemLabel(item, id) }
+                else
+                    logger.warn(TAG, "menu build failed for", id, ok and "build() returned no menu item" or item)
+                    -- still listed in the chooser (marked), so it can be turned off
+                    list[#list + 1] = { id = id, order = order, text = label, broken = true }
                 end
             end
         end
@@ -353,9 +395,9 @@ local function inject(where, items, order)
     -- Every candidate in its default order: { key, id, label, group }
     local OTHER, PATCHES = _("Other"), _("Patches")
     local cands = {}
-    local function add(key, id, label, group)
+    local function add(key, id, label, group, broken)
         claimed[id] = true
-        cands[#cands + 1] = { key = key, id = id, label = label, default = group }
+        cands[#cands + 1] = { key = key, id = id, label = label, default = group, broken = broken }
     end
     for _i, g in ipairs(PLUGINS) do
         for _j, id in ipairs(g) do
@@ -437,10 +479,12 @@ local function inject(where, items, order)
         if #fresh > 0 then
             local names = {}
             for _i, id in ipairs(fresh) do names[#names + 1] = labels[id] end
-            local ok, Notification = pcall(require, "ui/widget/notification")
-            if ok and type(Notification) == "table" and Notification.notify then
-                pcall(Notification.notify, Notification,
-                    (#fresh == 1 and _("New add-on: ") or _("New add-ons: ")) .. table.concat(names, ", "))
+            local text = (#fresh == 1 and _("New add-on: ") or _("New add-ons: ")) .. table.concat(names, ", ")
+            if not shared_note(text, _("New add-on(s)")) then
+                local ok, Notification = pcall(require, "ui/widget/notification")
+                if ok and type(Notification) == "table" and Notification.notify then
+                    pcall(Notification.notify, Notification, text)
+                end
             end
         end
     end
@@ -452,7 +496,7 @@ local function inject(where, items, order)
     for _i, e in ipairs(buildEntries(where)) do
         local cid = ENTRY_ID .. "p:" .. e.id
         items[cid] = e.item
-        add("patch:" .. e.id, cid, e.text, PATCHES)
+        add("patch:" .. e.id, cid, e.text, PATCHES, e.broken)
     end
 
     -- groups in display order; a group chosen by hold must be one of them
@@ -480,8 +524,9 @@ local function inject(where, items, order)
     for _i, name in ipairs(names) do
         local ids = {}
         for _j, c in ipairs(buckets[name] or {}) do
-            found[#found + 1] = { key = c.key, label = c.label, header = name, default = c.default }
-            if not excluded[c.key] then
+            found[#found + 1] = { key = c.key, header = name, default = c.default,
+                                  label = c.broken and (c.label .. "  • " .. _("Error")) or c.label }
+            if not excluded[c.key] and not c.broken then
                 moved[c.id] = true
                 ids[#ids + 1] = c.id
             end
