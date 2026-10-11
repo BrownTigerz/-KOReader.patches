@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.7.3
+Version: 1.8.1
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -60,96 +60,31 @@ Menu: Settings (gear) → Network → Network Tweaks
     or tap the Wi-Fi toggle (toolbar/gesture) again. A connect in progress
     is also cancelled when the device goes to sleep.
 
-Changelog
-  1.7.3  Network list fixes from the diagnostics log:
-         - Cancelling the scan left the "Scanning… tap to cancel" banner
-           stuck on screen for good (taps on it did nothing after that).
-         - The scan waited ~11s more than needed: results were ready in
-           about 1s, but a "no saved network found" event that follows
-           every scan made it keep waiting. It now finishes on the first
-           results event.
-         - The list shows the best 12 networks, then "More networks (N)…";
-           building every row froze the screen ~0.6-0.9s. Tapping a
-           network opens its options on top of the list, so Back no
-           longer rebuilds the list.
-  1.7.2  Timing trace removed again: it lives in a separate, temporary
-         2-zz-network-tweaks-diagnostics.lua instead.
-  1.7.1  Fix: with Wi-Fi off, the network list froze the screen while Wi-Fi
-         powered up (the scanning banner couldn't be tapped, and it could
-         hang there). Powering up now runs in the background and is
-         cancellable too.
-  1.7.0  Own network list (Choose network, toolbar Wi-Fi hold): the scan no
-         longer freezes the screen and can be cancelled (tap the banner /
-         corner note, or the popup in Normal). Networks show Connected,
-         Saved, Saved · away or Open; tap one for Reconnect / Edit password /
-         Forget / Disconnect. Forget all saved, Rescan and Close at the
-         bottom. Connecting uses one styled message instead of the stock
-         popups (Minimal / Banner). Saved networks submenu removed (it's in
-         the list now).
-  1.6.2  Choose network (and the toolbar Wi-Fi hold) never connects on its
-         own. With Wi-Fi off (Kobo), the radio comes up without joining any
-         saved network, the list opens, and if you close it without picking
-         one, Wi-Fi goes back off. Replaces 1.6.1's connect-then-list.
-  1.6.1  Choose network (and the toolbar Wi-Fi hold) follows the
-         notification style: with Wi-Fi off it connects in the background
-         with the banner / corner note, then shows the list, instead of
-         KOReader's "Turning on Wi-Fi…" / "Connected to…" popups. The
-         "Scanning…" message follows the style too.
-  1.6.0  Menu reorganised: SSH toggles, Choose network…, Saved networks
-         (forget one, or clear all), Notifications submenu. "Cancel Wi-Fi
-         connection" only shows while a background connect is running.
-         Choose network is shared as NetworkMgr.__network_tweaks_choose_network
-         (for a toolbar hold action).
-  1.5.2  SSH start/stop in Minimal and Banner no longer builds the SSH
-         plugin's popup (icon render, text layout) only to throw it away.
-         Internal: note() and the shared hook are one function.
-  1.5.1  Other patches can show notes in the chosen style
-         (NetworkMgr.__network_tweaks_note). ShelfSync tweaks uses it for
-         its sync messages, and its corner notes stack with these instead
-         of overlapping.
-  1.5.0  Fix: cancelling a background connect didn't stop it. KOReader
-         kills the restore script by a name the system truncates, so it
-         never matched and the connect carried on (more obvious once the
-         network was known and connected fast). The connect scripts are
-         now stopped properly before Wi-Fi is powered down. "Start SSH"
-         becomes "SSH follows Wi-Fi": Wi-Fi off also turns SSH off, with
-         one combined note. Toolbar indicators are told after Wi-Fi off
-         and cancel. No notes drawn over the sleep screen. Menu renamed
-         Network Tweaks.
-  1.4.2  Fix: SSH failed to stop ("dropbear process did not exit"), on
-         sleep and when toggling it off. KOReader's SSH plugin waits for
-         dropbear with a sleep that rounds 0.1s down to nothing, so it gave
-         up instantly. Replaced with a stop that really waits (also treats
-         an unreaped zombie as stopped).
-  1.4.1  Fix: SSH could stay on through sleep. KOReader stops delivering
-         the sleep event inside a screen as soon as one module or plugin
-         claims it, so depending on installed plugins the SSH plugin never
-         heard about it. Sleep is now caught where it's sent. Toolbar
-         indicators are told after waking. Version line removed from the
-         menu (it's in crash.log on startup).
-  1.4.0  Fix: with "Start SSH" on, the automatic Wi-Fi reconnect on wake
-         restarted SSH right after it was stopped for sleep. It now only
-         follows a Wi-Fi connect you asked for. Sleep logs SSH state.
-         Calibre wireless connection: connected / disconnected notes in
-         the chosen style (stock shows nothing on connect). Server-side
-         disconnect popups replaced outside Normal. Sends a state-changed
-         event so toolbar indicators update right away (Icon Tweaks 1.9.0).
-  1.3.0  Notification style covers SSH and turning Wi-Fi off too. Silent
-         becomes Minimal: small corner notes, top right. Banner shows the
-         SSH address and port. SSH's 10s popup and the "Turning off
-         Wi-Fi…" / "Wi-Fi off." popups are replaced outside Normal.
-  1.2.0  Failure note is tappable: opens the normal connect flow with the
-         network list. Normal flow is used straight away when the device
-         has no saved networks to reconnect to (Kobo). Connected note
-         names the network. New option: start SSH when Wi-Fi connects.
-         Shows in Tools → Add-ons when 2-tweaks-menu.lua is installed.
-  1.1.1  Silent style now shows the failure note too.
-  1.1.0  Connect style choice (Normal / Silent / Banner). Cancel a
-         background connect. Cancel on sleep.
-  1.0.0  First release. Replaces ssh-stop-on-sleep 1.1.0.
+Changelog (condensed; full history in the patches repo)
+  1.8.1  Shared notification contract v1: note() returns whether it handled
+         the note — true for banner/corner/sleep-suppressed, false for Normal
+         so the caller shows its own default popup.
+  1.8.0  Tidy-up: changelog condensed. "No known network · tap to choose
+         one" opens Network Tweaks' own network list.
+  1.7.x  Own network list: scans without freezing and can be cancelled;
+         Connected / Saved / Join / Open, per-network Reconnect, Edit
+         password, Forget, Disconnect; Forget all, Rescan, Close. Never
+         connects by itself. Fixes from on-device diagnostics: empty
+         list after power-up, hidden networks shown blank, wake reconnect
+         run twice, SSH address shown before Wi-Fi had one, tapping Wi-Fi
+         after Disconnect turning it off, dropped "then do X" requests.
+  1.6.x  Menu reorganised (SSH toggles, Choose network, Notifications
+         submenu). Shared NetworkMgr.__network_tweaks_choose_network.
+  1.5.x  Cancel really stops a background connect (KOReader's pkill
+         never matched). SSH follows Wi-Fi. Shared note style for other
+         patches (NetworkMgr.__network_tweaks_note).
+  1.4.x  Sleep caught where it's sent; SSH stop that actually waits
+         (KOReader's rounded 0.1s down to 0). Calibre notes.
+  1.0-1.3  SSH stop on sleep, background connect with Normal / Minimal /
+         Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.7.3"
+local PATCH_VERSION = "1.8.1"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -171,6 +106,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local ffiutil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
+local util = require("util")
 local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
@@ -297,14 +233,21 @@ end
 -- alone in Normal, and other patches show their own popup there.
 -- Shared with other patches (ShelfSync tweaks), so their notes use the same
 -- style and their corner notes stack with these instead of overlapping.
+-- Shared notification contract v1: returns true when the note was handled
+-- (banner or corner note shown, or suppressed over the sleep screen), false
+-- when the style is "normal" so the caller shows its own default popup.
+-- Existing callers ignore the return value.
 local function note(banner_text, minimal_text, timeout)
-    if Device.screen_saver_mode then return end -- never over the sleep screen
+    if Device.screen_saver_mode then return true end -- never over the sleep screen
     local style = connectStyle()
     if style == "banner" then
         flash(banner_text, timeout)
+        return true
     elseif style == "silent" then
         corner(minimal_text or banner_text, timeout)
+        return true
     end
+    return false
 end
 NetworkMgr.__network_tweaks_note = note
 
@@ -351,8 +294,10 @@ local function withoutPopups(fn, ...)
     local own_new = rawget(InfoMessage, "new") -- normally nil (inherited)
     InfoMessage.new = function(_cls, o) return setmetatable(o or {}, STUB_MT) end
     local orig_show, orig_close = UIManager.show, UIManager.close
+    -- Only the InfoMessages stubbed above are swallowed. Anything else
+    -- (a ConfirmBox, another patch's dialog) shows as normal.
     UIManager.show = function(um, widget, ...)
-        if type(widget) == "table" and widget.text and not widget.toast then
+        if type(widget) == "table" and widget.__nt_stub then
             if widget.icon == "notice-warning" then warned = true end
             return
         end
@@ -390,6 +335,7 @@ end
 
 local SSH_PID_FILE = "/tmp/dropbear_koreader.pid"
 local SSH_DEFAULT_PORT = 2222
+local ssh_ip_pending = false -- SSH on, its address not shown yet
 
 local function sshRunning()
     return lfs.attributes(SSH_PID_FILE, "mode") == "file"
@@ -421,6 +367,34 @@ local function localIPv4()
         return found
     end)
     return ok and ip or nil
+end
+
+-- Show "SSH on · address:port" once Wi-Fi has an IPv4 address. KOReader
+-- counts Wi-Fi as connected as soon as the interface has any address, which
+-- can come a moment before the IPv4 one (DHCP still finishing), so check
+-- once a second for up to 10s. One check at a time; stops early if SSH
+-- stops or the address shows up.
+local ADDR_TRIES = 10
+local addr_tick
+local function noteSSHAddress(port)
+    if addr_tick then UIManager:unschedule(addr_tick) end
+    local tries = 0
+    addr_tick = function()
+        tries = tries + 1
+        if not sshRunning() or Device.screen_saver_mode then addr_tick = nil return end
+        local ip = localIPv4()
+        if ip then
+            addr_tick = nil
+            if connectStyle() == "banner" then
+                note(_("SSH on · ") .. ip .. ":" .. port, nil, 4)
+            end
+        elseif tries < ADDR_TRIES then
+            UIManager:scheduleIn(1, addr_tick)
+        else
+            addr_tick = nil
+        end
+    end
+    UIManager:scheduleIn(1, addr_tick)
 end
 
 -- Upstream SSH:stopPlugin() waits for dropbear with ffiutil.sleep(0.1), but
@@ -456,9 +430,13 @@ local function stopDropbear(ssh, force)
         -- Never signal a PID that isn't dropbear (stale pid file, PID reuse).
         logger.warn("network-tweaks: stale SSH pid file, removed without signalling")
     elseif comm and not procGone(pid) then
+        -- children: also signal dropbear's children (the open sessions) first.
         local function send(sig, children)
-            os.execute(string.format("%skill -%s %d 2>/dev/null",
-                children and string.format("pkill -%s -P %d 2>/dev/null; ", sig, pid) or "", sig, pid))
+            local cmd = string.format("kill -%s %d 2>/dev/null", sig, pid)
+            if children then
+                cmd = string.format("pkill -%s -P %d 2>/dev/null; ", sig, pid) .. cmd
+            end
+            os.execute(cmd)
         end
         send("TERM", force)
         for _i = 1, 30 do -- up to 3s, usually done in well under 1s
@@ -512,6 +490,14 @@ userpatch.registerPatchPluginFunc("SSH", function(SSH)
             if ok and not warned then
                 local port = tostring(self.SSH_port or SSH_DEFAULT_PORT)
                 local ip = localIPv4()
+                -- No address yet (Wi-Fi off or still connecting): the note
+                -- with it is shown when Wi-Fi connects.
+                ssh_ip_pending = ip == nil
+                if ip == nil and NetworkMgr:isConnected() then
+                    -- Connected, IPv4 address still on its way.
+                    ssh_ip_pending = false
+                    noteSSHAddress(port)
+                end
                 logger.info("network-tweaks: SSH server started")
                 note(ip and (_("SSH on · ") .. ip .. ":" .. port) or (_("SSH on · port ") .. port),
                      _("SSH on"), 4)
@@ -526,12 +512,16 @@ userpatch.registerPatchPluginFunc("SSH", function(SSH)
     local orig_stop = SSH.stop
     if orig_stop then
         SSH.stop = function(self, ...)
+            ssh_ip_pending = false
+            if addr_tick then UIManager:unschedule(addr_tick); addr_tick = nil end
             if connectStyle() == "normal" then return orig_stop(self, ...) end
             local ok, err, warned = withoutPopups(orig_stop, self, ...)
-            if not ok then
+            if not ok or sshRunning() then
+                -- Threw, or dropbear is still there: it didn't stop.
                 logger.warn("network-tweaks: SSH stop failed:", err)
                 note(_("SSH server failed to stop"), _("SSH stop failed"), 3)
-            elseif warned or sshRunning() then
+            elseif warned then
+                -- Server stopped, but the plugin says sessions are still open.
                 note(_("SSH off · open sessions stay until closed"), _("SSH off (sessions open)"), 3)
             else
                 note(_("SSH off"), _("SSH off"))
@@ -540,18 +530,8 @@ userpatch.registerPatchPluginFunc("SSH", function(SSH)
         end
     end
 
-    local orig_connected = SSH.onNetworkConnected
-    SSH.onNetworkConnected = function(self, ...)
-        if sshStartOnConnect() and recentUserConnect() then
-            UIManager:nextTick(function()
-                if not sshRunning() and type(self.start) == "function" then
-                    local ok, err = pcall(self.start, self)
-                    if not ok then logger.warn("network-tweaks: SSH start on connect failed:", err) end
-                end
-            end)
-        end
-        if orig_connected then return orig_connected(self, ...) end
-    end
+    -- Wi-Fi connected (SSH address, SSH follows Wi-Fi) is handled where
+    -- the event is sent: see onWifiConnected at the end of this file.
 end)
 
 ---------------------------------------------------------------------------
@@ -737,7 +717,8 @@ local function failureNote()
         on_tap = function()
             UIManager:close(fail)
             UIManager:nextTick(function()
-                NetworkMgr:toggleWifiOn(nil, true, true) -- long-press: list
+                -- Network Tweaks' own list (defined further down).
+                NetworkMgr.__network_tweaks_choose_network()
             end)
         end,
     }
@@ -760,13 +741,24 @@ local function watch(attempt)
     UIManager:scheduleIn(WATCH_S, watch, attempt)
 end
 
+-- Returns true if it took the request: started a background connect, or
+-- joined the one already running (the callback then runs when that one
+-- succeeds). Returns false when a stock connect is in progress, so the
+-- caller falls back to KOReader's own flow, which knows how to wait for it.
+-- Callbacks only run on success: a cancel or failure drops them, like stock.
 local function quietConnect(callback)
-    if quiet or NetworkMgr.pending_connection then
-        logger.info("network-tweaks: connection attempt already in progress")
-        return
+    if quiet then
+        logger.info("network-tweaks: joining the connect already in progress")
+        if callback then table.insert(quiet.callbacks, callback) end
+        return true
+    end
+    if NetworkMgr.pending_connection then
+        logger.info("network-tweaks: stock connect in progress, leaving it to KOReader")
+        return false
     end
 
-    local attempt = { started = os.time(), style = connectStyle() }
+    local attempt = { started = os.time(), style = connectStyle(), callbacks = {} }
+    if callback then attempt.callbacks[1] = callback end
     quiet = attempt
     logger.info("network-tweaks: connecting Wi-Fi in the background (" .. attempt.style .. ")")
 
@@ -781,22 +773,33 @@ local function quietConnect(callback)
         UIManager:show(attempt.banner)
     end
 
-    NetworkMgr:restoreWifiAsync()
+    -- A reconnect already running (the automatic one after waking): take it
+    -- over instead of starting a second restore script next to it. Two at
+    -- once both load the driver and fight over wpa_supplicant.
+    if NetworkMgr.pending_connectivity_check then
+        logger.info("network-tweaks: taking over the reconnect already running")
+    else
+        NetworkMgr:restoreWifiAsync()
+    end
 
     if NetworkMgr.pending_connectivity_check then
         NetworkMgr:unscheduleConnectivityCheck()
     end
     -- Upstream check handles NetworkConnected, wifi_was_on and pending_connection.
     NetworkMgr:scheduleConnectivityCheck(function()
-        if quiet == attempt then
-            endQuiet()
-            local ssid = currentSSID()
-            note(ssid and (_("Connected to ") .. ssid) or _("Wi-Fi connected"), _("Wi-Fi connected"))
+        -- Cancelled or failed meanwhile: nothing runs.
+        if quiet ~= attempt then return end
+        endQuiet()
+        local ssid = currentSSID()
+        note(ssid and (_("Connected to ") .. ssid) or _("Wi-Fi connected"), _("Wi-Fi connected"))
+        for _i, cb in ipairs(attempt.callbacks) do
+            local ok, err = pcall(cb)
+            if not ok then logger.warn("network-tweaks: callback after connect failed:", err) end
         end
-        if callback then callback() end
     end)
 
     UIManager:scheduleIn(WATCH_S, watch, attempt)
+    return true
 end
 
 -- Turn Wi-Fi off without the "Turning off Wi-Fi…" / "Wi-Fi off." popups.
@@ -828,9 +831,20 @@ end
 local orig_abort = NetworkMgr._abortWifiConnection
 NetworkMgr._abortWifiConnection = function(self, ...)
     local attempt = quiet
+    local ok_c, was_connected = pcall(self.isConnected, self)
+    was_connected = ok_c and was_connected
     endQuiet()
     orig_abort(self, ...)
     if attempt then failureNote() end
+    -- KOReader's abort assumes Wi-Fi never connected, so it sends no
+    -- "disconnected" event. If it just tore down a working connection,
+    -- send it, so the toolbar, SSH follows Wi-Fi, Calibre etc. hear about it,
+    -- and log who called it (this shouldn't happen).
+    if was_connected and not self:isWifiOn() then
+        logger.warn("network-tweaks: a connection abort turned off working Wi-Fi",
+            debug.traceback("", 2))
+        UIManager:broadcastEvent(Event:new("NetworkDisconnected"))
+    end
 end
 
 local orig_disable = NetworkMgr.disableWifi
@@ -859,10 +873,9 @@ end
 -- Menu toggle and the "Turn on Wi-Fi?" prompt. Long-press keeps the list.
 local orig_toggle_on = NetworkMgr.toggleWifiOn
 NetworkMgr.toggleWifiOn = function(self, complete_callback, long_press, interactive)
-    if quiet then return end
     markUserConnect()
-    if not long_press and not self:isWifiOn() and canQuiet() then
-        return quietConnect(complete_callback)
+    if quiet or (not long_press and not self:isWifiOn() and canQuiet()) then
+        if quietConnect(complete_callback) then return end
     end
     return orig_toggle_on(self, complete_callback, long_press, interactive)
 end
@@ -879,15 +892,33 @@ end
 -- "Action when Wi-Fi is off: Turn on" (runWhenOnline & co.).
 local orig_wait = NetworkMgr.turnOnWifiAndWaitForConnection
 NetworkMgr.turnOnWifiAndWaitForConnection = function(self, callback)
-    if quiet then return end
     markUserConnect()
-    if not self:isWifiOn() and canQuiet() then
-        return quietConnect(callback)
+    if quiet or (not self:isWifiOn() and canQuiet()) then
+        if quietConnect(callback) then return end
     end
     return orig_wait(self, callback)
 end
 
 -- Toolbar / gesture actions. Toggle again while connecting = cancel.
+-- Radio on, nothing connected and nothing connecting (e.g. after Disconnect
+-- in the network list). Tapping Wi-Fi then means "connect", not "turn off".
+local function halfOn()
+    return NetworkMgr:isWifiOn() and not NetworkMgr:isConnected()
+        and not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check
+end
+
+-- Power down first so the reconnect starts clean: the radio may have had
+-- its networks switched off (network list) or the network removed
+-- (Disconnect), which a reconnect alone wouldn't undo.
+local function reconnectFromHalfOn()
+    logger.info("network-tweaks: Wi-Fi on but not connected, reconnecting")
+    markUserConnect()
+    NetworkMgr:disableWifi(nil, true)
+    UIManager:nextTick(function()
+        if not quietConnect() then NetworkMgr:toggleWifiOn(nil, false, true) end
+    end)
+end
+
 local ok_nl, NetworkListener = pcall(require, "ui/network/networklistener")
 if ok_nl and type(NetworkListener) == "table" then
     local orig_toggle = NetworkListener.onToggleWifi
@@ -896,7 +927,10 @@ if ok_nl and type(NetworkListener) == "table" then
             if quiet then cancelQuiet() return end
             if not NetworkMgr:isWifiOn() then
                 markUserConnect()
-                if canQuiet() then quietConnect() return end
+                if canQuiet() and quietConnect() then return end
+            elseif halfOn() and canQuiet() then
+                reconnectFromHalfOn()
+                return
             elseif connectStyle() ~= "normal" then
                 quietOff()
                 return
@@ -910,7 +944,8 @@ if ok_nl and type(NetworkListener) == "table" then
         NetworkListener.onInfoWifiOn = function(self, ...)
             if quiet then return end
             markUserConnect()
-            if not NetworkMgr:isWifiOn() and canQuiet() then quietConnect() return end
+            if not NetworkMgr:isWifiOn() and canQuiet() and quietConnect() then return end
+            if halfOn() and canQuiet() then reconnectFromHalfOn() return end
             return orig_info_on(self, ...)
         end
     end
@@ -1023,7 +1058,11 @@ local function scanAsync(on_done)
     local ctrl = wpaCtrl()
     local ok_w, WpaClient = pcall(require, "lj-wpaclient/wpaclient")
     if not (ctrl and ok_w) then
-        UIManager:nextTick(function() on_done(NetworkMgr:getNetworkList()) end)
+        -- Stock list: SSIDs already decoded.
+        UIManager:nextTick(function()
+            local list, e = NetworkMgr:getNetworkList()
+            on_done(list, e, { decoded = true })
+        end)
         return function() end
     end
     local wcli, err = WpaClient.new(ctrl)
@@ -1034,15 +1073,24 @@ local function scanAsync(on_done)
 
     local cancelled, finished = false, false
     local tick
-    local function finish(results, e)
+    local function finish(results, e, how)
         if finished then return end
         finished = true
         UIManager:unschedule(tick)
         pcall(wcli.close, wcli)
-        if not cancelled then on_done(results, e) end
+        if not cancelled then on_done(results, e, how) end
     end
+    -- Read the list the way KOReader does: drain pending events and stop
+    -- listening first. Asking while still attached, with a burst of
+    -- "access point found" events arriving, can hand the list to the wrong
+    -- reply: it came back empty ("No networks found").
     local function results()
+        pcall(wcli.readAllEvents, wcli, {})
+        pcall(wcli.detach, wcli)
         local ok, res, e = pcall(wcli.getScanResults, wcli)
+        if ok and type(res) == "table" and #res == 0 then
+            ok, res, e = pcall(wcli.getScanResults, wcli) -- once more
+        end
         if ok then return res, e end
         return nil, res
     end
@@ -1065,7 +1113,11 @@ local function scanAsync(on_done)
         for _i, ev in ipairs(evs) do
             if ev.msg == "CTRL-EVENT-SCAN-RESULTS" then return finish(results()) end
         end
-        if ticks >= SCAN_MAX_TICKS then return finish(results()) end
+        if ticks >= SCAN_MAX_TICKS then
+            -- No results event: what's there may be from an older scan.
+            local res, e = results()
+            return finish(res, e, { stale = true })
+        end
         UIManager:scheduleIn(SCAN_TICK_S, tick)
     end
     UIManager:scheduleIn(SCAN_TICK_S, tick)
@@ -1075,21 +1127,31 @@ end
 -- One entry per SSID (strongest access point), with saved/connected state.
 -- Connected first, then saved, then by signal; saved networks that aren't
 -- in range go last so they can still be forgotten.
-local function buildList(results)
+local function buildList(results, decoded)
     local saved = savedNetworks()
     local cur
     local ok_c, c = pcall(NetworkMgr.getCurrentNetwork, NetworkMgr)
     if ok_c and type(c) == "table" and c.ssid then cur = c end
-    local cur_ssid = cur and decodeSSID(cur.ssid)
+    -- NetworkMgr:getCurrentNetwork already decodes the SSID; raw scan
+    -- results (straight from wpa_supplicant) don't.
+    local cur_ssid = cur and cur.ssid
 
     local best, list = {}, {}
     for _i, r in ipairs(results or {}) do
-        local ssid = r.ssid and decodeSSID(r.ssid) or ""
-        if ssid ~= "" then
+        local ssid = r.ssid and (decoded and r.ssid or decodeSSID(r.ssid)) or ""
+        -- Hidden networks broadcast no name, or one made of zero bytes the
+        -- length of the real name: those showed as blank rows. They can't be
+        -- joined by tapping anyway, so they're left out.
+        local shown = ssid:gsub("%z", "")
+        if shown:find("%S") then
             local q = (r.getSignalQuality and r:getSignalQuality()) or r.signal_quality or 0
             local e = best[ssid]
             if not e or q > e.signal_quality then
                 r.ssid, r.signal_quality, r.flags = ssid, q, r.flags or ""
+                -- Names that aren't valid UTF-8 get a replacement mark
+                -- instead of drawing as nothing. Display only: the real
+                -- name is kept for connecting.
+                r.display = util.fixUtf8(shown, "?")
                 best[ssid] = r
             end
         end
@@ -1130,6 +1192,11 @@ local function finishPicker(state)
         logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
         os.execute("pkill -TERM -f '[e]nable-wifi.sh' 2>/dev/null")
         UIManager:nextTick(function() NetworkMgr:disableWifi(nil, true) end)
+    elseif state.disconnected and not state.picked and not NetworkMgr:isConnected() then
+        -- Disconnected here and didn't pick another: don't leave the radio
+        -- on with nothing connected (the toolbar would show Wi-Fi as on).
+        logger.info("network-tweaks: list closed after a disconnect, Wi-Fi off")
+        UIManager:nextTick(function() quietOff() end)
     end
 end
 
@@ -1173,8 +1240,13 @@ local function connectTo(state, nw)
     end
 
     local info = progress(_("Obtaining IP address…"))
-    NetworkMgr:obtainIP()
+    local ok_ip, ip_err = pcall(NetworkMgr.obtainIP, NetworkMgr)
     UIManager:close(info)
+    if not ok_ip then
+        logger.warn("network-tweaks: couldn't get an IP address:", ip_err)
+        note(_("Couldn't get an IP address"), _("No IP address"), 3)
+        return showPicker(state)
+    end
     nw.connected = true
     state.picked = true
     logger.info("network-tweaks: connected to", nw.ssid, "from the network list")
@@ -1208,7 +1280,7 @@ local function askPassword(state, nw, saved)
         connectTo(state, nw)
     end
     dlg = InputDialog:new{
-        title = nw.ssid,
+        title = nw.display or nw.ssid,
         input = saved and nw.password or "",
         input_hint = _("password (leave empty for open networks)"),
         input_type = "text",
@@ -1242,9 +1314,18 @@ local function networkActions(state, nw)
     local buttons = {}
     if nw.connected then
         table.insert(buttons, row(_("Disconnect"), function()
-            pcall(NetworkMgr.disconnectNetwork, NetworkMgr, nw)
+            local ok, _r, err = pcall(NetworkMgr.disconnectNetwork, NetworkMgr, nw)
+            if not ok then err = _r end
+            -- Check rather than trust: upstream does nothing without an id.
+            local okc, cur = pcall(NetworkMgr.getCurrentNetwork, NetworkMgr)
+            if okc and type(cur) == "table" and cur.ssid == nw.ssid then
+                logger.warn("network-tweaks: disconnect from", nw.ssid, "didn't take:", err)
+                note(_("Couldn't disconnect"), _("Disconnect failed"), 3)
+                return showPicker(state)
+            end
             pcall(NetworkMgr.releaseIP, NetworkMgr)
             nw.connected = nil
+            state.disconnected = true
             stateChanged()
             showPicker(state)
         end))
@@ -1273,7 +1354,7 @@ local function networkActions(state, nw)
     end
     table.insert(buttons, {{ text = _("Back"), callback = back }})
     dlg = ButtonDialog:new{
-        title = nw.ssid,
+        title = nw.display or nw.ssid,
         title_align = "center",
         buttons = buttons,
     }
@@ -1302,7 +1383,7 @@ showPicker = function(state)
         else status = _("Join") end
         local function tap() networkActions(state, nw) end
         table.insert(buttons, {
-            { text = nw.ssid, align = "left", callback = tap },
+            { text = nw.display or nw.ssid, align = "left", callback = tap },
             { text = status, width = status_w, callback = tap },
         })
     end
@@ -1348,7 +1429,7 @@ showPicker = function(state)
         end },
     })
     dlg = ButtonDialog:new{
-        title = _("Wi-Fi networks"),
+        title = state.stale and _("Wi-Fi networks (last scan, may be out of date)") or _("Wi-Fi networks"),
         title_align = "center",
         buttons = buttons,
         rows_per_page = 14,
@@ -1377,11 +1458,12 @@ startScan = function(state)
 
     local function scan()
         if done then return end
-        cancel_step = scanAsync(function(results, err)
+        cancel_step = scanAsync(function(results, err, how)
+            how = how or {}
             if done then return end
             done = true
             UIManager:close(info)
-            if not results then
+            if not results or (how.stale and #results == 0) then
                 if connectStyle() == "normal" then
                     UIManager:show(InfoMessage:new{ text = err or _("Couldn't scan for networks"), timeout = 3 })
                 else
@@ -1389,7 +1471,8 @@ startScan = function(state)
                 end
                 return finishPicker(state)
             end
-            state.list = buildList(results)
+            state.list = buildList(results, how.decoded)
+            state.stale = how.stale
             showPicker(state)
         end)
     end
@@ -1569,6 +1652,24 @@ local function beforeSleep()
     end
 end
 
+-- Wi-Fi connected. Done here rather than in the SSH plugin's own handler:
+-- KOReader stops passing an event along inside a screen once a module or
+-- plugin says it handled it, so whether the SSH plugin heard about the
+-- connect depended on what else was installed (same as sleep, 1.4.1).
+local function onWifiConnected()
+    local ssh = sshInstance()
+    local port = tostring(ssh and ssh.SSH_port or SSH_DEFAULT_PORT)
+    if ssh_ip_pending and sshRunning() then
+        -- SSH was started before Wi-Fi had an address: show it once it does.
+        ssh_ip_pending = false
+        noteSSHAddress(port)
+    elseif sshStartOnConnect() and recentUserConnect() and not sshRunning()
+            and ssh and type(ssh.start) == "function" then
+        local ok, err = pcall(ssh.start, ssh)
+        if not ok then logger.warn("network-tweaks: SSH start on connect failed:", err) end
+    end
+end
+
 local orig_broadcast = UIManager.broadcastEvent
 UIManager.broadcastEvent = function(self, event, ...)
     local handler = type(event) == "table" and event.handler
@@ -1579,6 +1680,10 @@ UIManager.broadcastEvent = function(self, event, ...)
         local ok_b, res = pcall(orig_broadcast, self, event, ...)
         calibre.quiet_disconnect = false
         if not ok_b then error(res, 0) end
+        return res
+    elseif handler == "onNetworkConnected" then
+        local res = orig_broadcast(self, event, ...)
+        UIManager:nextTick(onWifiConnected)
         return res
     elseif handler == "onNetworkDisconnected" then
         local res = orig_broadcast(self, event, ...)
