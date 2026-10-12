@@ -1,7 +1,11 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.10
+-- Version 1.11.11
 -- Changelog:
+--   1.11.11  Title case for all menu/item/button texts (menu entries,
+--            submenu titles, toggle rows, dialog titles and button labels).
+--            Notification/toast strings and upstream wording matchers
+--            unchanged.
 --   1.11.10  Shared notification contract v1: styledNote falls back to
 --            ReadMastery's _G.__readmastery_note when Network Tweaks is
 --            absent (or its shared note doesn't handle it).
@@ -32,7 +36,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.10"
+local PATCH_VERSION = "1.11.11"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -345,7 +349,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 UIManager:show(ConfirmBox:new{
                     text = _("Logged in to Goodreads.\n\nSave your email and password so you don't have to type them again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to Goodreads's own sign-in page, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Remove it anytime with Account > Forget saved login."),
                     ok_text = _("Save"),
-                    cancel_text = _("Not now"),
+                    cancel_text = _("Not Now"),
                     ok_callback = function()
                         local encrypted = saveCreds(creds.email, creds.password)
                         notify(encrypted and _("Login saved on this device (encrypted).")
@@ -360,7 +364,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
         if result and result.needs_otp then
             local ctx = result.ctx
-            prompt(_("Enter the verification code"), function(otp)
+            prompt(_("Enter The Verification Code"), function(otp)
                 runStep(self, _("Verifying code..."), function()
                     return Login.submit_otp(ctx, otp, LOGIN_OPTS)
                 end, creds)
@@ -414,7 +418,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             if orig_onClose then orig_onClose(this) end
             if chained then return end
             chained = true
-            prompt(_("Enter the characters shown"), function(answer)
+            prompt(_("Enter The Characters Shown"), function(answer)
                 runStep(self, _("Submitting..."), function()
                     return Login.submit_challenge(ctx, answer, LOGIN_OPTS)
                 end, creds)
@@ -449,7 +453,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             buttons = { {
                 { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
                 {
-                    text = _("Log in"),
+                    text = _("Log In"),
                     callback = function()
                         local fields = dialog:getFields()
                         local email, password = fields[1], fields[2]
@@ -474,14 +478,14 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         table.insert(items, 1, {
             text_func = function()
                 local email = loadCreds()
-                return email and (_("Log in as ") .. email) or _("Log in")
+                return email and (_("Log In As ") .. email) or _("Log In")
             end,
             keep_menu_open = true,
             callback = function() self:_grkLoginDialog(false) end,
             hold_callback = function() self:_grkLoginDialog(true) end,
         })
         table.insert(items, 2, {
-            text = _("Forget saved login"),
+            text = _("Forget Saved Login"),
             keep_menu_open = true,
             enabled_func = function()
                 return loadCreds() ~= nil
@@ -504,7 +508,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local orig_hc_auth = HardcoverMenu.getAuthSubMenuItems
         HardcoverMenu.getAuthSubMenuItems = function(self)
             local items = orig_hc_auth(self)
-            local title = _("Hardcover API Token fallback")
+            local title = _("Hardcover API Token Fallback")
             local found = false
             for _i, item in ipairs(items) do
                 local t = item.text
@@ -562,7 +566,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     UIManager:show(ConfirmBox:new{
                         text = _("Logged in to StoryGraph.\n\nSave your email and password so you don't have to type them again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to StoryGraph's own sign-in page, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Remove it anytime with Account > Forget saved login."),
                         ok_text = _("Save"),
-                        cancel_text = _("Not now"),
+                        cancel_text = _("Not Now"),
                         ok_callback = function()
                             local encrypted = saveCreds(email, password, SG_CRED_FILE)
                             notify(encrypted and _("Login saved on this device (encrypted).")
@@ -590,7 +594,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 buttons = { {
                     { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
                     {
-                        text = _("Log in"),
+                        text = _("Log In"),
                         callback = function()
                             local fields = dialog:getFields()
                             UIManager:close(dialog)
@@ -619,14 +623,14 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             local login_item = {
                 text_func = function()
                     local email = loadCreds(SG_CRED_FILE)
-                    return email and (_("Log in as ") .. email) or _("Log in")
+                    return email and (_("Log In As ") .. email) or _("Log In")
                 end,
                 keep_menu_open = true,
                 callback = function() self:_sgLoginDialog(false) end,
                 hold_callback = function() self:_sgLoginDialog(true) end,
             }
             local forget_item = {
-                text = _("Forget saved login"),
+                text = _("Forget Saved Login"),
                 keep_menu_open = true,
                 enabled_func = function() return loadCreds(SG_CRED_FILE) ~= nil end,
                 callback = function()
@@ -929,12 +933,12 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if item.text == _("Verbose logging") then idx = i; break end
             end
             local new = {
-                toggle(_("Auto re-login when session expires"), "auto_relogin",
+                toggle(_("Auto Re-login When Session Expires"), "auto_relogin",
                     _("When a Goodreads or StoryGraph session expires and you've saved your login, sign in again automatically (once per 30 min) and re-send your progress. Goodreads may still ask for a verification code.")),
-                toggle(_("Retry autolink when Wi-Fi connects"), "relink_on_connect",
+                toggle(_("Retry Autolink When Wi-Fi Connects"), "relink_on_connect",
                     _("If you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. With this on, any enabled provider still unlinked for the open book tries again when Wi-Fi connects.")),
                 {
-                    text = _("Hide providers"),
+                    text = _("Hide Providers"),
                     sub_item_table = {
                         toggle(_("Fable"), "hide_fable",
                             _("Remove Fable from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
@@ -994,7 +998,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     end
 
     local function hubLinkItems(app)
-        if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
+        if not (app.ui and app.ui.document) then return placeholder(_("Open A Book First")) end
         local out = {}
         for _i, entry in ipairs(activeEngines(app)) do
             local found = false
@@ -1018,12 +1022,12 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     .. entry.label .. " -- ShelfSync wording changed?")
             end
         end
-        if #out == 0 then return placeholder(_("No enabled providers")) end
+        if #out == 0 then return placeholder(_("No Enabled Providers")) end
         return out
     end
 
     local function hubStatusItems(app)
-        if not (app.ui and app.ui.document) then return placeholder(_("Open a book first")) end
+        if not (app.ui and app.ui.document) then return placeholder(_("Open A Book First")) end
         local out = {}
         for _i, entry in ipairs(activeEngines(app)) do
             local found = false
@@ -1045,7 +1049,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     .. entry.label .. " -- ShelfSync wording changed?")
             end
         end
-        if #out == 0 then return placeholder(_("No enabled providers")) end
+        if #out == 0 then return placeholder(_("No Enabled Providers")) end
         return out
     end
 
@@ -1358,11 +1362,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local function hubRootItems(app)
         return {
             {
-                text = _("Link book"),
+                text = _("Link Book"),
                 sub_item_table_func = function() return hubLinkItems(app) end,
             },
             {
-                text = _("Update status"),
+                text = _("Update Status"),
                 sub_item_table_func = function() return hubStatusItems(app) end,
             },
         }
@@ -1478,19 +1482,19 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     if ok_d and Dispatcher then
         Dispatcher:registerAction("shelfsync_hub", {
             category = "none", event = "ShelfSyncHub", general = true,
-            title = _("ShelfSync: Link & Update menu"),
+            title = _("ShelfSync: Link & Update Menu"),
         })
         Dispatcher:registerAction("shelfsync_hub_link", {
             category = "none", event = "ShelfSyncHubLink", general = true,
-            title = _("ShelfSync: Link book (all providers)"),
+            title = _("ShelfSync: Link Book (All Providers)"),
         })
         Dispatcher:registerAction("shelfsync_hub_status", {
             category = "none", event = "ShelfSyncHubStatus", general = true,
-            title = _("ShelfSync: Update status (all providers)"),
+            title = _("ShelfSync: Update Status (All Providers)"),
         })
         Dispatcher:registerAction("shelfsync_all_update_progress", {
             category = "none", event = "ShelfSyncAllUpdateProgress", general = true,
-            title = _("ShelfSync All: Update progress"),
+            title = _("ShelfSync All: Update Progress"),
         })
     end
 
