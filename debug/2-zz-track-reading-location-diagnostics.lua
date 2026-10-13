@@ -1,11 +1,26 @@
 --[[
 2-zz-track-reading-location-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.3
+Version 1.1.6
 
 Changelog:
+  1.1.6 - Shared-log rotation cap raised 256 KB -> 2 MB
+          (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical across all 12
+          diagnostics).
+  1.1.5 - Long watch: active window 30 awake-min -> 5 wall-clock days
+          from first run (WATCH_DAYS; hooks go idle after), per-start
+          awake-minutes backstop raised to 5 days, hard expiry 3 -> 10
+          days (CAP_DAYS). For tracking location behavior across many
+          real reading sessions.
+  1.1.4 - Menu-injection check (HIGH from the diagnostics coverage audit):
+          hooks ReaderLink.addToMainMenu and verifies the tracker's
+          "Reading Location" group entry actually landed in menu_items with
+          its 3 rows, and that reader_menu_order.navi contains the key.
+          Previously only the Dispatcher handlers were hooked, which exist
+          even when the menu hook silently fails (readermenu.lua wraps every
+          addToMainMenu call in pcall).
   1.1.3 - Shared log contract v1: writes tagged lines to the shared
           koreader/diagnostics.log (tag [track-reading-location]) instead of
-          its own file, with the 256 KB rotation now applied to the shared
+          its own file, with the 2 MB rotation now applied to the shared
           file. The old individual LOG const is gone.
   1.1.2 - Follows the Debugging-menu diagnostics contract:
           - no more 250ms poll loop. The auto-dismiss firing is caught by
@@ -68,6 +83,11 @@ being wrong, and "cleared" when it stops):
   - any warning the tracker itself logs (errors it swallows)
 It also times page updates and paints with and without the popup.
 
+When the reader menu is built it also checks the tracker's menu injection:
+the "Reading Location" group entry is in menu_items with its 3 rows, and
+reader_menu_order.navi contains its key (the Dispatcher handlers hooked
+above exist even when the menu hook silently fails).
+
 Also logged: the screen set-up at the start of every window (night mode,
 rotation, touch / reading-order inversion, footer), a line whenever night
 mode or rotation changes, sleep and wake (how long the device slept and what
@@ -76,11 +96,13 @@ popup when a tap misses it, memory use, and how much time this patch itself
 uses.
 
 AUTO-STOP: it turns itself off so it can't be forgotten.
-  - After 30 minutes of awake time (EXPIRE_MIN below) it writes a summary,
+  - After 5 days of wall-clock time (WATCH_DAYS below) it writes a summary,
     shows "safe to delete" once, and every hook becomes a plain pass-through.
-    The "mark this moment" gesture restarts the 30 minutes.
-  - For good after 3 days (CAP_DAYS) from the first run of this version.
-    Nothing restarts it; a new version of this file starts a new 3 days.
+    A per-start backstop of EXPIRE_MIN awake minutes also exists (the
+    scheduler clock doesn't tick while asleep). The "mark this moment"
+    gesture re-arms the per-start timer.
+  - For good after 10 days (CAP_DAYS) from the first run of this version.
+    Nothing restarts it; a new version of this file starts a new 10 days.
 
 It only wraps things, then calls the originals. Everything it does is
 wrapped in pcall, so a bug in here can't break reading. While no window is
@@ -98,16 +120,16 @@ local ReaderView = require("apps/reader/modules/readerview")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_bd, BD = pcall(require, "ui/bidi")
 
-local VERSION = "1.1.3"
+local VERSION = "1.1.6"
 local STATE = DataStorage:getDataDir() .. "/track-reading-location-diagnostics.state"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "track-reading-location"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -125,8 +147,9 @@ end
 local SESSION_S = 90        -- how long a detailed window stays open
 local RING_MAX = 40         -- quiet turns kept in memory for the lead-up
 local SLOW_TURN_MS = 80     -- a page update slower than this is flagged
-local EXPIRE_MIN = 30       -- awake minutes before it switches itself off
-local CAP_DAYS = 3          -- hard stop, counted from the first run
+local EXPIRE_MIN = 7200      -- awake minutes before it switches itself off (5 days; the wall-clock watch below normally ends the watch first)
+local WATCH_DAYS = 5         -- active watch: wall-clock days from the first run, then hooks go idle
+local CAP_DAYS = 10          -- hard stop, counted from the first run
 local MEM_FLAG_KB = 1024    -- memory growth over one window that gets flagged
 
 local function pack(...) return { n = select("#", ...), ... } end
@@ -231,6 +254,12 @@ do
         expired = true
         write(string.format("%s  diagnostics v%s: the %d-day limit has passed - doing nothing. Delete this file.",
             clock(), VERSION, CAP_DAYS), true)
+        return
+    end
+    if os.time() - first > WATCH_DAYS * 86400 then
+        expired = true
+        write(string.format("%s  diagnostics v%s: the %d-day watch is up - hooks now idle (hard expiry at %d days). Delete this file when done.",
+            clock(), VERSION, WATCH_DAYS, CAP_DAYS), true)
         return
     end
 end
@@ -657,6 +686,56 @@ hookUI("onSetCurrentPageAsReadingLocation", {
     after = function(ui) event("after:  " .. fmtState(snap(ui))) end,
 })
 
+-- Menu injection check. The tracker adds its "Reading Location" rows via
+-- ReaderLink.addToMainMenu plus a reader_menu_order.navi position injection;
+-- the Dispatcher handlers hooked above exist regardless, so a silently
+-- failed menu hook (readermenu.lua wraps every addToMainMenu call in pcall)
+-- would otherwise produce zero anomalies. We wrap after the tracker, so by
+-- the time our check runs its injection has run too.
+do
+    local ok_rl, ReaderLink = pcall(require, "apps/reader/modules/readerlink")
+    local orig = ok_rl and ReaderLink and ReaderLink.addToMainMenu
+    if type(orig) ~= "function" then
+        write(string.format("%s  note: ReaderLink.addToMainMenu not found (menu check not hooked)", clock()))
+    else
+        ReaderLink.addToMainMenu = function(self, menu_items, ...)
+            local r = pack(orig(self, menu_items, ...))
+            if not expired then
+                pcall(function()
+                    local ui = (type(self) == "table" and self.ui) or getUI()
+                    local why = {}
+                    local entry = (type(menu_items) == "table"
+                        and menu_items.go_to_furthest_reading_location) or nil
+                    check("menu_entry", type(entry) ~= "table",
+                        "addToMainMenu ran but menu_items.go_to_furthest_reading_location is missing"
+                        .. " - the tracker's menu hook didn't inject its rows", why)
+                    if type(entry) == "table" then
+                        local sub = entry.sub_item_table
+                        local n = type(sub) == "table" and #sub or 0
+                        check("menu_rows", n ~= 3,
+                            string.format("the Reading Location group has %d rows, expected 3", n), why)
+                    end
+                    local ok_o, order = pcall(require, "ui/elements/reader_menu_order")
+                    local in_navi = false
+                    if ok_o and order and type(order.navi) == "table" then
+                        for _, k in ipairs(order.navi) do
+                            if k == "go_to_furthest_reading_location" then in_navi = true break end
+                        end
+                    end
+                    check("menu_navi", not in_navi,
+                        "go_to_furthest_reading_location is missing from reader_menu_order.navi"
+                        .. " - the tracker's position injection didn't run", why)
+                    if #why > 0 then
+                        trigger("menu injection check", ui)
+                        flush(why, ui)
+                    end
+                end)
+            end
+            return unpack(r, 1, r.n)
+        end
+    end
+end
+
 local timer_set_at, timer_secs   -- when the auto-dismiss timer was last scheduled, and for how long
 local slept = {}   -- what things looked like when the device went to sleep
 
@@ -755,10 +834,11 @@ hookUI("onCloseDocument", {
 })
 
 -- --------------------------------------------------------------------------
--- Auto-stop: EXPIRE_MIN of awake time (the scheduler clock doesn't tick while
--- asleep), and a hard stop CAP_DAYS after the first run of this version
--- (checked at load, before any hooking). Expired = every hook above just
--- calls through, nothing is written.
+-- Auto-stop: WATCH_DAYS of wall-clock time from the first run (checked at
+-- load, before any hooking), a per-start backstop of EXPIRE_MIN awake
+-- minutes (the scheduler clock doesn't tick while asleep), and a hard stop
+-- CAP_DAYS after the first run of this version. Expired = every hook above
+-- just calls through, nothing is written.
 -- --------------------------------------------------------------------------
 
 local function notice(text)
@@ -778,7 +858,7 @@ local function expire(reason)
 end
 
 expire_task = function()
-    expire(string.format("%d minutes of use are up", EXPIRE_MIN))
+    expire(string.format("%d days of use are up", EXPIRE_MIN / 1440))
 end
 
 local function arm()
@@ -789,7 +869,7 @@ end
 rearm = function()
     expired = false
     arm()
-    write(string.format("%s  diagnostics re-armed for another %d minutes (mark gesture)", clock(), EXPIRE_MIN), true)
+    write(string.format("%s  diagnostics re-armed for another %d days (mark gesture)", clock(), EXPIRE_MIN / 1440), true)
 end
 
 -- --------------------------------------------------------------------------
@@ -988,9 +1068,9 @@ end
 
 write("==================== track-reading-location diagnostics " .. VERSION .. " started ====================")
 write("    " .. settingsLine())
-write(string.format("    Track Reading Location detected: %s | stops after %d min of use or %d days",
-    yn(type(ReaderUI.onGoToFurthestReadingLocation) == "function"), EXPIRE_MIN, CAP_DAYS))
+write(string.format("    Track Reading Location detected: %s | watches %d days, hard expiry %d days",
+    yn(type(ReaderUI.onGoToFurthestReadingLocation) == "function"), WATCH_DAYS, CAP_DAYS))
 arm()
 UIManager:nextTick(function()
-    notice(string.format("Diagnostics on for %d min: writing koreader/diagnostics.log", EXPIRE_MIN))
+    notice(string.format("Diagnostics watching for %d days: writing koreader/diagnostics.log", WATCH_DAYS))
 end)
