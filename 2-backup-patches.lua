@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.1 (2026-10-12)
+2-backup-patches.lua                                     2.2.2 (2026-10-12)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.2  2026-10-12
+    - Updater trace hooks for the diagnostics patch: manifest fetch,
+      per-patch compare decisions, Wi-Fi on/off, downloads and the
+      restart prompt are reported via _G.__backup_updater_trace
+      (no-op when no diagnostics is watching).
   2.2.1  2026-10-12
     - Updater refinements: per-patch status list (Up to Date / Update
       Available / Installed Is Newer / Not Installed / Unknown Version)
@@ -133,7 +138,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.1"
+local VERSION = "2.2.2"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1161,6 +1166,17 @@ local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
 PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
 local DEBUG_DIR = PATCH_DIR .. "/debug"
 
+-- Trace hook for the diagnostics patch: 2-zz-backup-patches-diagnostics.lua
+-- sets _G.__backup_updater_trace while it's watching, and every trace()
+-- below becomes a tagged line in the shared diagnostics log. No-op when
+-- unset, so the updater costs nothing when nobody's watching.
+local function updaterTrace(event, fmt, ...)
+    local fn = _G.__backup_updater_trace
+    if type(fn) ~= "function" then return end
+    local ok, msg = pcall(string.format, fmt, ...)
+    pcall(fn, event, ok and msg or tostring(fmt))
+end
+
 local function updaterUrl(repo_path)
     return "https://raw.githubusercontent.com/" .. UPDATER_REPO .. "/" .. UPDATER_BRANCH .. "/" .. repo_path
 end
@@ -1190,8 +1206,8 @@ local function fetchUrl(url, on_progress)
     end)
     socketutil:reset_timeout()
     if not ok then return nil, tostring(code) end
-    if code ~= 200 then return nil, tostring(status or code) end
-    return table.concat(chunks)
+    if code ~= 200 then return nil, tostring(status or code), code end
+    return table.concat(chunks), nil, code
 end
 
 -- HEAD a URL for its Content-Length (for the progress bar). nil when unknown.
@@ -1265,6 +1281,10 @@ local function entryStatus(repo_path, available)
     local filename = repo_path:match("[^/]+$")
     local e = { repo_path = repo_path, filename = filename, available = available }
     local path, stale = localInstall(repo_path)
+    if path then
+        updaterTrace("location", "%s: using %s%s", filename, path,
+            stale and ("; stale duplicate " .. stale .. " removed on update") or "")
+    end
     if not path then
         e.status, e.status_text = "unknown", _("Not Installed")
         return e
@@ -1292,18 +1312,24 @@ end
 local function ensureWifi()
     local NetworkMgr = require("ui/network/manager")
     local UIManager = require("ui/uimanager")
-    if NetworkMgr:isConnected() then return true, false end
+    if NetworkMgr:isConnected() then
+        updaterTrace("wifi", "already connected")
+        return true, false
+    end
     local co = coroutine.running()
     local done = false
     local function finish(ok)
         if done then return end
         done = true
+        updaterTrace("wifi", ok and "connected" or "connect timed out after 60s")
         if coroutine.status(co) == "suspended" then
             coroutine.resume(co, ok)
         end
     end
     UIManager:scheduleIn(60, function() finish(false) end)
     local we_turned_on = not NetworkMgr:isWifiOn()
+    updaterTrace("wifi", we_turned_on and "off at check start: turning on automatically"
+        or "on but not connected: waiting for connection")
     NetworkMgr:requestToTurnOnWifi(function()
         NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
     end, false)
@@ -1329,6 +1355,7 @@ local function updatePatches(targets, on_done)
         local succeeded, failed = {}, {}
         for i, t in ipairs(targets) do
             local url = updaterUrl(t.repo_path)
+            updaterTrace("download", "start %s (%s)", t.filename, url)
             local dialog = ProgressbarDialog:new{
                 title = T(_("Updating Patches (%1 of %2)"), i, #targets),
                 subtitle = t.filename,
@@ -1367,7 +1394,10 @@ local function updatePatches(targets, on_done)
                 end
             end
             if ferr then
+                updaterTrace("download", "FAILED %s: %s", t.filename, ferr)
                 failed[#failed + 1] = T(_("%1 (%2)"), t.filename, ferr)
+            else
+                updaterTrace("download", "done %s: %d bytes → %s", t.filename, #body, t.dest)
             end
         end
 
@@ -1388,6 +1418,7 @@ local function updatePatches(targets, on_done)
             styledNote(T(_("Updated %1 Patches"), #succeeded), _("Patches Updated"))
         end
         if #succeeded == 0 then return end
+        updaterTrace("restart", "prompt shown (%d updated, %d failed)", #succeeded, #failed)
         UIManager:show(ConfirmBox:new{
             text = _("Patches Updated. Restart KOReader Now?"),
             ok_text = _("Restart"),
@@ -1406,8 +1437,10 @@ function Backup.checkForPatchUpdates()
         local NetworkMgr = require("ui/network/manager")
         local Menu = require("ui/widget/menu")
 
+        updaterTrace("run", "check started")
         local wifi_ok, we_turned_on = ensureWifi()
         if not wifi_ok then
+            updaterTrace("wifi", "giving up: no connection")
             if we_turned_on and NetworkMgr:isWifiOn() then
                 NetworkMgr:turnOffWifi()
             end
@@ -1418,13 +1451,17 @@ function Backup.checkForPatchUpdates()
         local function cleanupWifi()
             if we_turned_on then
                 we_turned_on = false
+                updaterTrace("wifi", "turned back off (was off at check start)")
                 if NetworkMgr:isWifiOn() then NetworkMgr:turnOffWifi() end
                 styledNote(_("Wi-Fi Turned Back Off"), _("Wi-Fi Off"))
             end
         end
 
-        local body, err = fetchUrl(updaterUrl(UPDATER_MANIFEST))
+        local manifest_url = updaterUrl(UPDATER_MANIFEST)
+        local body, err, code = fetchUrl(manifest_url)
         if not body then
+            updaterTrace("manifest", "fetch FAILED %s (HTTP %s): %s",
+                manifest_url, tostring(code or "?"), tostring(err))
             cleanupWifi()
             UIManager:show(InfoMessage:new{
                 text = T(_("Couldn't Fetch the Version List.\n\n%1"), tostring(err)),
@@ -1435,9 +1472,16 @@ function Backup.checkForPatchUpdates()
         if chunk then setfenv(chunk, {}) end
         local ok, manifest = pcall(chunk or function() end)
         if not ok or type(manifest) ~= "table" then
+            updaterTrace("manifest", "invalid manifest from %s (not a table)", manifest_url)
             cleanupWifi()
             UIManager:show(InfoMessage:new{ text = _("The Version List Was Invalid.") })
             return
+        end
+        do
+            local n = 0
+            for _k in pairs(manifest) do n = n + 1 end
+            updaterTrace("manifest", "fetched %s: HTTP %s, %d bytes, %d entries",
+                manifest_url, tostring(code), #body, n)
         end
 
         -- Per-patch direction for every manifest entry.
@@ -1445,6 +1489,8 @@ function Backup.checkForPatchUpdates()
         for repo_path, available in pairs(manifest) do
             if type(repo_path) == "string" and type(available) == "string" then
                 local e = entryStatus(repo_path, available)
+                updaterTrace("compare", "%s: installed %s vs manifest %s → %s",
+                    e.repo_path, e.installed or "?", e.available, e.status)
                 statuses[#statuses + 1] = e
                 if e.status == "update_available" then outdated[#outdated + 1] = e end
             end
