@@ -7,18 +7,20 @@
 --
 -- MAINTENANCE (hand-edit, one line per release): when your patch chat ships
 -- a new version, bump that patch's line here and push this file alongside
--- the patch (same commit is fine). Keep the table sorted by filename.
--- Only the 13 main patches are listed — diagnostics are temporary and are
--- updated by hand, never by the updater.
+-- the patch (same commit is fine). Keep the table sorted by repo path.
+-- Main patches live in the repo root; diagnostics live under debug/.
 --
--- Format: { ["<repo-root filename>"] = "<version>", ... }
+-- Format: { ["<repo path>"] = "<version>", ... }
 -- The updater compares versions numerically per dot-separated component
 -- and skips entries it can't parse, so a typo here can't break updating.
+-- On the device, a diagnostic is updated wherever its copy sits
+-- (patches/ when active, patches/debug/ when switched off); a stale
+-- duplicate is cleaned up.
 
 return {
     ["2-ReadMastery-notify.lua"] = "1.0.4",
     ["2-ReadMastery-quests.lua"] = "1.0.3",
-    ["2-backup-patches.lua"] = "2.2.0",
+    ["2-backup-patches.lua"] = "2.2.1",
     ["2-debugging-menu.lua"] = "1.3.3",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.1.3",
     ["2-network-tweaks.lua"] = "1.8.2",
@@ -29,4 +31,16 @@ return {
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.4",
     ["2-xray-direct-lookup.lua"] = "1.1.10",
+    ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.1.5",
+    ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.6",
+    ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.2.4",
+    ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "1.1.5",
+    ["debug/2-zz-readmastery-diagnostics.lua"] = "1.0.7",
+    ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.0.6",
+    ["debug/2-zz-shortcutstoolbar-diagnostics.lua"] = "1.0.6",
+    ["debug/2-zz-simpleui-diagnostics.lua"] = "2.7.4",
+    ["debug/2-zz-sleepscreen-banner-diagnostics.lua"] = "1.0.7",
+    ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.1.6",
+    ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.5",
+    ["debug/2-zz-xray-direct-lookup-diagnostics.lua"] = "1.2.5",
 }
