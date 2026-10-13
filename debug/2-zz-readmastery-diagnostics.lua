@@ -1,11 +1,30 @@
 --[[
 2-zz-readmastery-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.4
+Version 1.0.7
 
 Changelog:
+  1.0.7 (2026-10-12) - Raised the shared-log rotation cap from 256 KB
+    to 2 MB (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical value across
+    all 12 diagnostics so rotation behavior stays consistent).
+  1.0.6 (2026-10-12) - Long watch for XP tuning: active window 30 min ->
+    5 days per start, hard expiry 3 -> 10 days. New page-turn ledger:
+    every relative turn logged with direction (back/fwd) via
+    ReaderPaging.onGotoPageRel plus absolute jumps, so a back-and-forth
+    re-read can be matched against the addXP lines - a backward turn
+    that still mints XP is the "extra XP when not needed" signal. New
+    dictionary ledger: every word lookup logged via
+    ReaderDictionary.onLookupWord for the same reason.
+  1.0.5 (2026-10-11) - Fixed hookPageUpdateTiming's handler check:
+    plugin on* handlers are HandlerSandbox tables (not plain
+    functions) in current KOReader - the bare type() check logged a
+    false "not found" and never installed the timing hook when the
+    quest patch wasn't also present to re-wrap it as a plain function
+    first. Now uses the isCallable pattern (functions or tables with
+    a callable __call metamethod), same as the Reading Insights
+    patch.
   1.0.4 (2026-10-11) - Shared log contract v1: all diagnostic lines are
     now appended as [readmastery]-tagged lines to the shared
-    koreader/diagnostics.log (rotation at 256 KB, older part kept as
+    koreader/diagnostics.log (rotation at 2 MB, older part kept as
     diagnostics.log.old) instead of this patch's own
     readmastery-diagnostics.log; only the log-writing mechanics changed,
     all gating and call sites are untouched.
@@ -55,9 +74,10 @@ externally visible, not everything.
 How to use:
   1. Put this file in koreader/patches/ alongside the other two and
      restart KOReader.
-  2. Within the next WINDOW_MIN minutes of that start, read normally -
-     finish a book, let quests complete, whatever you're trying to
-     catch. After the window closes every hook goes idle (still called,
+  2. Within the next WINDOW_DAYS days of that start, read normally -
+     flip back and forth to re-read a sentence, look up words, finish
+     a book, let quests complete - whatever you're trying to catch.
+     After the window closes every hook goes idle (still called,
      just stops writing) until the next restart.
   3. Send diagnostics.log (the [readmastery] lines are this patch's).
   4. Delete this file. It changes nothing, it only writes the log (plus
@@ -65,7 +85,7 @@ How to use:
      deleting both removes 100% of its footprint immediately.
 
 Shuts itself off two ways:
-  - Per start: logs for WINDOW_MIN minutes, then every hook stays
+  - Per start: logs for WINDOW_DAYS days, then every hook stays
     installed but stops writing - "passes straight through" - until the
     next restart resets the window.
   - Calendar expiry: the first time this ever loads, it remembers that
@@ -73,7 +93,7 @@ Shuts itself off two ways:
     patch's settings). Once EXPIRE_AFTER_DAYS has passed, it stops
     installing any hooks at all, on every subsequent load - in case you
     forget to delete it.
-The shared log file itself is size-capped (rotation at 256 KB, older
+The shared log file itself is size-capped (rotation at 2 MB, older
 part kept as diagnostics.log.old) as a third, independent safety net.
 
 The "zz" makes it load after both 2-ReadMastery-*.lua files, so the
@@ -88,10 +108,10 @@ local LuaSettings = require("luasettings")
 local lfs = require("libs/libkoreader-lfs")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local PATCH_VERSION = "1.0.4"
-local EXPIRE_AFTER_DAYS = 3
-local WINDOW_MIN = 30 -- active-logging window per start, in minutes
-local WINDOW_S = WINDOW_MIN * 60
+local PATCH_VERSION = "1.0.7"
+local EXPIRE_AFTER_DAYS = 10
+local WINDOW_DAYS = 5 -- active-logging window per start, in days
+local WINDOW_S = WINDOW_DAYS * 86400
 local SLOW_PAGE_UPDATE_MS = 50 -- log a warning if a single page-turn's full handling chain takes longer than this
 
 -- --------------------------------------------------------------------------
@@ -124,11 +144,11 @@ end
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "readmastery"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -170,14 +190,14 @@ local function on()
     if not active then return false end
     if os.time() - started > WINDOW_S then
         active = false
-        log("==== %d minutes up: logging stopped, every hook is idle now ====", WINDOW_MIN)
+        log("==== %d days up: logging stopped, every hook is idle now ====", WINDOW_DAYS)
         return false
     end
     return true
 end
 
-log("==================== readmastery diagnostics %s started (logging for %d min, day %.1f of %d) ====================",
-    PATCH_VERSION, WINDOW_MIN, days_active, EXPIRE_AFTER_DAYS)
+log("==================== readmastery diagnostics %s started (logging for %d days, day %.1f of %d) ====================",
+    PATCH_VERSION, WINDOW_DAYS, days_active, EXPIRE_AFTER_DAYS)
 
 -- --------------------------------------------------------------------------
 -- XP ledger - the single funnel every XP grant passes through (quest
@@ -383,10 +403,27 @@ end
 -- system) rather than a bare require() - "main" is too generic a
 -- module name to require by itself and trust it resolved to the right
 -- plugin's file instead of some other plugin's own main.lua.
+-- Plugin on* handlers are HandlerSandbox TABLES in current KOReader,
+-- not plain functions (pluginloader.lua's sandboxPluginEventHandlers
+-- replaces every on* function with a callable table before userpatches
+-- run), so a bare type() == "function" check rejects the valid
+-- handler. Accept functions or tables with a callable __call
+-- metamethod instead - same isCallable pattern the Reading Insights
+-- patch uses. (Calling the table works transparently: its __call
+-- metamethod forwards to the original function.)
+local function isCallable(v)
+    if type(v) == "function" then return true end
+    if type(v) == "table" then
+        local mt = getmetatable(v)
+        return type(mt) == "table" and type(mt.__call) == "function"
+    end
+    return false
+end
+
 local function hookPageUpdateTiming(plugin)
     if plugin._readmastery_diag_timing_installed then return end
     plugin._readmastery_diag_timing_installed = true
-    if type(plugin.onPageUpdate) ~= "function" then
+    if not isCallable(plugin.onPageUpdate) then
         log("plugin.onPageUpdate not found - cannot time it")
         return
     end
@@ -404,6 +441,65 @@ local function hookPageUpdateTiming(plugin)
 end
 userpatch.registerPatchPluginFunc("ReadMastery", hookPageUpdateTiming)
 userpatch.registerPatchPluginFunc("readmastery", hookPageUpdateTiming)
+
+-- --------------------------------------------------------------------------
+-- Page-turn ledger: every relative page turn with its direction, so a
+-- back-and-forth re-read can be matched against the addXP lines. A
+-- backward turn that still mints XP is the "extra XP when not needed"
+-- signal. Absolute jumps (TOC etc.) are logged too. ReaderPaging is
+-- required here the same way ReaderUI is below - pre-requiring the class
+-- just caches it; the wrapped methods take effect when it instantiates.
+-- --------------------------------------------------------------------------
+
+do
+    local ok_rp, ReaderPaging = pcall(require, "apps/reader/modules/readerpaging")
+    if ok_rp and type(ReaderPaging) == "table" then
+        if type(ReaderPaging.onGotoPageRel) == "function" then
+            local orig_rel = ReaderPaging.onGotoPageRel
+            ReaderPaging.onGotoPageRel = function(self, diff, no_page_turn, ...)
+                if on() then
+                    local d = tonumber(diff) or 0
+                    log("page turn %s (diff=%s)%s", d < 0 and "back" or "fwd",
+                        q(diff), no_page_turn and " [no_page_turn]" or "")
+                end
+                return orig_rel(self, diff, no_page_turn, ...)
+            end
+            log("hooked ReaderPaging.onGotoPageRel for turn direction")
+        else
+            log("ReaderPaging.onGotoPageRel not found - turn direction not logged")
+        end
+        if type(ReaderPaging.onGotoPage) == "function" then
+            local orig_goto = ReaderPaging.onGotoPage
+            ReaderPaging.onGotoPage = function(self, number, pos, ...)
+                if on() then log("page jump to %s", q(number)) end
+                return orig_goto(self, number, pos, ...)
+            end
+            log("hooked ReaderPaging.onGotoPage for absolute jumps")
+        end
+    else
+        log("could not hook ReaderPaging for turn direction")
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- Dictionary ledger: every word lookup, so a lookup that mints XP (or any
+-- other side effect) shows up next to the addXP lines.
+-- --------------------------------------------------------------------------
+
+do
+    local ok_rd, ReaderDictionary = pcall(require, "apps/reader/modules/readerdictionary")
+    if ok_rd and type(ReaderDictionary) == "table"
+        and type(ReaderDictionary.onLookupWord) == "function" then
+        local orig_lookup = ReaderDictionary.onLookupWord
+        ReaderDictionary.onLookupWord = function(self, word, ...)
+            if on() then log("dict lookup: %s", q(word)) end
+            return orig_lookup(self, word, ...)
+        end
+        log("hooked ReaderDictionary.onLookupWord")
+    else
+        log("ReaderDictionary.onLookupWord not found - dictionary lookups not logged")
+    end
+end
 
 -- --------------------------------------------------------------------------
 -- Sleep-state check: neither main patch installs a timer or does any
@@ -446,6 +542,6 @@ end
 UIManager:nextTick(function()
     pcall(function()
         require("ui/widget/notification"):notify(
-            "ReadMastery diagnostics: logging for " .. WINDOW_MIN .. " min")
+            "ReadMastery diagnostics: logging for " .. WINDOW_DAYS .. " days")
     end)
 end)
