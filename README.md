@@ -23,14 +23,14 @@ All patches work independently and together. If one fails to attach (for example
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.2.2 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.1 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.8.1 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.10 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.11 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.3 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.2 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.3 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.1 |
 | [X-Ray Entity Footnotes](#x-ray-entity-footnotes) | `2-xray-entity-footnotes.lua` | xray.koplugin | 1.0.1 |
-| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.10 |
+| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.5 |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 1.1.3 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
@@ -38,7 +38,7 @@ Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `
 
 ## Diagnostic patches
 
-The `debug/` folder holds temporary troubleshooting companions for the main patches (`2-zz-*-diagnostics.lua`). They change nothing â each one watches its main patch and writes timestamped, tagged lines to one shared log (`koreader/diagnostics.log`) for a short window after every start, then goes quiet, and stops entirely 24 hours after install. Manage them with the Debugging Menu (toggle, view, combine, delete). See [debug/README.md](debug/README.md).
+The `debug/` folder holds temporary troubleshooting companions for the main patches (`2-zz-*-diagnostics.lua`). They change nothing — each one watches its main patch and writes timestamped, tagged lines to one shared log (`koreader/diagnostics.log`) for a short window after every start, then goes quiet, and stops entirely 24 hours after install. Manage them with the Debugging Menu (toggle, view, combine, delete). See [debug/README.md](debug/README.md).
 
 ---
 
@@ -46,10 +46,10 @@ The `debug/` folder holds temporary troubleshooting companions for the main patc
 
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
-Settings: Tools â SimpleUI Tweaks (or Tools â Add-ons â SimpleUI Tweaks with the Add-ons menu installed).
+Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks with the Add-ons menu installed).
 
 - **Modules:** text colour with a separate Night Mode colour, set for all modules and overridable per module. Recolour grey text, progress bar/ring/border colours per module, bold per module or all.
-- **Section titles:** defaults for all sections, then per-module colour, bold and size (preset or custom 50-300%). A `â¢` marks customised sections.
+- **Section titles:** defaults for all sections, then per-module colour, bold and size (preset or custom 50-300%). A `•` marks customised sections.
 - **Nav bar:** bold labels, day look in Night Mode, colour icons keep their original colours in Night Mode.
 - **Status bar:** bold, and day look in Night Mode.
 - **KOReader's own icons in Night Mode:** menu tab icons (chosen one by one), menu arrows and Quick Actions icons can keep their original colours (each a toggle, off by default). Useful for colour icons swapped in via `koreader/icons/`.
@@ -61,7 +61,7 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 - Module fill: with a light wallpaper, set module backdrop/fill to 0, or text can disappear in Night Mode.
 - Colour nav icons need a non-Framed nav bar style (Framed draws icons in one colour but still gets the day look).
 - Icon files: use SVG icons with transparency.
-- Section title sizes multiply SimpleUI's own label scale (Scale â Labels).
+- Section title sizes multiply SimpleUI's own label scale (Scale → Labels).
 
 **Uninstall:** use Reset to defaults if you want the saved settings (`simpleui_mod` in `settings.reader.lua`) removed, then delete the file and restart.
 
@@ -69,7 +69,7 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ## Add-ons menu
 
-One **Tools â Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
+One **Tools → Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
 
 - **Auto-collect:** newly installed plugins and patches that add a menu are found automatically. You get a one-time notice and they show up marked "New" under "Other" in "Choose what's in Add-ons".
 - **Choose what's in Add-ons** (bottom of the list): tap an item to turn it on or off (off puts it back where it was), hold it to move it to another group. Both apply after a restart.
@@ -83,20 +83,21 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 
 Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.9.28.3 (stable, no icons), 26.9.29-beta and 26.9.30-beta; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
-Menu: **Tools â Patch Backup & Restore** (or **Tools â Add-ons â Patches** once `backup_patches` is in the Add-ons menu's `PATCH_MENUS` list).
+Menu: **Tools → Patch Backup & Restore** (or **Tools → Add-ons → Patches** once `backup_patches` is in the Add-ons menu's `PATCH_MENUS` list).
 
 ```
 Patch Backup & Restore
-ââ Shortcuts toolbar, SimpleUI, â¦   one entry per target you use
-â  ââ Back up now
-â  ââ Restore latest
-â  ââ History                      every backup: restore or delete,
-â                                   or delete all of this target's
-ââ Delete all backups              every target's, safety backups too
-ââ Icons
-â  ââ Tidy icons
-â  ââ Unused icons
-ââ Logins in device backups        off by default
+├─ Shortcuts toolbar, SimpleUI, …   one entry per target you use
+│  ├─ Back up now
+│  ├─ Restore latest
+│  └─ History                      every backup: restore or delete,
+│                                   or delete all of this target's
+├─ Delete all backups              every target's, safety backups too
+├─ Icons
+│  ├─ Tidy icons
+│  └─ Unused icons
+├─ Logins in device backups        off by default
+└─ Check for Patch Updates         update patches on the device
 ```
 
 - **Back up now:** the target's settings, any settings files it keeps in `koreader/settings/`, and every icon its settings point to, in one zip at `koreader/backups/<target>/<target>_<date>.zip`.
@@ -137,7 +138,7 @@ Needs a KOReader build with zip support (`ffi/archiver`, 2024+).
 
 ## Debugging Menu
 
-Adds **Add-ons â Debugging** (file browser only): one place to switch diagnostic patches on and off and tidy their logs. Your diagnostic patches are never edited.
+Adds **Add-ons → Debugging** (file browser only): one place to switch diagnostic patches on and off and tidy their logs. Your diagnostic patches are never edited.
 
 - One master toggle plus a checkbox per diagnostic. Turning one off moves it to `patches/debug/`, so KOReader doesn't load it and it costs nothing. Changes apply after a restart (asked once).
 - All diagnostics write to one shared log (`koreader/diagnostics.log`), each line tagged with the diagnostic's short name, so a full test run reads as a single chronological file.
@@ -149,16 +150,16 @@ Adds **Add-ons â Debugging** (file browser only): one place to switch diagn
 
 ## Network Tweaks
 
-Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) â Network â Network Tweaks (or Tools â Add-ons with the Add-ons menu installed).
+Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network → Network Tweaks (or Tools → Add-ons with the Add-ons menu installed).
 
 - **Stop SSH server on sleep** (on): stops KOReader's SSH server when the device sleeps, like Wi-Fi, and doesn't restart it on wake. Without this, SSH quietly becomes reachable again as soon as Wi-Fi reconnects.
 - **SSH follows Wi-Fi** (off): SSH starts when you turn Wi-Fi on and stops whenever Wi-Fi goes off, however that happens. It isn't started by the automatic reconnect after waking, so SSH stays off after sleep. Handy for pushing patches.
-- **Choose networkâ¦:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved Â· away, or Open. Tap one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
+- **Choose network…:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved · away, or Open. Tap one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
 - **Notifications** (default Banner): one style for Wi-Fi on/off, SSH on/off and the Calibre wireless connection, however you trigger them.
   - **Normal:** stock KOReader popups; Wi-Fi waits until connected.
   - **Minimal:** Wi-Fi connects in the background, with small corner notes (top right) like "Wi-Fi connected", "SSH on", "Calibre connected".
-  - **Banner:** Wi-Fi connects in the background with a banner at the top ("Connecting to Wi-Fiâ¦ tap here to cancel", then "Connected to <network>"). SSH shows what you need to connect, for example `SSH on Â· 192.168.1.23:2222`, and Calibre shows the server it connected to.
-- **Shared notification style:** every patch's status notes use this style when Network Tweaks is installed â Banner, Minimal corner note, or Normal (the patch shows its own popup). Without Network Tweaks, patches fall back to ReadMastery Notify's style when that's installed, otherwise their own default. Nothing ever shows over the sleep screen.
+  - **Banner:** Wi-Fi connects in the background with a banner at the top ("Connecting to Wi-Fi… tap here to cancel", then "Connected to <network>"). SSH shows what you need to connect, for example `SSH on · 192.168.1.23:2222`, and Calibre shows the server it connected to.
+- **Shared notification style:** every patch's status notes use this style when Network Tweaks is installed — Banner, Minimal corner note, or Normal (the patch shows its own popup). Without Network Tweaks, patches fall back to ReadMastery Notify's style when that's installed, otherwise their own default. Nothing ever shows over the sleep screen.
 - **Cancel Wi-Fi connection** (only shown while connecting): stops a background connect. You can also tap the banner, or tap the Wi-Fi toggle again. A connect in progress is also cancelled when the device goes to sleep.
 
 A failed Wi-Fi connect always shows a note at the top; tap it to choose a network. Long-press the Wi-Fi toggle in the network menu for the normal flow with the network list.
@@ -173,15 +174,15 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Sync messages follow the shared notification style when Network Tweaks or ReadMastery Notify is installed.
 
-- **Goodreads login on device:** a Log in button (email + password) in ShelfSync â Providers â Goodreads â Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
-- **Remember login** for Goodreads and StoryGraph: tap "Log in asâ¦" to sign in with the saved login, long-press to edit, "Forget saved login" to remove it.
+- **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
+- **Remember login** for Goodreads and StoryGraph: tap "Log In As…" to sign in with the saved login, long-press to edit, "Forget Saved Login" to remove it.
 - **Goodreads WAF fix:** search and security-token requests use `/book/auto_complete` and `/review/list` to get around Amazon's bot check, falling back to the originals if they fail.
-- **New toggles in ShelfSync â Settings** (above Verbose logging):
-  - Auto re-login when session expires (on).
-  - Retry autolink when Wi-Fi connects (on).
-  - Hide providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph (all off). Hiding a provider also stops it doing anything. Menu changes show after reopening the book / file browser.
-- **Link & Update:** every enabled provider's Link book and Update status in one menu, with three gesture actions that open these pages directly (Link & Update menu, Link book for all providers, Update status for all providers).
-- **ShelfSync All: Update progress** (gesture), in order: turns Wi-Fi on if needed, syncs to every linked, enabled provider (one retry each), lists providers still unlinked, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first and off after.
+- **New toggles in ShelfSync → Settings** (above Verbose logging):
+  - Auto Re-login When Session Expires (on).
+  - Retry Autolink When Wi-Fi Connects (on).
+  - Hide Providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph (all off). Hiding a provider also stops it doing anything. Menu changes show after reopening the book / file browser.
+- **Link & Update:** every enabled provider's Link Book and Update Status in one menu, with three gesture actions that open these pages directly (Link & Update Menu, Link Book (All Providers), Update Status (All Providers)).
+- **ShelfSync All: Update Progress** (gesture), in order: turns Wi-Fi on if needed, syncs to every linked, enabled provider (one retry each), lists providers still unlinked, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first and off after.
 - **Autolink retry on connect:** books opened offline get linked when Wi-Fi connects.
 - **Auto re-login:** if a saved-login session expires, it signs in again and re-sends progress for the open book, at most once per provider per 30 minutes. A Goodreads verification code or captcha still prompts you.
 - **Security:** logins stay on the device (`koreader/settings/shelfsync_*_login.lua`), encrypted with a device-local key. That protects against casual browsing, not full device access.
@@ -196,7 +197,7 @@ Two top-level toggles above the settings menu:
 - **Notifications:** master ON/OFF for everything below.
 - **Nudges:** 80%/90% "almost there" notices from the quest patch (informational only, no XP). Greyed out whenever Notifications is off.
 
-Everything else lives under ReadMastery â Settings â Notification Settings:
+Everything else lives under ReadMastery → Settings → Notification Settings:
 - **Style:** Full is ReadMastery's original popup (tap to dismiss). Compact is a small centered box, auto-dismiss or tap, that can mix your chosen font with a monospace font for achievement art. Banner is a corner or full-width toast that auto-dismisses and never blocks reading or page turns.
 - **Banner Position:** Top Left, Top Right, Bottom Left, Bottom Right, Full Width (Top), Full Width (Bottom).
 - **Duration:** how long Compact and Banner stay up.
@@ -223,7 +224,7 @@ Adds one top-level menu toggle, **Quests (Enhanced)**.
 - **Monthly** (resets the 1st): includes Bibliophile, The Endurance Trial, book-length tiers (Brick Slayer / The Long Haul / Leviathan; only the highest tier a book qualifies for pays out), Change of Scenery and Genre Hopper.
 - **Seasonal and yearly** quests are included as well.
 
-Turning it OFF just pauses tracking and keeps progress. To reset quest progress, use ReadMastery's own **Settings â Reset Progress**, which also clears quest state and Quest Stats. This patch never opens or writes ReadMastery's `data.json` directly.
+Turning it OFF just pauses tracking and keeps progress. To reset quest progress, use ReadMastery's own **Settings → Reset Progress**, which also clears quest state and Quest Stats. This patch never opens or writes ReadMastery's `data.json` directly.
 
 ---
 
@@ -254,13 +255,13 @@ Remembers the furthest page you've actually read. If you page back, or jump ahea
 - **Position:** on EPUB/FB2, position is tracked by xpointer, so font or margin changes don't point "go back" at the wrong page.
 - **Saving:** per book, saved when you accept a page and on suspend; skips the disk write when nothing changed; cleans up timers on close.
 
-Menu: Reader menu â Navigation â Reading location, with "Go to furthest reading location", "Set current page as reading location" (both bindable to gestures), and Settings: show button, full text, page number, dismiss button, page/percentage mode, shadow, bottom and side offsets, button radius, and forward auto-dismiss.
+Menu: Reader menu → Navigation → Reading location, with "Go to furthest reading location", "Set current page as reading location" (both bindable to gestures), and Settings: show button, full text, page number, dismiss button, page/percentage mode, shadow, bottom and side offsets, button radius, and forward auto-dismiss.
 
 ---
 
 ## Shortcuts Toolbar Icon Tweaks
 
-Adds **Shortcuts toolbar â Icon tweaks** for the shortcutstoolbar plugin. Works in the reader menu, file-browser bar/persistent bar and the SimpleUI home-screen module, and doesn't modify any plugin files.
+Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Works in the reader menu, file-browser bar/persistent bar and the SimpleUI home-screen module, and doesn't modify any plugin files.
 
 - **Custom icons:** swap any icon for your own SVG/PNG, or restore the original.
 - **Colour mode**, globally or per icon: Default (follows Night Mode), Keep original (true colours in Night Mode), or Inverted.
@@ -288,9 +289,9 @@ It doesn't modify xray.koplugin; it patches the plugin's class table at runtime.
 
 ## X-Ray Direct Lookup
 
-For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first â no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
+For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
 
-- **Toggle:** bind "Toggle Direct X-Ray Lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
+- **Toggle:** bind "Toggle direct X-Ray lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
 - While X-Ray is open from a lookup, a small **Dictionary** button sits bottom-right; tapping it closes X-Ray and re-opens the standard word popup for the same word.
 
 ---
@@ -312,7 +313,7 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art, g
 
 **Requirements:** Reading Insights plugin ([peterboda236/readinginsights.koplugin](https://github.com/peterboda236/readinginsights.koplugin)) installed, and CoverBrowser enabled. Covers come from CoverBrowser's cache; an uncached cover shows its title and appears the next time the view is drawn.
 
-**Configuration:** Tools â Add-ons â Reading Insights Tweaks (with the Add-ons menu installed), otherwise Tools â Reading Insights Tweaks. Daily Reading Goal is adjustable in the same menu.
+**Configuration:** Tools → Add-ons → Reading Insights Tweaks (with the Add-ons menu installed), otherwise Tools → Reading Insights Tweaks. Daily Reading Goal is adjustable in the same menu.
 
 **How it works:** Reading Insights loads its files through the global `loadfile`. This patch wraps that for four of its view files: two get small source additions routing a function through here, the other two are patched on the module table they return. The sleep card hooks the plugin's suspend/resume. Update-safe: every addition looks for exact source lines first, and if a Reading Insights update changes them, that feature is skipped (logged as `RI tweaks:`) and the stock view is used. Any error while drawing falls back to stock too.
 
@@ -325,7 +326,7 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art, g
 `Quotes.lua` has 300 famous quotes for SimpleUI's Quote of the Day module.
 
 1. Copy it to `koreader/settings/simpleui/sui_quotes/`, creating the folders if needed.
-2. In the module's settings, set Source â Custom and pick the file.
+2. In the module's settings, set Source → Custom and pick the file.
 
 `Famous Quotes.txt` is a separate file for the sleep screen banner's quote fallback (see above).
 

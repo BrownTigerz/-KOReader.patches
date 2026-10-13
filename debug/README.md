@@ -4,7 +4,7 @@ Temporary troubleshooting companions for the main patches. Each `2-zz-*-diagnost
 
 ## How they work
 
-- **Shared log:** every diagnostic appends timestamped, tagged lines to `koreader/diagnostics.log`. Tags are the patch's short name (`[network-tweaks]`, `[simpleui]`, …). The log rotates at 256 KB to `diagnostics.log.old`.
+- **Shared log:** every diagnostic appends timestamped, tagged lines to `koreader/diagnostics.log`. Tags are the patch's short name (`[network-tweaks]`, `[simpleui]`, …). The log rotates at 2 MB to `diagnostics.log.old`.
 - **Self-limiting:** each diagnostic logs for a few minutes after every KOReader start, then goes quiet. 24 hours after first install it stops hooking entirely — one line per start, then nothing. Re-copy the file for a fresh 24 hours. (The Debugging Menu's "Delete all logs" also restarts the windows.)
 - **State files:** `<name>-diagnostics.state` in the KOReader data dir holds the first-run stamp for the 24-hour expiry.
 - **Load order:** the `zz` in the name makes each diagnostic load after its main patch.
@@ -26,8 +26,8 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.1.5 |
 | `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.2.3 |
 | `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 1.1.4 |
-| `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.0.7 |
-| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.5 |
+| `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.0.4 |
+| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.6 |
 | `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.0.5 |
 | `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.7.2 |
 | `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.0.4 |
