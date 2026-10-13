@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.1.3 (2026-10-11)
+2-backup-patches.lua                                     2.2.0 (2026-10-12)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.0  2026-10-12
+    - On-device patch updater: "Check for Patch Updates" fetches
+      patch-versions.lua from the GitHub repo over Wi-Fi, lists outdated
+      patches, downloads them into koreader/patches/ and prompts to
+      restart. Failures are plain popups, never silent.
   2.1.3  2026-10-11
     - Menu item texts use title case (e.g. "Delete All Backups"), matching
       the Debugging Menu convention. Notification strings, dialog bodies
@@ -120,7 +125,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.1.3"
+local VERSION = "2.2.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1081,6 +1086,10 @@ mainItems = function()
             })
         end,
     })
+    table.insert(items, {
+        text = _("Check for Patch Updates"),
+        callback = function() Backup.checkForPatchUpdates() end,
+    })
     return items
 end
 
@@ -1124,6 +1133,196 @@ addToOrder("ui/elements/filemanager_menu_order")
 addToOrder("ui/elements/reader_menu_order")
 hookMenu("apps/filemanager/filemanagermenu")
 hookMenu("apps/reader/modules/readermenu")
+
+-- --------------------------------------------------------------------------
+-- Patch updates (on-device updater)
+-- --------------------------------------------------------------------------
+
+-- Updates the 13 patches from the GitHub repo (the single source of truth)
+-- over Wi-Fi. No login, no Drive: the repo is public and the Kobo fetches
+-- from raw.githubusercontent.com with KOReader's own network stack
+-- (socket.http handles https, same as its OTA updater).
+local UPDATER_REPO = "BrownTigerz/-KOReader.patches"
+local UPDATER_BRANCH = "main"
+local UPDATER_MANIFEST = "patch-versions.lua"
+
+-- This file's folder: that's where downloaded patches go.
+local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
+PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
+
+local function updaterUrl(path)
+    return "https://raw.githubusercontent.com/" .. UPDATER_REPO .. "/" .. UPDATER_BRANCH .. "/" .. path
+end
+
+-- GET a URL. Returns the body, or nil + error. Never throws.
+local function fetchUrl(url)
+    local ok_http, http = pcall(require, "socket.http")
+    local ok_ltn12, ltn12 = pcall(require, "ltn12")
+    local ok_sock, socket = pcall(require, "socket")
+    if not (ok_http and ok_ltn12 and ok_sock) then
+        return nil, _("No network stack.")
+    end
+    local socketutil = require("socketutil")
+    local chunks = {}
+    socketutil:set_timeout()
+    local ok, code, _headers, status = pcall(function()
+        return socket.skip(1, http.request{
+            url = url,
+            sink = ltn12.sink.table(chunks),
+        })
+    end)
+    socketutil:reset_timeout()
+    if not ok then return nil, tostring(code) end
+    if code ~= 200 then return nil, tostring(status or code) end
+    return table.concat(chunks)
+end
+
+-- Numeric dotted-version compare: -1 if a < b, 0 if equal, 1 if a > b.
+local function compareVersions(a, b)
+    local function parts(v)
+        local t = {}
+        for p in tostring(v or ""):gmatch("[^.]+") do
+            t[#t + 1] = tonumber(p) or 0
+        end
+        return t
+    end
+    local pa, pb = parts(a), parts(b)
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x < y and -1 or 1 end
+    end
+    return 0
+end
+
+-- The version an installed patch declares. Tries the usual declaration
+-- styles; nil when the file is missing or declares nothing parseable.
+local function installedVersion(filename)
+    local f = io.open(PATCH_DIR .. "/" .. filename, "r")
+    if not f then return nil end
+    local src = f:read("*a") or ""
+    f:close()
+    return src:match('local VERSION%s*=%s*"([^"]+)"')
+        or src:match('%sVERSION%s*=%s*"([^"]+)"')
+        or src:match("Version%s+([%d%.]+)")
+end
+
+-- Downloads one patch file. Writes to a temp file first and renames, so a
+-- failed download can never leave a half-written patch behind. The content
+-- must compile as Lua, otherwise it's a bad download, not a patch.
+local function downloadPatch(filename)
+    local body, err = fetchUrl(updaterUrl(filename))
+    if not body then return nil, err end
+    if not loadstring(body) then return nil, _("Invalid file.") end
+    local tmp = PATCH_DIR .. "/." .. filename .. ".new"
+    local f = io.open(tmp, "w")
+    if not f then return nil, _("Couldn't save.") end
+    f:write(body)
+    f:close()
+    if os.rename(tmp, PATCH_DIR .. "/" .. filename) then
+        return true
+    end
+    os.remove(tmp)
+    return nil, _("Couldn't save.")
+end
+
+local function installPatchUpdates(outdated)
+    local Trapper = require("ui/trapper")
+    Trapper:wrap(function()
+        local UIManager = require("ui/uimanager")
+        local InfoMessage = require("ui/widget/infomessage")
+        local ConfirmBox = require("ui/widget/confirmbox")
+
+        local failed = {}
+        for _i, u in ipairs(outdated) do
+            local ok, err = downloadPatch(u.file)
+            if not ok then
+                failed[#failed + 1] = T(_("%1 (%2)"), u.file, tostring(err))
+            end
+        end
+
+        if #failed > 0 then
+            -- Failures are always shown, never silent.
+            UIManager:show(InfoMessage:new{
+                text = T(_("Some Patches Failed To Update:\n\n%1"), table.concat(failed, "\n")),
+            })
+        end
+        if #failed == #outdated then return end
+        styledNote(T(_("Updated %1 Patches"), #outdated - #failed), _("Patches Updated"))
+        UIManager:show(ConfirmBox:new{
+            text = _("Patches Updated. Restart KOReader Now?"),
+            ok_text = _("Restart"),
+            ok_callback = function() UIManager:restartKOReader() end,
+        })
+    end)
+end
+
+-- Exposed on Backup (like tidyIcons) so the menu can reach it: the updater
+-- is defined after the Menu section, where styledNote lives.
+function Backup.checkForPatchUpdates()
+    local Trapper = require("ui/trapper")
+    Trapper:wrap(function()
+        local UIManager = require("ui/uimanager")
+        local InfoMessage = require("ui/widget/infomessage")
+        local ConfirmBox = require("ui/widget/confirmbox")
+        local NetworkMgr = require("ui/network/manager")
+
+        -- Same connect flow as KOReader's own updater: offers to turn Wi-Fi
+        -- on when it's off, then continues once connected.
+        local co = coroutine.running()
+        local resume = function() coroutine.resume(co, true) end
+        if NetworkMgr:willRerunWhenConnected(resume) then
+            coroutine.yield()
+            if not NetworkMgr:isConnected() then
+                UIManager:show(InfoMessage:new{ text = _("Couldn't Connect to Wi-Fi.") })
+                return
+            end
+        end
+
+        local body, err = fetchUrl(updaterUrl(UPDATER_MANIFEST))
+        if not body then
+            UIManager:show(InfoMessage:new{
+                text = T(_("Couldn't Fetch the Version List.\n\n%1"), tostring(err)),
+            })
+            return
+        end
+        local chunk = loadstring(body)
+        if chunk then setfenv(chunk, {}) end
+        local ok, manifest = pcall(chunk or function() end)
+        if not ok or type(manifest) ~= "table" then
+            UIManager:show(InfoMessage:new{ text = _("The Version List Was Invalid.") })
+            return
+        end
+
+        local outdated = {}
+        for filename, available in pairs(manifest) do
+            if type(filename) == "string" and type(available) == "string" then
+                local installed = installedVersion(filename)
+                if installed and compareVersions(installed, available) < 0 then
+                    outdated[#outdated + 1] = {
+                        file = filename, installed = installed, available = available,
+                    }
+                end
+            end
+        end
+        table.sort(outdated, function(a, b) return a.file < b.file end)
+
+        if #outdated == 0 then
+            styledNote(_("All Patches Up To Date"), _("Patches Up To Date"))
+            return
+        end
+
+        local lines = {}
+        for _i, u in ipairs(outdated) do
+            lines[#lines + 1] = T(_("%1: %2 → %3"), u.file, u.installed, u.available)
+        end
+        UIManager:show(ConfirmBox:new{
+            text = T(_("Patch Updates Available:\n\n%1\n\nDownload and install them?"),
+                table.concat(lines, "\n")),
+            ok_text = _("Update All"),
+            ok_callback = function() installPatchUpdates(outdated) end,
+        })
+    end)
+end
 
 -- --------------------------------------------------------------------------
 -- Device Backup & Restore (backup.koplugin) integration
