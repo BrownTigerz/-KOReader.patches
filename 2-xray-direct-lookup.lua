@@ -2,7 +2,7 @@
     Direct X-Ray Lookup patch for ultimatejimmy/xray.koplugin
     https://github.com/ultimatejimmy/xray.koplugin
 
-    Version: 1.1.5 (2026-10-11) - See CHANGELOG below.
+    Version: 1.1.10 (2026-10-11) - See CHANGELOG below.
 
     Versioning (for future updates to this file):
       1.0.x - fixes (e.g. adapting to an xray.koplugin internal rename)
@@ -44,6 +44,39 @@
     ===================================================================
     CHANGELOG
     ===================================================================
+    1.1.10 (2026-10-11)
+      - All user-facing menu/item/button texts now use title case per
+        TK's standing rule (e.g. "Direct X-Ray Lookup", "Change Step",
+        "Reset Position (X +0, Y +0)"). Notification/toast strings
+        unchanged.
+    1.1.9 (2026-10-11)
+      - FIX: Dictionary button / X-Ray detail could remain visible as e-ink
+        ghost pixels after tapping Dictionary. The widgets were actually
+        closed (diagnostics confirmed no "still in window stack" warning),
+        but their screen regions never repainted. _closeBackButton now
+        forces its former region to repaint, the deferred teardown does a
+        full "ui" refresh after closing X-Ray windows, and the tap no
+        longer marks the soon-to-be-closed button dirty. Also ignores
+        double-taps while the dictionary is already opening.
+    1.1.8 (2026-10-11)
+      - FIX: position-adjuster preview could linger after pressing Done.
+        Done now closes the preview button directly instead of relying
+        solely on the dialog's onCloseWidget hook.
+    1.1.7 (2026-10-11)
+      - FIX: the Dictionary button stopped responding to taps after the
+        v1.1.6 restyle - a bare Button shown as a toast doesn't receive
+        taps, the FrameContainer-wrapped one does. Back to the wrapper,
+        keeping the new X-Ray-style outline look. The position-adjuster
+        preview (same builder) now dismisses properly on Done again.
+    1.1.6 (2026-10-11)
+      - FIX: the Dictionary button could stay on screen after tapping it to
+        open the dictionary popup. It now hides immediately on tap, the
+        close is verified, and a re-reroute is suppressed while the
+        dictionary popup is open (cleared by the next genuine lookup).
+      - The Dictionary button now matches X-Ray's own detail-view buttons
+        ("Linked Entries" / "Find Mentions"): outlined, transparent
+        background, bold text (was: white filled pill). Still bottom-right,
+        still a pass-through toast.
     1.1.5 (2026-10-11)
       - NEW: status notifications (toggle on/off, button position) now go
         through the shared notification contract v1: Network Tweaks' style
@@ -132,7 +165,7 @@
             to X-Ray when data exists, standard popup otherwise.
 --]]
 
-local PATCH_VERSION = "1.1.5"
+local PATCH_VERSION = "1.1.10"
 
 local ok_userpatch, userpatch = pcall(require, "userpatch")
 if not ok_userpatch or not userpatch or not userpatch.registerPatchPluginFunc then
@@ -262,6 +295,11 @@ end
 local _xray_widgets = {}
 local _back_button = nil
 local _back_button_picker = false
+-- Set when the Dictionary button is tapped to open the dictionary popup.
+-- While set, the button is not re-shown: the user asked for the dictionary,
+-- so a re-reroute must not pop X-Ray (and the button) back up on top of it.
+-- Cleared by the next genuine lookup.
+local _dict_open = false
 -- The selection as it was when the button was first shown for this lookup.
 -- Kept across the picker->detail reposition: re-capturing there could grab
 -- a selection that X-Ray's own taps already cleared.
@@ -323,11 +361,29 @@ local function _trackXRayWidget(w)
 end
 
 local function _closeBackButton()
-    if _back_button then
-        pcall(function() UIManager:close(_back_button) end)
-        _back_button = nil
-    end
+    local b = _back_button
+    _back_button = nil
     _back_button_picker = false
+    if b then
+        -- Save the region before closing so we can force it to repaint:
+        -- on e-ink the pixels linger if nothing redraws the area.
+        local dimen = nil
+        pcall(function()
+            if b.dimen then
+                dimen = Geom:new{ x = b.dimen.x, y = b.dimen.y, w = b.dimen.w, h = b.dimen.h }
+            end
+        end)
+        pcall(function() UIManager:close(b) end)
+        if _isShown(b) then
+            log("WARNING: dictionary button still in window stack after close, retrying")
+            pcall(function() UIManager:close(b) end)
+        end
+        if dimen then
+            UIManager:setDirty(nil, function() return "ui", dimen end)
+        else
+            UIManager:setDirty(nil, "ui")
+        end
+    end
 end
 
 _back_button_close_and_clear = function(hl)
@@ -389,19 +445,25 @@ local function _restoreMenu(hl, saved_sel)
     orig_lookupDictWord(hl)
 end
 
--- The framed "Dictionary" button: opaque, bordered, rounded like X-Ray's
--- picker dialog.
+-- The "Dictionary" button, styled like X-Ray's own detail-view buttons
+-- ("Linked Entries" / "Find Mentions"): outlined, transparent background,
+-- bold text (xray_ui.lua make_btn). Kept as a FrameContainer wrapping the
+-- Button: a bare Button shown as a toast did not respond to taps (v1.1.6),
+-- the wrapped one does. Still a floating toast, so taps pass through to
+-- the X-Ray view below it.
 local function _buildDictButton(callback)
     local btn = Button:new{
         text = "Dictionary",
+        text_font_face = "cfont",
+        text_font_bold = true,
         bordersize = 0,
         margin = 0,
         callback = callback,
     }
     return FrameContainer:new{
-        background = Blitbuffer.COLOR_WHITE,
-        bordersize = Size.border.window,
-        radius = Size.radius.window,
+        background = nil,
+        bordersize = 2,
+        radius = 4,
         padding = 0,
         margin = 0,
         btn,
@@ -429,11 +491,27 @@ local function _buttonPos(og, picker, xray)
 end
 
 local function _showBackButton(hl, picker, xray)
+    if _dict_open then
+        log("dictionary popup open - not re-showing dictionary button")
+        return
+    end
     _closeBackButton()
     if hl.selected_text then _back_saved_sel = hl.selected_text end
     local saved_sel = _back_saved_sel
     local og = _buildDictButton(function()
+        if _dict_open then
+            log("dictionary button tapped while already opening - ignoring")
+            return
+        end
         log("dictionary button tapped")
+        _dict_open = true
+        -- Hide immediately so the button is gone even if the deferred
+        -- close below runs into trouble; the close still follows.
+        -- (No setDirty here: the widget is about to be closed, and
+        -- _closeBackButton repaints its region after removing it.)
+        if _back_button then
+            _back_button.invisible = true
+        end
         -- The button is a toast, so this same tap keeps dispatching to the
         -- windows below it: sendEvent is walking UIManager._window_stack
         -- right now. Closing windows here shrinks the stack mid-walk and
@@ -442,6 +520,8 @@ local function _showBackButton(hl, picker, xray)
         UIManager:nextTick(function()
             _closeBackButton()
             _closeTrackedWidgets()
+            -- Clear any lingering e-ink pixels from the X-Ray windows.
+            UIManager:setDirty(nil, "ui")
         end)
         -- Open the popup only after the tap has finished, or the tap
         -- closes it again straight away.
@@ -481,6 +561,9 @@ local function _showPreview(xray)
 end
 
 local function _rerouteToXRay(xray, hl, word, nres)
+    -- A genuine new lookup: the dictionary popup (if any) is gone and the
+    -- button is allowed again.
+    _dict_open = false
     local sel = hl.selected_text or {}
     local lm = xray.lookup_manager
     _xray_widgets = {}
@@ -677,8 +760,8 @@ function M:showDirectXRayPositionAdjuster()
         plugin.ui:handleEvent(Event:new("CloseReaderMenu"))
     end)
     dlg = ButtonDialog:new{
-        title = "Dictionary button position (multiple-match picker)\n"
-            .. "Right and Down are +, Left and Up are -.",
+        title = "Dictionary Button Position (Multiple-Match Picker)\n"
+            .. "Right And Down Are +, Left And Up Are -.",
         title_align = "center",
         buttons = {
             {{ text = "Up", callback = function() nudge(0, -1) end }},
@@ -688,7 +771,7 @@ function M:showDirectXRayPositionAdjuster()
             },
             {{ text = "Down", callback = function() nudge(0, 1) end }},
             {
-                { text = "Change step", callback = function()
+                { text = "Change Step", callback = function()
                     step_i = step_i % #STEPS + 1
                     _notifyOffsets(plugin, step())
                 end },
@@ -698,7 +781,10 @@ function M:showDirectXRayPositionAdjuster()
                     _notifyOffsets(plugin, step())
                 end },
             },
-            {{ text = "Done", callback = function() UIManager:close(dlg) end }},
+            {{ text = "Done", callback = function()
+                _closePreview()
+                UIManager:close(dlg)
+            end }},
         },
         -- Top of the screen, so the preview at the bottom stays visible.
         anchor = function() return { y = Screen:scaleBySize(8) }, true end,
@@ -803,7 +889,7 @@ if not _dispatcher_registered then
         Dispatcher:registerAction("xray_direct_lookup_toggle", {
             category = "none",
             event = "ToggleDirectXRayLookup",
-            title = "Toggle direct X-Ray lookup",
+            title = "Toggle Direct X-Ray Lookup",
             reader = true,
         })
     else
@@ -827,7 +913,7 @@ function XRayPlugin:getSubMenuItems(...)
     end
     table.insert(items, 1, {
         _dxr_toggle_item = true,
-        text = "Direct X-Ray lookup",
+        text = "Direct X-Ray Lookup",
         checked_func = function() return _toggleOn(self) end,
         sub_item_table_func = function()
             return {
@@ -841,7 +927,7 @@ function XRayPlugin:getSubMenuItems(...)
                     end,
                 },
                 {
-                    text = "Dictionary button position (picker)...",
+                    text = "Dictionary Button Position (Picker)...",
                     callback = function()
                         self:showDirectXRayPositionAdjuster()
                     end,
@@ -849,7 +935,7 @@ function XRayPlugin:getSubMenuItems(...)
                 {
                     text_func = function()
                         local dx, dy = _offsets(self)
-                        return string.format("Reset position (X %+d, Y %+d)", dx, dy)
+                        return string.format("Reset Position (X %+d, Y %+d)", dx, dy)
                     end,
                     keep_menu_open = true,
                     callback = function(tm)
