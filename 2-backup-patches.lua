@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.2 (2026-10-12)
+2-backup-patches.lua                                     2.2.3 (2026-10-13)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,12 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.3  2026-10-13
+    - Updater rows are tappable: tap an outdated row to update just that
+      patch, tap an up-to-date row to reinstall it, tap a not-installed
+      row to install it. The status list always shows (even when
+      everything is up to date), and "Update All Patches (N)" is always
+      listed — with nothing outdated it just says so.
   2.2.2  2026-10-12
     - Updater trace hooks for the diagnostics patch: manifest fetch,
       per-patch compare decisions, Wi-Fi on/off, downloads and the
@@ -138,7 +144,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.2"
+local VERSION = "2.2.3"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1275,6 +1281,18 @@ local function localInstall(repo_path)
     return found[1], found[2]
 end
 
+-- Where a fresh copy of a manifest entry would go: the patches folder for
+-- a main patch, patches/debug/ for a diagnostic (its active copy, if it
+-- had one, would win on update). Used when installing a patch that isn't
+-- there at all.
+local function defaultDest(repo_path)
+    local filename = repo_path:match("[^/]+$")
+    if repo_path:sub(1, 6) == "debug/" then
+        return DEBUG_DIR .. "/" .. filename
+    end
+    return PATCH_DIR .. "/" .. filename
+end
+
 -- Per-patch direction for the status list: up_to_date, update_available,
 -- newer (installed is newer than the repo), or unknown.
 local function entryStatus(repo_path, available)
@@ -1434,6 +1452,7 @@ function Backup.checkForPatchUpdates()
     Trapper:wrap(function()
         local UIManager = require("ui/uimanager")
         local InfoMessage = require("ui/widget/infomessage")
+        local ConfirmBox = require("ui/widget/confirmbox")
         local NetworkMgr = require("ui/network/manager")
         local Menu = require("ui/widget/menu")
 
@@ -1500,22 +1519,72 @@ function Backup.checkForPatchUpdates()
 
         local update_started = false
         local status_menu
-        local items = {}
-        if #outdated > 0 then
-            items[#items + 1] = {
-                text = T(_("Update All Patches (%1)"), #outdated),
-                callback = function()
-                    update_started = true
-                    UIManager:close(status_menu)
-                    updatePatches(outdated, cleanupWifi)
-                end,
-            }
+
+        -- What tapping a status row does. update_available downloads just
+        -- that patch; up_to_date offers a reinstall; not installed offers
+        -- an install; anything else just explains itself.
+        local function rowTap(e)
+            if e.status == "update_available" then
+                updaterTrace("row", "tap: update just %s", e.filename)
+                update_started = true
+                UIManager:close(status_menu)
+                updatePatches({ e }, cleanupWifi)
+            elseif e.status == "up_to_date" then
+                UIManager:show(ConfirmBox:new{
+                    text = T(_("%1 is already up to date (%2).\n\nReinstall it anyway?"),
+                        e.filename, e.installed),
+                    ok_text = _("Reinstall"),
+                    ok_callback = function()
+                        updaterTrace("row", "tap: reinstall %s", e.filename)
+                        update_started = true
+                        UIManager:close(status_menu)
+                        updatePatches({ e }, cleanupWifi)
+                    end,
+                })
+            elseif not e.dest then
+                UIManager:show(ConfirmBox:new{
+                    text = T(_("%1 is not installed.\n\nInstall version %2?"),
+                        e.filename, e.available),
+                    ok_text = _("Install"),
+                    ok_callback = function()
+                        e.dest = defaultDest(e.repo_path)
+                        updaterTrace("row", "tap: install %s to %s", e.filename, e.dest)
+                        update_started = true
+                        UIManager:close(status_menu)
+                        updatePatches({ e }, cleanupWifi)
+                    end,
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = e.status == "newer"
+                        and T(_("Installed %1 is newer than the published %2. Nothing to update."),
+                            e.installed, e.available)
+                        or T(_("Couldn't read the installed version of %1."), e.filename),
+                })
+            end
         end
+
+        local items = {}
+        -- Always listed: with nothing outdated, tapping it just says so.
+        items[#items + 1] = {
+            text = T(_("Update All Patches (%1)"), #outdated),
+            callback = function()
+                if #outdated == 0 then
+                    UIManager:show(InfoMessage:new{
+                        text = _("All Patches Are Up to Date."),
+                    })
+                    return
+                end
+                update_started = true
+                UIManager:close(status_menu)
+                updatePatches(outdated, cleanupWifi)
+            end,
+        }
         for _, e in ipairs(statuses) do
             items[#items + 1] = {
                 text = e.filename,
                 mandatory = e.status_text,
-                select_enabled = false,
+                callback = function() rowTap(e) end,
             }
         end
         status_menu = Menu:new{
