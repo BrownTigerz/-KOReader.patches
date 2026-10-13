@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.1.2 (2026-10-11)
+2-backup-patches.lua                                     2.1.3 (2026-10-11)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.1.3  2026-10-11
+    - Menu item texts use title case (e.g. "Delete All Backups"), matching
+      the Debugging Menu convention. Notification strings, dialog bodies
+      and help text are untouched.
   2.1.2  2026-10-11
     - Result notes use the shared notification contract v1: Network Tweaks'
       note first, then ReadMastery's, then the KOReader popup.
@@ -116,7 +120,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.1.2"
+local VERSION = "2.1.3"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -773,7 +777,7 @@ local function targetMenu(target)
 
     return {
         {
-            text = _("Back up now"),
+            text = _("Back Up Now"),
             keep_menu_open = true,
             callback = function()
                 local path, res = makeBackup(target)
@@ -790,10 +794,10 @@ local function targetMenu(target)
             text_func = function()
                 for _i, e in ipairs(listBackups(target)) do
                     if not e.pre_restore then
-                        return T(_("Restore latest (%1)"), prettyTime(e.time))
+                        return T(_("Restore Latest (%1)"), prettyTime(e.time))
                     end
                 end
-                return _("Restore latest")
+                return _("Restore Latest")
             end,
             enabled_func = function()
                 for _i, e in ipairs(listBackups(target)) do
@@ -815,12 +819,12 @@ local function targetMenu(target)
                 local n, bytes = backupTotals({ target })
                 if n > 1 then
                     table.insert(items, {
-                        text = T(_("Delete all (%1 · %2)"), n, prettySize(bytes)),
+                        text = T(_("Delete All (%1 · %2)"), n, prettySize(bytes)),
                         separator = true,
                         callback = function(touchmenu)
                             UIManager:show(ConfirmBox:new{
                                 text = T(_("Delete all %1 backups of %2, safety backups included?\n\nThis can't be undone."), n, target.text),
-                                ok_text = _("Delete all"),
+                                ok_text = _("Delete All"),
                                 ok_callback = function()
                                     deleteAllBackups({ target })
                                     -- Back out past the (now empty) history list.
@@ -834,11 +838,11 @@ local function targetMenu(target)
                     table.insert(items, {
                         text = prettyTime(e.time)
                             .. (e.pre_restore and ("  · " .. (e.tag == "tidy"
-                                and _("before tidy") or _("before restore"))) or "")
+                                and _("Before Tidy") or _("Before Restore"))) or "")
                             .. "  · " .. prettySize(e.size),
                         sub_item_table = {
                             {
-                                text = _("Restore this backup"),
+                                text = _("Restore This Backup"),
                                 callback = function() confirmRestore(target, e) end,
                             },
                             {
@@ -896,7 +900,7 @@ local function iconsMenu()
 
     return {
         {
-            text = _("Tidy icons"),
+            text = _("Tidy Icons"),
             sub_item_table_func = function()
                 local list, total = {}, 0
                 for _i, t in ipairs(Backup.targets) do
@@ -907,13 +911,13 @@ local function iconsMenu()
                     end
                 end
                 if #list == 0 then
-                    return { { text = _("All icons are already tidy"), enabled = false } }
+                    return { { text = _("All Icons Are Already Tidy"), enabled = false } }
                 end
                 table.sort(list, function(a, b) return tostring(a.target.text) < tostring(b.target.text) end)
 
                 local items = {
                     {
-                        text = T(_("All targets (%1 icons)"), total),
+                        text = T(_("All Targets (%1 Icons)"), total),
                         separator = true,
                         callback = function()
                             UIManager:show(ConfirmBox:new{
@@ -930,7 +934,7 @@ local function iconsMenu()
                 }
                 for _i, x in ipairs(list) do
                     table.insert(items, {
-                        text = T(_("%1 (%2 icons)"), x.target.text, x.n),
+                        text = T(_("%1 (%2 Icons)"), x.target.text, x.n),
                         callback = function()
                             UIManager:show(ConfirmBox:new{
                                 text = T(_("Copy %1 icons into:\n%2\n\nand point %3 there?\n\nOriginals stay where they are. It's backed up first."),
@@ -945,18 +949,18 @@ local function iconsMenu()
             end,
         },
         {
-            text = _("Unused icons"),
+            text = _("Unused Icons"),
             sub_item_table_func = function()
                 local unused = findUnusedIcons()
                 if #unused == 0 then
-                    return { { text = _("No unused icons"), enabled = false } }
+                    return { { text = _("No Unused Icons"), enabled = false } }
                 end
                 local bytes = 0
                 for _i, e in ipairs(unused) do bytes = bytes + e.size end
 
                 local items = {
                     {
-                        text = T(_("Delete all (%1 · %2)"), #unused, prettySize(bytes)),
+                        text = T(_("Delete All (%1 · %2)"), #unused, prettySize(bytes)),
                         separator = true,
                         callback = function(touchmenu)
                             UIManager:show(ConfirmBox:new{
@@ -1025,14 +1029,14 @@ mainItems = function()
         })
     end
     if #items == 0 then
-        items[1] = { text = _("Nothing to back up yet"), enabled = false }
+        items[1] = { text = _("Nothing To Back Up Yet"), enabled = false }
     end
     items[#items].separator = true
     table.insert(items, {
         text_func = function()
             local n, bytes = backupTotals(Backup.targets)
-            if n == 0 then return _("Delete all backups") end
-            return T(_("Delete all backups (%1 · %2)"), n, prettySize(bytes))
+            if n == 0 then return _("Delete All Backups") end
+            return T(_("Delete All Backups (%1 · %2)"), n, prettySize(bytes))
         end,
         enabled_func = function() return (backupTotals(Backup.targets)) > 0 end,
         callback = function(touchmenu)
@@ -1041,7 +1045,7 @@ mainItems = function()
             local n = backupTotals(Backup.targets)
             UIManager:show(ConfirmBox:new{
                 text = T(_("Delete all %1 patch backups, for every target, safety backups included?\n\nDevice Backup & Restore backups aren't affected. This can't be undone."), n),
-                ok_text = _("Delete all"),
+                ok_text = _("Delete All"),
                 ok_callback = function()
                     local gone = deleteAllBackups(Backup.targets)
                     -- Targets with nothing left drop off this menu: go up so
@@ -1057,7 +1061,7 @@ mainItems = function()
         sub_item_table_func = iconsMenu,
     })
     table.insert(items, {
-        text = _("Logins in device backups"),
+        text = _("Logins In Device Backups"),
         help_text = _("Off: Device Backup & Restore leaves out saved logins, session tokens and their keys. A device you restore to keeps its own logins.\n\nOn: they're included, so the new device is signed in straight away."),
         checked_func = function() return G_reader_settings:isTrue(LOGINS_SETTING) end,
         callback = function(touchmenu)
@@ -1448,7 +1452,7 @@ end
 
 Backup.register{
     id = "shortcutstoolbar",
-    text = _("Shortcuts toolbar"),
+    text = _("Shortcuts Toolbar"),
     setting_prefix = "shortcutstoolbar", -- plugin settings + icon tweaks patch
 }
 
@@ -1460,13 +1464,13 @@ Backup.register{
 
 Backup.register{
     id = "addons_menu",
-    text = _("Add-ons menu"),
+    text = _("Add-Ons Menu"),
     setting_prefix = "addons_menu_",      -- what's in / out of Add-ons
 }
 
 Backup.register{
     id = "readinginsights_tweaks",
-    text = _("Reading Insights tweaks"),
+    text = _("Reading Insights Tweaks"),
     setting_prefix = "ri_cover_calendar",
 }
 
@@ -1484,7 +1488,7 @@ Backup.register{
 
 Backup.register{
     id = "shelfsync_tweaks",
-    text = _("ShelfSync tweaks"),
+    text = _("ShelfSync Tweaks"),
     -- Settings only. Saved logins and the key that encrypts them are left
     -- out on purpose: a backup with both would expose your passwords.
     files = { "shelfsync_tweaks.lua" },
