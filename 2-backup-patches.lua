@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.3 (2026-10-13)
+2-backup-patches.lua                                     2.2.4 (2026-10-13)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.4  2026-10-13
+    - Updater UX per on-device feedback: no more progress bar (e-ink
+      flicker) — a plain "Downloading <name>..." text shows per file
+      instead. Wi-Fi is left on after updating, no longer turned back
+      off.
   2.2.3  2026-10-13
     - Updater rows are tappable: tap an outdated row to update just that
       patch, tap an up-to-date row to reinstall it, tap a not-installed
@@ -144,7 +149,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.3"
+local VERSION = "2.2.4"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1216,23 +1221,6 @@ local function fetchUrl(url, on_progress)
     return table.concat(chunks), nil, code
 end
 
--- HEAD a URL for its Content-Length (for the progress bar). nil when unknown.
-local function contentLength(url)
-    local ok_http, http = pcall(require, "socket.http")
-    local ok_sock, socket = pcall(require, "socket")
-    local ok_su, socketutil = pcall(require, "socketutil")
-    if not (ok_http and ok_sock and ok_su) then return nil end
-    socketutil:set_timeout()
-    local ok, code, headers = pcall(function()
-        return socket.skip(1, http.request{ method = "HEAD", url = url })
-    end)
-    socketutil:reset_timeout()
-    if ok and code == 200 and type(headers) == "table" then
-        return tonumber(headers["content-length"])
-    end
-    return nil
-end
-
 -- Numeric dotted-version compare: -1 if a < b, 0 if equal, 1 if a > b.
 local function compareVersions(a, b)
     local function parts(v)
@@ -1326,7 +1314,8 @@ local function entryStatus(repo_path, available)
 end
 
 -- Makes sure we're online. Turns Wi-Fi on automatically when it's off and
--- waits for the connection (up to 60s). Returns ok, we_turned_it_on.
+-- waits for the connection (up to 60s). Wi-Fi is left on afterwards.
+-- Returns true when connected.
 local function ensureWifi()
     local NetworkMgr = require("ui/network/manager")
     local UIManager = require("ui/uimanager")
@@ -1355,37 +1344,31 @@ local function ensureWifi()
     -- backend never forwards the callback.
     NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
     local ok = coroutine.yield()
-    return ok, we_turned_on
+    return ok
 end
 
 -- Downloads and installs the given entries. The caller only passes
 -- update_available ones, so this is strictly forward-only: it never
--- downgrades. Per-file progress bar, failures don't stop the rest.
--- on_done runs after the downloads, before the summary.
-local function updatePatches(targets, on_done)
+-- downgrades. A text note names each file as it downloads (no progress
+-- bar: e-ink hates it); failures don't stop the rest.
+local function updatePatches(targets)
     local Trapper = require("ui/trapper")
     Trapper:wrap(function()
         local UIManager = require("ui/uimanager")
         local InfoMessage = require("ui/widget/infomessage")
         local ConfirmBox = require("ui/widget/confirmbox")
-        local ProgressbarDialog = require("ui/widget/progressbardialog")
 
         local succeeded, failed = {}, {}
         for i, t in ipairs(targets) do
             local url = updaterUrl(t.repo_path)
             updaterTrace("download", "start %s (%s)", t.filename, url)
-            local dialog = ProgressbarDialog:new{
-                title = T(_("Updating Patches (%1 of %2)"), i, #targets),
-                subtitle = t.filename,
-                progress_max = contentLength(url), -- nil → bar hidden
-                refresh_time_seconds = 0.5,
-                dismissable = false,
+            -- Plain text, no progress bar: e-ink hates the flicker.
+            local downloading = InfoMessage:new{
+                text = T(_("Downloading %1..."), t.filename),
             }
-            dialog:show()
-            local body, err = fetchUrl(url, function(received)
-                dialog:reportProgress(received)
-            end)
-            dialog:close()
+            UIManager:show(downloading)
+            local body, err = fetchUrl(url)
+            UIManager:close(downloading)
             -- Write to a temp file first so a failed download can never
             -- leave a half-written patch behind. The content must compile
             -- as Lua, otherwise it's a bad download, not a patch.
@@ -1418,8 +1401,6 @@ local function updatePatches(targets, on_done)
                 updaterTrace("download", "done %s: %d bytes → %s", t.filename, #body, t.dest)
             end
         end
-
-        if on_done then on_done() end
 
         -- Success/failure summary, then the restart prompt.
         if #failed > 0 then
@@ -1457,23 +1438,10 @@ function Backup.checkForPatchUpdates()
         local Menu = require("ui/widget/menu")
 
         updaterTrace("run", "check started")
-        local wifi_ok, we_turned_on = ensureWifi()
-        if not wifi_ok then
+        if not ensureWifi() then
             updaterTrace("wifi", "giving up: no connection")
-            if we_turned_on and NetworkMgr:isWifiOn() then
-                NetworkMgr:turnOffWifi()
-            end
             UIManager:show(InfoMessage:new{ text = _("Couldn't Connect to Wi-Fi.") })
             return
-        end
-        -- Put Wi-Fi back the way it was once we're done with the network.
-        local function cleanupWifi()
-            if we_turned_on then
-                we_turned_on = false
-                updaterTrace("wifi", "turned back off (was off at check start)")
-                if NetworkMgr:isWifiOn() then NetworkMgr:turnOffWifi() end
-                styledNote(_("Wi-Fi Turned Back Off"), _("Wi-Fi Off"))
-            end
         end
 
         local manifest_url = updaterUrl(UPDATER_MANIFEST)
@@ -1481,7 +1449,6 @@ function Backup.checkForPatchUpdates()
         if not body then
             updaterTrace("manifest", "fetch FAILED %s (HTTP %s): %s",
                 manifest_url, tostring(code or "?"), tostring(err))
-            cleanupWifi()
             UIManager:show(InfoMessage:new{
                 text = T(_("Couldn't Fetch the Version List.\n\n%1"), tostring(err)),
             })
@@ -1492,7 +1459,6 @@ function Backup.checkForPatchUpdates()
         local ok, manifest = pcall(chunk or function() end)
         if not ok or type(manifest) ~= "table" then
             updaterTrace("manifest", "invalid manifest from %s (not a table)", manifest_url)
-            cleanupWifi()
             UIManager:show(InfoMessage:new{ text = _("The Version List Was Invalid.") })
             return
         end
@@ -1517,7 +1483,6 @@ function Backup.checkForPatchUpdates()
         table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
         table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
 
-        local update_started = false
         local status_menu
 
         -- What tapping a status row does. update_available downloads just
@@ -1526,9 +1491,8 @@ function Backup.checkForPatchUpdates()
         local function rowTap(e)
             if e.status == "update_available" then
                 updaterTrace("row", "tap: update just %s", e.filename)
-                update_started = true
                 UIManager:close(status_menu)
-                updatePatches({ e }, cleanupWifi)
+                updatePatches({ e })
             elseif e.status == "up_to_date" then
                 UIManager:show(ConfirmBox:new{
                     text = T(_("%1 is already up to date (%2).\n\nReinstall it anyway?"),
@@ -1536,9 +1500,8 @@ function Backup.checkForPatchUpdates()
                     ok_text = _("Reinstall"),
                     ok_callback = function()
                         updaterTrace("row", "tap: reinstall %s", e.filename)
-                        update_started = true
                         UIManager:close(status_menu)
-                        updatePatches({ e }, cleanupWifi)
+                        updatePatches({ e })
                     end,
                 })
             elseif not e.dest then
@@ -1549,9 +1512,8 @@ function Backup.checkForPatchUpdates()
                     ok_callback = function()
                         e.dest = defaultDest(e.repo_path)
                         updaterTrace("row", "tap: install %s to %s", e.filename, e.dest)
-                        update_started = true
                         UIManager:close(status_menu)
-                        updatePatches({ e }, cleanupWifi)
+                        updatePatches({ e })
                     end,
                 })
             else
@@ -1575,9 +1537,7 @@ function Backup.checkForPatchUpdates()
                     })
                     return
                 end
-                update_started = true
-                UIManager:close(status_menu)
-                updatePatches(outdated, cleanupWifi)
+                updatePatches(outdated)
             end,
         }
         for _, e in ipairs(statuses) do
@@ -1590,10 +1550,6 @@ function Backup.checkForPatchUpdates()
         status_menu = Menu:new{
             title = _("Patch Update Status"),
             item_table = items,
-            close_callback = function()
-                -- Dismissed without updating: still put Wi-Fi back.
-                if not update_started then cleanupWifi() end
-            end,
         }
         UIManager:show(status_menu)
     end)
