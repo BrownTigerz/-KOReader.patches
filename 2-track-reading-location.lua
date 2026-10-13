@@ -1,6 +1,6 @@
 --[[
     Track Reading Location
-    Version: 1.9.3
+    Version: 1.9.4
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
@@ -78,6 +78,9 @@
 
     Changelog (from here forward - this patch's earlier history predates this
     numbering scheme and isn't repeated here):
+    1.9.4 - 2026-10-11 - Title case for all user-facing menu/item/button
+    texts ("Reading Location", "Show Button On Screen", ...), including the
+    floating button's own label ("Go Back To Page").
     1.9.3 - 2026-10-11 - Status toasts ("Current page set...", "Already at
     furthest location") now go through the shared cross-patch notification
     contract v1: Network Tweaks' banner style first, then ReadMastery
@@ -131,7 +134,7 @@ local Screen = Device.screen
 -- comment can't read a code constant) and needs updating by hand alongside
 -- this one; everything else - the menu's version row and both load logs -
 -- reads from here.
-local PATCH_VERSION = "1.9.3"
+local PATCH_VERSION = "1.9.4"
 
 logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
 
@@ -324,9 +327,9 @@ function ReadingLocationOverlay:_getButtonBox(side, show_full_text, show_page_nu
         -- "page" doesn't read well in front of a percentage ("page 42%"),
         -- so it's dropped from the wording in that mode.
         if ReadingLocationTracker.isPercentageModeEnabled() then
-            table.insert(words, _("Go back to"))
+            table.insert(words, _("Go Back To"))
         else
-            table.insert(words, _("Go back to page"))
+            table.insert(words, _("Go Back To Page"))
         end
     end
     if show_page_number then
@@ -1484,16 +1487,16 @@ ReaderLink.addToMainMenu = function(self, menu_items)
 
     local ui = self.ui
     menu_items.go_to_furthest_reading_location = {
-        text = _("Reading location"),
+        text = _("Reading Location"),
         sub_item_table = {
             {
-                text = _("Go to furthest reading location"),
+                text = _("Go To Furthest Reading Location"),
                 callback = function()
                     ReadingLocationTracker.goToFurthestReadingLocation(ui)
                 end,
             },
             {
-                text = _("Set current page as reading location"),
+                text = _("Set Current Page As Reading Location"),
                 enabled_func = function()
                     return not ReadingLocationTracker.isAtReadingLocation(ui)
                 end,
@@ -1576,7 +1579,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
 
                     local sub_item_table = {
                         {
-                            text = _("Show button on screen"),
+                            text = _("Show Button On Screen"),
                             checked_func = function()
                                 return ReadingLocationTracker.isFloatingButtonEnabled()
                             end,
@@ -1601,7 +1604,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         {
                             text_func = function()
                                 return T(_("Mode: %1"), ReadingLocationTracker.isPercentageModeEnabled()
-                                    and _("Percentage") or _("Page number"))
+                                    and _("Percentage") or _("Page Number"))
                             end,
                             -- No checked_func on this item (it's a cycling text
                             -- toggle, not a checkbox), so TouchMenu:onMenuSelect
@@ -1619,7 +1622,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             end,
                         },
                         {
-                            text = _("Show full text"),
+                            text = _("Show Full Text"),
                             checked_func = function()
                                 return ReadingLocationTracker.isFullTextEnabled()
                             end,
@@ -1629,7 +1632,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             end,
                         },
                         {
-                            text = _("Show location/page number"),
+                            text = _("Show Location/Page Number"),
                             -- "Go back to page"/"Go back to" doesn't make sense
                             -- without a value next to it, so this is forced on (and
                             -- locked) while "Show full text" is on - see
@@ -1647,7 +1650,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         },
                         {
                             text_func = function()
-                                return _("Show dismiss button") .. (ReadingLocationTracker.isDismissButtonEnabled() and "" or " (hold to dismiss)")
+                                return _("Show Dismiss Button") .. (ReadingLocationTracker.isDismissButtonEnabled() and "" or " (Hold To Dismiss)")
                             end,
                             checked_func = function()
                                 return ReadingLocationTracker.isDismissButtonEnabled()
@@ -1658,7 +1661,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             end,
                         },
                         {
-                            text = _("Show shadow"),
+                            text = _("Show Shadow"),
                             checked_func = function()
                                 return ReadingLocationTracker.isShadowEnabled()
                             end,
@@ -1670,7 +1673,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         {
                             text_func = function()
                                 local seconds = ReadingLocationTracker.getForwardDismissSeconds()
-                                return T(_("Forward popup auto-dismiss: %1"),
+                                return T(_("Forward Popup Auto-Dismiss: %1"),
                                     seconds and T(_("%1s"), seconds) or _("Off"))
                             end,
                             sub_item_table = {
@@ -1685,7 +1688,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                     end,
                                 },
                                 {
-                                    text = _("15 seconds"),
+                                    text = _("15 Seconds"),
                                     radio = true,
                                     checked_func = function()
                                         return ReadingLocationTracker.getForwardDismissSeconds() == 15
@@ -1695,7 +1698,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                     end,
                                 },
                                 {
-                                    text = _("20 seconds"),
+                                    text = _("20 Seconds"),
                                     radio = true,
                                     checked_func = function()
                                         return ReadingLocationTracker.getForwardDismissSeconds() == 20
@@ -1705,7 +1708,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                     end,
                                 },
                                 {
-                                    text = _("30 seconds"),
+                                    text = _("30 Seconds"),
                                     radio = true,
                                     checked_func = function()
                                         return ReadingLocationTracker.getForwardDismissSeconds() == 30
@@ -1715,7 +1718,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                     end,
                                 },
                                 {
-                                    text = _("50 seconds"),
+                                    text = _("50 Seconds"),
                                     radio = true,
                                     checked_func = function()
                                         return ReadingLocationTracker.getForwardDismissSeconds() == 50
@@ -1727,15 +1730,15 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             },
                         },
                         {
-                            text = _("Fast-skim detection"),
+                            text = _("Fast-Skim Detection"),
                             sub_item_table = {
                                 {
                                     text_func = function()
-                                        return T(_("Pages to trigger: %1"), ReadingLocationTracker.getBurstPages())
+                                        return T(_("Pages To Trigger: %1"), ReadingLocationTracker.getBurstPages())
                                     end,
                                     sub_item_table = {
                                         {
-                                            text = _("3 pages"),
+                                            text = _("3 Pages"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstPages() == 3
@@ -1745,7 +1748,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("4 pages"),
+                                            text = _("4 Pages"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstPages() == 4
@@ -1755,7 +1758,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("5 pages"),
+                                            text = _("5 Pages"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstPages() == 5
@@ -1765,7 +1768,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("6 pages"),
+                                            text = _("6 Pages"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstPages() == 6
@@ -1778,12 +1781,12 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                 },
                                 {
                                     text_func = function()
-                                        return T(_("Max time between taps: %1s"),
+                                        return T(_("Max Time Between Taps: %1s"),
                                             string.format("%.1f", ReadingLocationTracker.getBurstIntervalMs() / 1000))
                                     end,
                                     sub_item_table = {
                                         {
-                                            text = _("1.0 seconds"),
+                                            text = _("1.0 Seconds"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstIntervalMs() == 1000
@@ -1793,7 +1796,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("1.5 seconds"),
+                                            text = _("1.5 Seconds"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstIntervalMs() == 1500
@@ -1803,7 +1806,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("2.0 seconds"),
+                                            text = _("2.0 Seconds"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstIntervalMs() == 2000
@@ -1813,7 +1816,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("2.5 seconds"),
+                                            text = _("2.5 Seconds"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstIntervalMs() == 2500
@@ -1823,7 +1826,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                             end,
                                         },
                                         {
-                                            text = _("3.0 seconds"),
+                                            text = _("3.0 Seconds"),
                                             radio = true,
                                             checked_func = function()
                                                 return ReadingLocationTracker.getBurstIntervalMs() == 3000
@@ -1838,12 +1841,12 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         },
                         {
                             text_func = function()
-                                return T(_("Bottom offset: %1"), ReadingLocationTracker.getBottomOffset())
+                                return T(_("Bottom Offset: %1"), ReadingLocationTracker.getBottomOffset())
                             end,
                             keep_menu_open = true,
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
-                                    _("Bottom offset"),
+                                    _("Bottom Offset"),
                                     _("Extra distance the button is docked away from the bottom edge of the screen, on top of the footer's own height when it's visible. Applies to both corners."),
                                     ReadingLocationTracker.getBottomOffset,
                                     ReadingLocationTracker.setBottomOffset)
@@ -1851,12 +1854,12 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         },
                         {
                             text_func = function()
-                                return T(_("Side offset: %1"), ReadingLocationTracker.getSideOffset())
+                                return T(_("Side Offset: %1"), ReadingLocationTracker.getSideOffset())
                             end,
                             keep_menu_open = true,
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
-                                    _("Side offset"),
+                                    _("Side Offset"),
                                     _("Extra distance the button is docked away from the left/right edge of the screen, whichever corner it's currently in. Applies to both corners."),
                                     ReadingLocationTracker.getSideOffset,
                                     ReadingLocationTracker.setSideOffset)
@@ -1864,12 +1867,12 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                         },
                         {
                             text_func = function()
-                                return T(_("Button radius: %1"), ReadingLocationTracker.getButtonRadius())
+                                return T(_("Button Radius: %1"), ReadingLocationTracker.getButtonRadius())
                             end,
                             keep_menu_open = true,
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
-                                    _("Button radius"),
+                                    _("Button Radius"),
                                     _("Corner roundness of the button, from 0 (square) up to fully rounded (pill/circle)."),
                                     ReadingLocationTracker.getButtonRadius,
                                     ReadingLocationTracker.setButtonRadius,
@@ -1924,7 +1927,7 @@ end
 Dispatcher:registerAction("go_to_furthest_reading_location", {
     category = "none",
     event = "GoToFurthestReadingLocation",
-    title = _("Go to furthest reading location"),
+    title = _("Go To Furthest Reading Location"),
     reader = true,
 })
 
@@ -1940,7 +1943,7 @@ end
 Dispatcher:registerAction("set_current_page_as_reading_location", {
     category = "none",
     event = "SetCurrentPageAsReadingLocation",
-    title = _("Set current page as reading location"),
+    title = _("Set Current Page As Reading Location"),
     reader = true,
 })
 

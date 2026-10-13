@@ -20,14 +20,14 @@ All patches work independently and together. If one fails to attach (for example
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.8.1 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.3 |
-| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.2.2 |
+| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.1.2 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.1 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.8.1 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.11 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.10 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.3 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.2 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.2 |
-| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.3 |
+| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.1 |
 | [X-Ray Entity Footnotes](#x-ray-entity-footnotes) | `2-xray-entity-footnotes.lua` | xray.koplugin | 1.0.1 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.5 |
@@ -96,8 +96,7 @@ Patch Backup & Restore
 ├─ Icons
 │  ├─ Tidy icons
 │  └─ Unused icons
-├─ Logins in device backups        off by default
-└─ Check for Patch Updates         update patches on the device
+└─ Logins in device backups        off by default
 ```
 
 - **Back up now:** the target's settings, any settings files it keeps in `koreader/settings/`, and every icon its settings point to, in one zip at `koreader/backups/<target>/<target>_<date>.zip`.
@@ -105,7 +104,6 @@ Patch Backup & Restore
 - **Tidy icons:** copies every icon a target uses into its own flat folder (`koreader/icons/<target>/`; SimpleUI uses its own `sui_icons/`) and repoints settings there. Originals stay put. Takes a "before tidy" backup first.
 - **Unused icons:** icons nothing points to, across `koreader/icons/` subfolders and SimpleUI's `sui_icons/` (packs included). Delete one at a time or all at once; emptied folders and packs go too. Loose files directly in `koreader/icons/` and KOReader's built-in icons are never touched.
 - **Notifications:** with Network Tweaks installed, results (backed up, deleted) follow its notification style: Banner, Minimal corner note, or Normal popup. Questions, restart prompts and failures always stay popups.
-- **Check for Patch Updates:** updates all 25 patches on the device from this repo's `patch-versions.lua` manifest (13 main patches + 12 diagnostics, maintained one line per release) over Wi-Fi — no login, no Google Drive. Every patch is listed as Up to Date, version → version, Installed Is Newer, Not Installed or Unknown Version; Update All downloads forward-only into `koreader/patches/` (a diagnostic updates where its copy sits: `patches/` if active, `patches/debug/` if switched off), with per-file progress and a success/failure summary, then asks to restart. Wi-Fi turns on automatically if off, and back off afterwards.
 
 **Device Backup & Restore integration:** with Settings and Icons ticked, every icon a target uses is included (wherever it lives) plus a map of its old paths, so restoring on another device (Kobo, Kindle, Android) re-links correctly. The Logins toggle is off by default: saved logins, session tokens and the keys that decrypt them (ShelfSync, ShelfSync tweaks) are excluded, including from Beam. Files that mix tokens with normal settings go in with only the tokens stripped, and a restore keeps the device's own logins. Turning it on includes everything, so keep that backup file private.
 
@@ -174,15 +172,15 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Sync messages follow the shared notification style when Network Tweaks or ReadMastery Notify is installed.
 
-- **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
-- **Remember login** for Goodreads and StoryGraph: tap "Log In As…" to sign in with the saved login, long-press to edit, "Forget Saved Login" to remove it.
+- **Goodreads login on device:** a Log in button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
+- **Remember login** for Goodreads and StoryGraph: tap "Log in as…" to sign in with the saved login, long-press to edit, "Forget saved login" to remove it.
 - **Goodreads WAF fix:** search and security-token requests use `/book/auto_complete` and `/review/list` to get around Amazon's bot check, falling back to the originals if they fail.
 - **New toggles in ShelfSync → Settings** (above Verbose logging):
-  - Auto Re-login When Session Expires (on).
-  - Retry Autolink When Wi-Fi Connects (on).
-  - Hide Providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph (all off). Hiding a provider also stops it doing anything. Menu changes show after reopening the book / file browser.
-- **Link & Update:** every enabled provider's Link Book and Update Status in one menu, with three gesture actions that open these pages directly (Link & Update Menu, Link Book (All Providers), Update Status (All Providers)).
-- **ShelfSync All: Update Progress** (gesture), in order: turns Wi-Fi on if needed, syncs to every linked, enabled provider (one retry each), lists providers still unlinked, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first and off after.
+  - Auto re-login when session expires (on).
+  - Retry autolink when Wi-Fi connects (on).
+  - Hide providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph (all off). Hiding a provider also stops it doing anything. Menu changes show after reopening the book / file browser.
+- **Link & Update:** every enabled provider's Link book and Update status in one menu, with three gesture actions that open these pages directly (Link & Update menu, Link book for all providers, Update status for all providers).
+- **ShelfSync All: Update progress** (gesture), in order: turns Wi-Fi on if needed, syncs to every linked, enabled provider (one retry each), lists providers still unlinked, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first and off after.
 - **Autolink retry on connect:** books opened offline get linked when Wi-Fi connects.
 - **Auto re-login:** if a saved-login session expires, it signs in again and re-sends progress for the open book, at most once per provider per 30 minutes. A Goodreads verification code or captcha still prompts you.
 - **Security:** logins stay on the device (`koreader/settings/shelfsync_*_login.lua`), encrypted with a device-local key. That protects against casual browsing, not full device access.
@@ -255,7 +253,7 @@ Remembers the furthest page you've actually read. If you page back, or jump ahea
 - **Position:** on EPUB/FB2, position is tracked by xpointer, so font or margin changes don't point "go back" at the wrong page.
 - **Saving:** per book, saved when you accept a page and on suspend; skips the disk write when nothing changed; cleans up timers on close.
 
-Menu: Reader menu → Navigation → Reading location, with "Go to furthest reading location", "Set current page as reading location" (both bindable to gestures), and Settings: show button, full text, page number, dismiss button, page/percentage mode, shadow, bottom and side offsets, button radius, and forward auto-dismiss.
+Menu: Reader menu → Navigation → Reading Location, with "Go To Furthest Reading Location", "Set Current Page As Reading Location" (both bindable to gestures), and Settings: show button, full text, page number, dismiss button, page/percentage mode, shadow, bottom and side offsets, button radius, and forward auto-dismiss.
 
 ---
 
