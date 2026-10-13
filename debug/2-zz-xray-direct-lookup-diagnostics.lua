@@ -1,6 +1,6 @@
 --[[
 2-zz-xray-direct-lookup-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.3
+Version 1.2.5
 
 Watches xray.koplugin AND 2-xray-direct-lookup.lua from OUTSIDE. It never edits
 either one: every hook calls the original and returns all of its results, and
@@ -10,6 +10,15 @@ Its log lines go to the shared koreader/diagnostics.log, each tagged
 file.
 
 Changelog
+1.2.5  Shared-log rotation cap raised from 256 KB to 2 MB
+       (SHARED_MAX_BYTES = 2 * 1024 * 1024), per TK — all 12
+       diagnostics use the identical value.
+1.2.4  ">>> MISSED" no longer false-positives on deliberate passthroughs:
+       drag/multi-word selections, select_mode, and multi-word text are
+       filtered outright; when the lookupAll probe finds no stored X-Ray
+       entity it logs a soft note instead (default menu flow expected).
+       MISSED now fires only when X-Ray HAS data but the main patch made
+       no decision — an actual miss.
 1.2.3  Shared log contract v1: log lines now go to the shared
        koreader/diagnostics.log tagged [xray-direct-lookup] (256 KB
        rotation to diagnostics.log.old); the individual
@@ -98,14 +107,14 @@ local lfs = require("libs/libkoreader-lfs")
 local ok_time, ktime = pcall(require, "ui/time")
 local logger = require("logger")
 
-local VERSION = "1.2.3"
+local VERSION = "1.2.5"
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "xray-direct-lookup"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -459,8 +468,12 @@ local function settingsOnDisk()
 end
 
 local decision_seen = false
+-- Last lookupAll probe match count from snapshot(), so the MISSED check can
+-- tell "no X-Ray data" (correct passthrough) from a real miss.
+local snapshot_matches = nil
 
 local function snapshot(hl, word)
+    snapshot_matches = nil
     local x, how = findXRay(hl)
     if not x then
         log("  STATE: xray plugin instance NOT FOUND (%s) | %s", how, settingsOnDisk())
@@ -476,6 +489,7 @@ local function snapshot(hl, word)
     if word and word ~= "" and x.lookup_manager and st.xray_direct_lookup == true then
         local t = now()
         local ok, res = pcall(function() return x.lookup_manager:lookupAll(word) end)
+        if ok then snapshot_matches = #res end
         log("  STATE: lookupAll('%s') -> %s matches in %d ms%s", word:sub(1, 40),
             ok and tostring(#res) or "ERROR", ms(t), ok and "" or (" " .. tostring(res)))
         if ok and #res == 0 then
@@ -538,12 +552,32 @@ do
                         decision_seen = false
                         snapshot(hl, txt)
                     end
-                    return txt
+                    return { txt = txt, word_sel = hl.is_word_selection, select_mode = hl.select_mode }
                 end,
-                function(txt, d)
+                function(ctx, d)
                     log("RH.%s returned after %d ms", name, d)
-                    if top and not decision_seen and txt ~= "" then
-                        log("  >>> MISSED: the direct-lookup patch made NO decision for '%s'", tostring(txt):sub(1, 40))
+                    if top and type(ctx) == "table" and ctx.txt ~= "" and not decision_seen then
+                        -- Deliberate passthroughs: the main patch only acts on
+                        -- single-word selections outside select_mode. Filter
+                        -- these so MISSED keeps meaning an actual miss.
+                        if not ctx.word_sel then
+                            log("  (no X-Ray action: drag/multi-word selection, patch handles single words only)")
+                        elseif ctx.select_mode then
+                            log("  (no X-Ray action: select_mode active)")
+                        elseif ctx.txt:find("%s") then
+                            log("  (no X-Ray action: multi-word text)")
+                        elseif snapshot_matches == 0 then
+                            log("  (no X-Ray action: no stored X-Ray entity for this word — default menu flow expected)")
+                        elseif snapshot_matches and snapshot_matches > 0 then
+                            log("  >>> MISSED: the direct-lookup patch made NO decision for '%s' (%d X-Ray matches!)",
+                                tostring(ctx.txt):sub(1, 40), snapshot_matches)
+                        else
+                            log("  (no X-Ray decision for '%s' — probe unavailable, unable to verify)",
+                                tostring(ctx.txt):sub(1, 40))
+                        end
+                    elseif top and type(ctx) == "string" and ctx ~= "" and not decision_seen then
+                        -- Back-compat: pre-hook previously returned the bare text.
+                        log("  >>> MISSED: the direct-lookup patch made NO decision for '%s'", tostring(ctx):sub(1, 40))
                     end
                 end)
         end
