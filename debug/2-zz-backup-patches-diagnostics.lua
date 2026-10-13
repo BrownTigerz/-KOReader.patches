@@ -1,6 +1,6 @@
 --[[
 2-zz-backup-patches-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.5
+Version 1.1.6
 
 Watches Patch Backup & Restore (2-backup-patches.lua) and its hooks into
 Device Backup & Restore (backup.koplugin) from the outside, and writes
@@ -51,6 +51,13 @@ What it checks:
               many the remap repointed, and which are still missing.
   Notes       Every note or popup Patch Backup & Restore shows (to see the
               Network Tweaks style is used).
+  Updater     The on-device updater end to end, via the trace hook the
+              patch calls (2.2.2+): check start, manifest fetch (URL, HTTP
+              status, bytes, entries), per-patch compare decisions, Wi-Fi
+              on/off and the connection wait, each download (start, bytes,
+              finish or error), install-location decisions, and the
+              restart prompt. A run extends the logging window like a
+              backup does.
 
 How to use:
   1. Put this file in koreader/patches/ next to 2-backup-patches.lua and
@@ -62,6 +69,11 @@ How to use:
   4. Delete this file (and the .state file) and restart.
 
 Changelog
+  1.1.6  Updater tracing: receives the _G.__backup_updater_trace events
+         the patch emits (2.2.2+) and logs them as tagged lines —
+         manifest fetch, per-patch compare decisions, Wi-Fi on/off,
+         downloads, install locations, restart prompt. An updater run
+         extends the logging window like a backup does.
   1.1.5  Shared-log rotation cap raised from 256 KB to 2 MB
          (SHARED_MAX_BYTES = 2 * 1024 * 1024), matching all 12 diagnostics.
   1.1.4  Restore coverage: after a per-target restore, logs icon paths
@@ -91,7 +103,7 @@ Changelog
   1.0.0  First version.
 ]]
 
-local DIAG_VERSION = "1.1.5"
+local DIAG_VERSION = "1.1.6"
 local WINDOW_S     = 15 * 60       -- logging window after start
 local EXTEND_S     = 5 * 60        -- extension when a backup/restore runs
 local EXPIRE_S     = 3 * 24 * 3600 -- stops hooking anything after this
@@ -328,6 +340,25 @@ UIManager.show = function(self, w, ...)
         log("shows %s: \"%s\"", kind, text)
     end
     return orig_show(self, w, ...)
+end
+
+-- --------------------------------------------------------------------------
+-- On-device updater tracing (needs 2-backup-patches.lua 2.2.2+)
+-- --------------------------------------------------------------------------
+
+-- The updater calls _G.__backup_updater_trace at each step of a check run:
+-- run start, manifest fetch (URL, HTTP status, bytes, entries), per-patch
+-- compare decisions, Wi-Fi on/off and the connection wait, each download
+-- (start, bytes, finish or error), install-location decisions, and the
+-- restart prompt. Every event becomes a tagged line, so an on-device
+-- updater run leaves full footprints. An updater run extends the logging
+-- window, like a backup or restore does.
+_G.__backup_updater_trace = function(event, msg)
+    if switched_off then return end
+    if os.difftime(os.time(), first_run) > EXPIRE_S then return end
+    if event == "run" then extend() end
+    if not active() then return end
+    log("updater %s: %s", event, msg)
 end
 
 -- --------------------------------------------------------------------------
