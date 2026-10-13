@@ -1,6 +1,6 @@
 --[[
 2-zz-backup-patches-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.3
+Version 1.1.5
 
 Watches Patch Backup & Restore (2-backup-patches.lua) and its hooks into
 Device Backup & Restore (backup.koplugin) from the outside, and writes
@@ -21,7 +21,7 @@ Shuts itself off, in case it's forgotten:
     (one line in the log per start says so). Delete
     backup-patches-diagnostics.state to start another 3 days.
   - Its lines share koreader/diagnostics.log with the other diagnostics
-    patches; the shared log rotates at 256 KB (older part kept as
+    patches; the shared log rotates at 2 MB (older part kept as
     diagnostics.log.old).
   - No heartbeat or repeating timer: it never wakes the device on its own.
   - Switched off with the Debugging menu (or this file moved or renamed
@@ -43,10 +43,12 @@ What it checks:
   Device      After each Device Backup & Restore backup: the zip is opened
   backups     to check the icon map is there, every mapped icon is in it,
               and, with "Logins in device backups" off, that no logins
-              went in. After each restore: every target's icon paths point
-              to files that exist.
+              went in. After each restore: per target, how many icon paths
+              the remap repointed and which still miss; every login token
+              the kept-logic should have re-inserted is verified present.
   Per-target  Each Back up now / safety backup zip: entries, size, time.
-  zips
+  zips        After a per-target restore: icon paths before → after, how
+              many the remap repointed, and which are still missing.
   Notes       Every note or popup Patch Backup & Restore shows (to see the
               Network Tweaks style is used).
 
@@ -60,8 +62,16 @@ How to use:
   4. Delete this file (and the .state file) and restart.
 
 Changelog
+  1.1.5  Shared-log rotation cap raised from 256 KB to 2 MB
+         (SHARED_MAX_BYTES = 2 * 1024 * 1024), matching all 12 diagnostics.
+  1.1.4  Restore coverage: after a per-target restore, logs icon paths
+         before → after, how many the remap repointed, and which are still
+         missing (remapTarget's return is discarded by the patch, so a
+         no-op remap was invisible). After a device restore, same per
+         target, plus every login token the kept-logic should have
+         re-inserted is verified present.
   1.1.3  Shared log contract v1: tagged lines go to koreader/diagnostics.log
-         (rotated at 256 KB to diagnostics.log.old) instead of the file's own
+         (rotated at 2 MB to diagnostics.log.old) instead of the file's own
          log file. The "+N.Ns since start" offset on each line is unchanged.
   1.1.2  The startup note uses the shared notification contract v1
          (Network Tweaks' note, then ReadMastery's, then the plain
@@ -81,7 +91,7 @@ Changelog
   1.0.0  First version.
 ]]
 
-local DIAG_VERSION = "1.1.3"
+local DIAG_VERSION = "1.1.5"
 local WINDOW_S     = 15 * 60       -- logging window after start
 local EXTEND_S     = 5 * 60        -- extension when a backup/restore runs
 local EXPIRE_S     = 3 * 24 * 3600 -- stops hooking anything after this
@@ -112,11 +122,11 @@ end
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "backup-patches"
 local SHARED_LOG = DATA .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -391,6 +401,11 @@ end
 -- Per-target zips (Back up now, before restore, before tidy)
 -- --------------------------------------------------------------------------
 
+-- Forward declaration: defined after the shared checks below (it needs
+-- iconCheck). Called from the zip hook when a before-restore safety backup
+-- starts, so the restore gets a post-check.
+local watchRestore
+
 local ok_a, Archiver = pcall(require, "ffi/archiver")
 if ok_a and type(Archiver) == "table" and type(Archiver.Writer) == "table" then
     local W = Archiver.Writer
@@ -401,6 +416,7 @@ if ok_a and type(Archiver) == "table" and type(Archiver.Writer) == "table" then
             if active() and fromPatch() then
                 rawset(self, "__diag", { path = path, t = now(), n = 0, bytes = 0, mem = memKB() })
                 if not ok then log("zip: could NOT create %s: %s", short(path), q(self.err)) end
+                watchRestore(path)
             end
             return ok
         end
@@ -502,6 +518,54 @@ local function logins_on()
     return G_reader_settings and G_reader_settings:isTrue("backup_patches_include_logins")
 end
 
+-- Set of icon paths currently in a target's settings (for restore
+-- post-checks).
+local function iconPathSet(t, from_disk)
+    local settings = targetSettings(t, from_disk)
+    local set = {}
+    walk(settings, function(v)
+        if isIconPath(v) then set[v] = true end
+    end)
+    return set
+end
+
+-- Post-check after a per-target restore: did the remap repoint anything,
+-- and do the resulting icon paths exist? remapTarget's return value is
+-- discarded by the patch, so a remap that changes nothing would otherwise
+-- be invisible.
+local function restorePostCheck(target, before)
+    if not active() then return end
+    local after = iconPathSet(target, false)
+    local nB, nA, repointed = 0, 0, 0
+    for _p in pairs(before) do nB = nB + 1 end
+    for p in pairs(after) do
+        nA = nA + 1
+        if not before[p] then repointed = repointed + 1 end
+    end
+    local c = iconCheck(target, false)
+    log("restore post-check %s: %d icon paths before → %d after, %d repointed, %d missing afterwards%s",
+        q(target.text), nB, nA, repointed, #c.missing,
+        #c.missing > 0 and (" (" .. table.concat(c.missing, ", "):sub(1, 200) .. ")") or "")
+    if repointed == 0 and nA > 0 then
+        log("  remap changed nothing: settings still point at the pre-restore paths")
+    end
+end
+
+-- A before-restore safety backup means restoreBackup is about to run for
+-- that target: snapshot its icon paths now, post-check on the next tick
+-- (the restore is synchronous inside the current tap).
+watchRestore = function(path)
+    local tid = path:match("/backups/([^/]+)/[^/]*_before%-restore%.zip$")
+    if not tid then return end
+    for _i, tg in ipairs(Backup.targets) do
+        if tg.id == tid then
+            local before = iconPathSet(tg, false)
+            UIManager:nextTick(function() pcall(restorePostCheck, tg, before) end)
+            return
+        end
+    end
+end
+
 -- --------------------------------------------------------------------------
 -- Device Backup & Restore (backup.koplugin)
 -- --------------------------------------------------------------------------
@@ -524,6 +588,16 @@ local function loadTable(src)
     setfenv(chunk, {})
     local ok, t = pcall(chunk)
     return ok and type(t) == "table" and t or nil
+end
+
+-- Reads a settings file from disk, bypassing the wrapped io.open (so the
+-- read isn't counted as Patch Backup & Restore's file work).
+local function readSettingsFile(rel)
+    local f = orig_open(DataStorage:getSettingsDir() .. "/" .. rel, "r")
+    if not f then return nil end
+    local src = f:read("*a")
+    f:close()
+    return loadTable(src)
 end
 
 -- Opens a finished device backup and checks the icon map and logins.
@@ -629,6 +703,26 @@ local function hookDevice()
             extend()
             local undo = type(options) == "table" and options.is_undo
             log("device %s started: %s | memory %d KB", undo and "undo" or "restore", short(archive_path), memKB())
+            -- Baselines for the post-restore checks: per-target icon paths
+            -- (HIGH 1: did the remap repoint anything?) and login tokens
+            -- (HIGH 2: does the kept-logic put them back?).
+            local paths_before, tokens_before = {}, {}
+            if not undo then
+                for _i, tg in ipairs(Backup.targets) do
+                    paths_before[tg] = iconPathSet(tg, true)
+                end
+                for rel, keys in pairs((Backup.secrets or {}).keys or {}) do
+                    local data = readSettingsFile(rel)
+                    if data then
+                        for k in pairs(keys) do
+                            if data[k] ~= nil then
+                                tokens_before[rel] = tokens_before[rel] or {}
+                                tokens_before[rel][k] = true
+                            end
+                        end
+                    end
+                end
+            end
             local t = now()
             local r = { pcall(orig, archive_path, options, ...) }
             log("device %s %s in %d ms, memory %d KB", undo and "undo" or "restore",
@@ -637,8 +731,30 @@ local function hookDevice()
                 for _i, tg in ipairs(Backup.targets) do
                     local c = iconCheck(tg, true)
                     if c.paths > 0 then
-                        log("  %s: %d icon paths, %d missing%s", q(tg.text), c.paths, #c.missing,
+                        local repointed, pb = 0, paths_before[tg] or {}
+                        for p in pairs(iconPathSet(tg, true)) do
+                            if not pb[p] then repointed = repointed + 1 end
+                        end
+                        log("  %s: %d icon paths, %d repointed by remap, %d missing%s", q(tg.text), c.paths,
+                            repointed, #c.missing,
                             #c.missing > 0 and (" (" .. table.concat(c.missing, ", "):sub(1, 200) .. ")") or "")
+                    end
+                end
+                if next(tokens_before) then
+                    local lost = {}
+                    for rel, keys in pairs(tokens_before) do
+                        local data = readSettingsFile(rel)
+                        for k in pairs(keys) do
+                            if not data or data[k] == nil then
+                                lost[#lost + 1] = rel .. "[" .. k .. "]"
+                            end
+                        end
+                    end
+                    if #lost > 0 then
+                        log("  TOKENS LOST by device restore (kept-logic failed): %s",
+                            table.concat(lost, ", "))
+                    else
+                        log("  login tokens: all present after restore")
                     end
                 end
             elseif not r[1] then
