@@ -2,7 +2,7 @@
 ReadMastery - Quests & Tag Engine Patch
 ========================================
 
-Version: 1.0.1
+Version: 1.0.3
 
 Drop this alongside 2-ReadMastery-notify.lua in your KOReader
 `patches/` folder and restart. Independent, optional add-on - if
@@ -135,6 +135,17 @@ author (getProps().authors), which is why Author Explorer is safe
 to have already but a series-based quest isn't.
 
 Changelog:
+  1.0.3 (2026-10-11) - Title case for all user-facing menu texts, per
+    the shared convention: quest titles in the View Quests list and
+    Quest Stats (applied at the menu-render layer via a titleCase
+    helper - quest definitions, detail popups, and completion toasts
+    keep their original text), the "(Rotating)" section label, and the
+    quest list's title. Toggle rows were already title case.
+  1.0.2 (2026-10-10) - View Stats, Streak Info, and every item under
+    Analytics (Session Stats, 7-Day Heatmap, Weekly Digest, Speed
+    Analytics, Completion Rate, Hall of Fame) now set keep_menu_open,
+    same as Quest Stats already did - tapping one no longer drops you
+    all the way out of the ReadMastery menu, just to check one screen.
   1.0.1 (2026-10-02) - awardDiscoveryBonus no longer flushes to disk on
     its own (trackEndOfBook's existing final flush already covers it) -
     a book that was both a new genre and a new author for the yearly
@@ -159,7 +170,7 @@ local logger      = require("logger")
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.1"
+local PATCH_VERSION = "1.0.3"
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -1129,6 +1140,17 @@ local function patchReadMastery(plugin)
     -- per quest, grouped by period. Tap any quest for a plain-
     -- English explanation of what it needs and your current progress.
     -- ---------------------------------------------------------------
+    -- Title case for menu rows: capitalize the first letter of every
+    -- word, preserve the rest (so "XP" and the like survive
+    -- unchanged). Applied at the menu-render layer only - quest.title
+    -- definitions, detail popups, and completion toasts keep their
+    -- original text (menu item texts only, not notification strings).
+    local function titleCase(s)
+        return (s:gsub("(%a)([%w']*)", function(first, rest)
+            return first:upper() .. rest
+        end))
+    end
+
     local function displayValue(quest, raw_value)
         if quest.type == "minutes" or quest.type == "time_window_minutes" or quest.type == "single_session_minutes" then
             return math.floor(raw_value / 60)
@@ -1144,7 +1166,7 @@ local function patchReadMastery(plugin)
         local pct = done and 100 or math.min(100, math.floor((shown_val / quest.target) * 100))
         local bar = Icons.progressBar(pct, 10)
         local status = done and (Icons.CHECK .. " DONE") or (shown_val .. "/" .. quest.target)
-        return icon .. " " .. quest.title .. "  " .. bar .. " " .. status
+        return icon .. " " .. titleCase(quest.title) .. "  " .. bar .. " " .. status
     end
 
     local function showQuestDetail(quest, progress)
@@ -1232,7 +1254,7 @@ local function patchReadMastery(plugin)
 
     local function showQuestList()
         local menu = Menu:new{
-            title = "Quests (tap one for details)",
+            title = "Quests (Tap One For Details)",
             item_table = buildQuestListItems(),
             width = Screen:getWidth(),
             height = Screen:getHeight(),
@@ -1266,14 +1288,14 @@ local function patchReadMastery(plugin)
                 local count = Quest.lifetime.by_id[q.id] or 0
                 local icon = TYPE_ICON[q.type] or Icons.TARGET
                 table.insert(items, {
-                    text = icon .. " " .. q.title .. "  -  " .. count .. "x",
+                    text = icon .. " " .. titleCase(q.title) .. "  -  " .. count .. "x",
                     select_enabled = false,
                 })
             end
         end
 
         addSection(Icons.CALENDAR .. " -- Daily --", DAILY_ALWAYS)
-        addSection("   (rotating)", DAILY_ROTATE_POOL)
+        addSection("   (Rotating)", DAILY_ROTATE_POOL)
         addSection(Icons.CHART .. " -- Weekly --", WEEKLY_QUESTS)
         addSection(Icons.BOOKS .. " -- Monthly --", MONTHLY_QUESTS)
         addSection(Icons.SNOWFLAKE .. " -- Seasonal --", SEASONAL_QUESTS)
@@ -1427,6 +1449,20 @@ local function patchReadMastery(plugin)
         local orig_getMenuTable = MainMenu.getMenuTable
         MainMenu.getMenuTable = function(self)
             local items = orig_getMenuTable(self)
+
+            -- View Stats / Streak Info / each Analytics item: same
+            -- "stay on the menu" treatment "Quest Stats" gets below,
+            -- instead of dropping you all the way out of the
+            -- ReadMastery menu just to check one stat screen.
+            for _, it in ipairs(items) do
+                if it.text == "View Stats" or it.text == "Streak Info" then
+                    it.keep_menu_open = true
+                elseif it.text == "Analytics" and type(it.sub_item_table) == "table" then
+                    for _, sub in ipairs(it.sub_item_table) do
+                        sub.keep_menu_open = true
+                    end
+                end
+            end
 
             -- Pull "Achievements" out of its original spot so it can
             -- sit right alongside our own quest items instead.
