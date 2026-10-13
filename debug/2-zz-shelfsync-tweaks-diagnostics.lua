@@ -1,6 +1,6 @@
 --[[
 2-zz-shelfsync-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.5
+Version 1.0.6
 
 Watches ShelfSync and ShelfSync tweaks from the outside and writes what it
 sees as [shelfsync]-tagged lines to the SHARED diagnostics log
@@ -13,6 +13,9 @@ line. It doesn't touch 2-shelfsync-tweaks.lua. The "zz" makes it load after
 it, so it sees the tweaks' hooks too.
 
 Changelog:
+  1.0.6  Shared log rotation cap raised from 256 KB to 2 MB
+         (SHARED_MAX_BYTES = 2 * 1024 * 1024), per TK — all 12 diagnostics
+         use the identical value.
   1.0.5  Shared log contract v1: tagged lines now go to the shared
          koreader/diagnostics.log (rotation to diagnostics.log.old at
          256 KB) instead of a per-patch log file.
@@ -31,7 +34,7 @@ Switches itself off, in case it's forgotten:
   - 24 hours after it was first installed it hooks nothing at all and shows
     "ShelfSync diagnostics expired: delete …" on each start. Copying the
     file in again starts a fresh 24 hours.
-  - The shared log rotates at 256 KB (older part kept as
+  - The shared log rotates at 2 MB (older part kept as
     diagnostics.log.old).
   - Nothing runs while the device sleeps; the once-a-minute memory sample
     and the freeze check only run while logging is on and awake.
@@ -90,14 +93,14 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "shelfsync"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
