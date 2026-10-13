@@ -27,7 +27,7 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.2.3 |
 | `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 1.1.4 |
 | `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.0.4 |
-| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.5 |
+| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.6 |
 | `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.0.5 |
 | `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.7.2 |
 | `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.0.4 |
