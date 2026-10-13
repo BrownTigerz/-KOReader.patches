@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.5
+Version 1.1.6
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -37,7 +37,7 @@ How it shuts itself off:
   • 24 hours after its first run it stops hooking anything at all (one
     line per start says so). Delete debugging-diagnostics.state for
     another 24 hours. ("Delete all logs" in the menu deletes it too.)
-  • No timers of its own, no polling. Log capped at 256 KB (older part
+  • No timers of its own, no polling. Log capped at 2 MB (older part
     kept as debugging-diagnostics.log.old).
 
 How to use (within 15 minutes of starting KOReader):
@@ -58,6 +58,7 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.1.6  Log cap 256 KB -> 2 MB (shared-log headroom for all-on runs).
   1.1.5  Orphaned diagnostic .state deletes are legitimate now (menu
          sweeps them) — no longer flagged.
   1.1.4  Delete all logs now removes any .log except version.log/crash.log:
@@ -89,7 +90,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.5"
+local DIAG_VERSION = "1.1.6"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -104,7 +105,7 @@ local CRASH = DATA .. "/crash.log"
 local VERSION_LOG = DATA .. "/version.log"
 local SHARED = DATA .. "/diagnostics.log"  -- shared log contract v1
 
-local MAX_BYTES = 256 * 1024
+local MAX_BYTES = 2 * 1024 * 1024
 local WINDOW_MIN = 15
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 24 * 60 * 60
