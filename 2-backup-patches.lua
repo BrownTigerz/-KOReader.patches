@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.0 (2026-10-12)
+2-backup-patches.lua                                     2.2.1 (2026-10-12)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,14 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.1  2026-10-12
+    - Updater refinements: per-patch status list (Up to Date / Update
+      Available / Installed Is Newer / Not Installed / Unknown Version)
+      in a scrollable menu; diagnostics included (active copy in
+      patches/ wins, stale duplicate in patches/debug/ cleaned up);
+      Wi-Fi turns on automatically when off and is turned back off
+      after (announced); per-file progress bar; success/failure summary
+      before the restart prompt. Downloads remain strictly forward-only.
   2.2.0  2026-10-12
     - On-device patch updater: "Check for Patch Updates" fetches
       patch-versions.lua from the GitHub repo over Wi-Fi, lists outdated
@@ -125,7 +133,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.0"
+local VERSION = "2.2.1"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1138,43 +1146,69 @@ hookMenu("apps/reader/modules/readermenu")
 -- Patch updates (on-device updater)
 -- --------------------------------------------------------------------------
 
--- Updates the 13 patches from the GitHub repo (the single source of truth)
--- over Wi-Fi. No login, no Drive: the repo is public and the Kobo fetches
--- from raw.githubusercontent.com with KOReader's own network stack
--- (socket.http handles https, same as its OTA updater).
+-- Updates the 13 main patches + 12 diagnostics from the GitHub repo (the
+-- single source of truth) over Wi-Fi. No login, no Drive: the repo is
+-- public and the Kobo fetches from raw.githubusercontent.com with
+-- KOReader's own network stack (socket.http handles https, same as its
+-- OTA updater).
 local UPDATER_REPO = "BrownTigerz/-KOReader.patches"
 local UPDATER_BRANCH = "main"
 local UPDATER_MANIFEST = "patch-versions.lua"
 
--- This file's folder: that's where downloaded patches go.
+-- This file's folder: that's where downloaded patches go. Diagnostics can
+-- also live one level down (patches/debug/) when switched off.
 local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
 PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
+local DEBUG_DIR = PATCH_DIR .. "/debug"
 
-local function updaterUrl(path)
-    return "https://raw.githubusercontent.com/" .. UPDATER_REPO .. "/" .. UPDATER_BRANCH .. "/" .. path
+local function updaterUrl(repo_path)
+    return "https://raw.githubusercontent.com/" .. UPDATER_REPO .. "/" .. UPDATER_BRANCH .. "/" .. repo_path
 end
 
--- GET a URL. Returns the body, or nil + error. Never throws.
-local function fetchUrl(url)
+-- GET a URL. on_progress, when given, is called with the cumulative byte
+-- count as chunks arrive (drives the progress bar). Returns the body, or
+-- nil + error. Never throws.
+local function fetchUrl(url, on_progress)
     local ok_http, http = pcall(require, "socket.http")
     local ok_ltn12, ltn12 = pcall(require, "ltn12")
     local ok_sock, socket = pcall(require, "socket")
-    if not (ok_http and ok_ltn12 and ok_sock) then
+    local ok_su, socketutil = pcall(require, "socketutil")
+    if not (ok_http and ok_ltn12 and ok_sock and ok_su) then
         return nil, _("No network stack.")
     end
-    local socketutil = require("socketutil")
     local chunks = {}
+    local sink = ltn12.sink.table(chunks)
+    if on_progress then
+        sink = socketutil.chainSinkWithProgressCallback(sink, on_progress)
+    end
     socketutil:set_timeout()
     local ok, code, _headers, status = pcall(function()
         return socket.skip(1, http.request{
             url = url,
-            sink = ltn12.sink.table(chunks),
+            sink = sink,
         })
     end)
     socketutil:reset_timeout()
     if not ok then return nil, tostring(code) end
     if code ~= 200 then return nil, tostring(status or code) end
     return table.concat(chunks)
+end
+
+-- HEAD a URL for its Content-Length (for the progress bar). nil when unknown.
+local function contentLength(url)
+    local ok_http, http = pcall(require, "socket.http")
+    local ok_sock, socket = pcall(require, "socket")
+    local ok_su, socketutil = pcall(require, "socketutil")
+    if not (ok_http and ok_sock and ok_su) then return nil end
+    socketutil:set_timeout()
+    local ok, code, headers = pcall(function()
+        return socket.skip(1, http.request{ method = "HEAD", url = url })
+    end)
+    socketutil:reset_timeout()
+    if ok and code == 200 and type(headers) == "table" then
+        return tonumber(headers["content-length"])
+    end
+    return nil
 end
 
 -- Numeric dotted-version compare: -1 if a < b, 0 if equal, 1 if a > b.
@@ -1194,60 +1228,166 @@ local function compareVersions(a, b)
     return 0
 end
 
--- The version an installed patch declares. Tries the usual declaration
--- styles; nil when the file is missing or declares nothing parseable.
-local function installedVersion(filename)
-    local f = io.open(PATCH_DIR .. "/" .. filename, "r")
+-- The version a local patch file declares. Tries the usual declaration
+-- styles (local VERSION, DIAG_VERSION, "Version x.y.z" header); nil when
+-- the file declares nothing parseable.
+local function installedVersion(path)
+    local f = io.open(path, "r")
     if not f then return nil end
     local src = f:read("*a") or ""
     f:close()
     return src:match('local VERSION%s*=%s*"([^"]+)"')
-        or src:match('%sVERSION%s*=%s*"([^"]+)"')
+        or src:match('VERSION%s*=%s*"([^"]+)"')
         or src:match("Version%s+([%d%.]+)")
 end
 
--- Downloads one patch file. Writes to a temp file first and renames, so a
--- failed download can never leave a half-written patch behind. The content
--- must compile as Lua, otherwise it's a bad download, not a patch.
-local function downloadPatch(filename)
-    local body, err = fetchUrl(updaterUrl(filename))
-    if not body then return nil, err end
-    if not loadstring(body) then return nil, _("Invalid file.") end
-    local tmp = PATCH_DIR .. "/." .. filename .. ".new"
-    local f = io.open(tmp, "w")
-    if not f then return nil, _("Couldn't save.") end
-    f:write(body)
-    f:close()
-    if os.rename(tmp, PATCH_DIR .. "/" .. filename) then
-        return true
+-- Where a manifest entry lives on this device. A diagnostic can sit in
+-- patches/ (active) or patches/debug/ (switched off); the active copy
+-- wins, and a stale duplicate is reported for cleanup on update.
+-- Returns the chosen path (or nil), plus a stale duplicate path or nil.
+local function localInstall(repo_path)
+    local filename = repo_path:match("[^/]+$")
+    local is_debug = repo_path:sub(1, 6) == "debug/"
+    local dirs = is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR }
+    local found = {}
+    for _, d in ipairs(dirs) do
+        if lfs.attributes(d .. "/" .. filename, "mode") == "file" then
+            found[#found + 1] = d .. "/" .. filename
+        end
     end
-    os.remove(tmp)
-    return nil, _("Couldn't save.")
+    if #found == 0 then return nil, nil end
+    return found[1], found[2]
 end
 
-local function installPatchUpdates(outdated)
+-- Per-patch direction for the status list: up_to_date, update_available,
+-- newer (installed is newer than the repo), or unknown.
+local function entryStatus(repo_path, available)
+    local filename = repo_path:match("[^/]+$")
+    local e = { repo_path = repo_path, filename = filename, available = available }
+    local path, stale = localInstall(repo_path)
+    if not path then
+        e.status, e.status_text = "unknown", _("Not Installed")
+        return e
+    end
+    e.dest, e.stale = path, stale
+    local installed = installedVersion(path)
+    if not installed then
+        e.status, e.status_text = "unknown", _("Unknown Version")
+        return e
+    end
+    e.installed = installed
+    local cmp = compareVersions(installed, available)
+    if cmp < 0 then
+        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, available)
+    elseif cmp > 0 then
+        e.status, e.status_text = "newer", T(_("Installed Is Newer (%1)"), installed)
+    else
+        e.status, e.status_text = "up_to_date", T(_("Up to Date (%1)"), installed)
+    end
+    return e
+end
+
+-- Makes sure we're online. Turns Wi-Fi on automatically when it's off and
+-- waits for the connection (up to 60s). Returns ok, we_turned_it_on.
+local function ensureWifi()
+    local NetworkMgr = require("ui/network/manager")
+    local UIManager = require("ui/uimanager")
+    if NetworkMgr:isConnected() then return true, false end
+    local co = coroutine.running()
+    local done = false
+    local function finish(ok)
+        if done then return end
+        done = true
+        if coroutine.status(co) == "suspended" then
+            coroutine.resume(co, ok)
+        end
+    end
+    UIManager:scheduleIn(60, function() finish(false) end)
+    local we_turned_on = not NetworkMgr:isWifiOn()
+    NetworkMgr:requestToTurnOnWifi(function()
+        NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
+    end, false)
+    -- Belt and braces: also watch for the connection ourselves, in case the
+    -- backend never forwards the callback.
+    NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
+    local ok = coroutine.yield()
+    return ok, we_turned_on
+end
+
+-- Downloads and installs the given entries. The caller only passes
+-- update_available ones, so this is strictly forward-only: it never
+-- downgrades. Per-file progress bar, failures don't stop the rest.
+-- on_done runs after the downloads, before the summary.
+local function updatePatches(targets, on_done)
     local Trapper = require("ui/trapper")
     Trapper:wrap(function()
         local UIManager = require("ui/uimanager")
         local InfoMessage = require("ui/widget/infomessage")
         local ConfirmBox = require("ui/widget/confirmbox")
+        local ProgressbarDialog = require("ui/widget/progressbardialog")
 
-        local failed = {}
-        for _i, u in ipairs(outdated) do
-            local ok, err = downloadPatch(u.file)
-            if not ok then
-                failed[#failed + 1] = T(_("%1 (%2)"), u.file, tostring(err))
+        local succeeded, failed = {}, {}
+        for i, t in ipairs(targets) do
+            local url = updaterUrl(t.repo_path)
+            local dialog = ProgressbarDialog:new{
+                title = T(_("Updating Patches (%1 of %2)"), i, #targets),
+                subtitle = t.filename,
+                progress_max = contentLength(url), -- nil → bar hidden
+                refresh_time_seconds = 0.5,
+                dismissable = false,
+            }
+            dialog:show()
+            local body, err = fetchUrl(url, function(received)
+                dialog:reportProgress(received)
+            end)
+            dialog:close()
+            -- Write to a temp file first so a failed download can never
+            -- leave a half-written patch behind. The content must compile
+            -- as Lua, otherwise it's a bad download, not a patch.
+            local ferr
+            if not body then
+                ferr = tostring(err)
+            elseif not loadstring(body) then
+                ferr = _("Invalid file.")
+            else
+                local tmp = t.dest .. ".new"
+                local f = io.open(tmp, "w")
+                if f then
+                    f:write(body)
+                    f:close()
+                    if os.rename(tmp, t.dest) then
+                        if t.stale then os.remove(t.stale) end
+                        succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
+                    else
+                        os.remove(tmp)
+                        ferr = _("Couldn't save.")
+                    end
+                else
+                    ferr = _("Couldn't save.")
+                end
+            end
+            if ferr then
+                failed[#failed + 1] = T(_("%1 (%2)"), t.filename, ferr)
             end
         end
 
+        if on_done then on_done() end
+
+        -- Success/failure summary, then the restart prompt.
         if #failed > 0 then
             -- Failures are always shown, never silent.
-            UIManager:show(InfoMessage:new{
-                text = T(_("Some Patches Failed To Update:\n\n%1"), table.concat(failed, "\n")),
-            })
+            local text
+            if #succeeded > 0 then
+                text = T(_("Updated %1 Patches.\n\nThese Failed:\n%2"),
+                    #succeeded, table.concat(failed, "\n"))
+            else
+                text = T(_("All Updates Failed:\n\n%1"), table.concat(failed, "\n"))
+            end
+            UIManager:show(InfoMessage:new{ text = text })
+        else
+            styledNote(T(_("Updated %1 Patches"), #succeeded), _("Patches Updated"))
         end
-        if #failed == #outdated then return end
-        styledNote(T(_("Updated %1 Patches"), #outdated - #failed), _("Patches Updated"))
+        if #succeeded == 0 then return end
         UIManager:show(ConfirmBox:new{
             text = _("Patches Updated. Restart KOReader Now?"),
             ok_text = _("Restart"),
@@ -1263,23 +1403,29 @@ function Backup.checkForPatchUpdates()
     Trapper:wrap(function()
         local UIManager = require("ui/uimanager")
         local InfoMessage = require("ui/widget/infomessage")
-        local ConfirmBox = require("ui/widget/confirmbox")
         local NetworkMgr = require("ui/network/manager")
+        local Menu = require("ui/widget/menu")
 
-        -- Same connect flow as KOReader's own updater: offers to turn Wi-Fi
-        -- on when it's off, then continues once connected.
-        local co = coroutine.running()
-        local resume = function() coroutine.resume(co, true) end
-        if NetworkMgr:willRerunWhenConnected(resume) then
-            coroutine.yield()
-            if not NetworkMgr:isConnected() then
-                UIManager:show(InfoMessage:new{ text = _("Couldn't Connect to Wi-Fi.") })
-                return
+        local wifi_ok, we_turned_on = ensureWifi()
+        if not wifi_ok then
+            if we_turned_on and NetworkMgr:isWifiOn() then
+                NetworkMgr:turnOffWifi()
+            end
+            UIManager:show(InfoMessage:new{ text = _("Couldn't Connect to Wi-Fi.") })
+            return
+        end
+        -- Put Wi-Fi back the way it was once we're done with the network.
+        local function cleanupWifi()
+            if we_turned_on then
+                we_turned_on = false
+                if NetworkMgr:isWifiOn() then NetworkMgr:turnOffWifi() end
+                styledNote(_("Wi-Fi Turned Back Off"), _("Wi-Fi Off"))
             end
         end
 
         local body, err = fetchUrl(updaterUrl(UPDATER_MANIFEST))
         if not body then
+            cleanupWifi()
             UIManager:show(InfoMessage:new{
                 text = T(_("Couldn't Fetch the Version List.\n\n%1"), tostring(err)),
             })
@@ -1289,38 +1435,52 @@ function Backup.checkForPatchUpdates()
         if chunk then setfenv(chunk, {}) end
         local ok, manifest = pcall(chunk or function() end)
         if not ok or type(manifest) ~= "table" then
+            cleanupWifi()
             UIManager:show(InfoMessage:new{ text = _("The Version List Was Invalid.") })
             return
         end
 
-        local outdated = {}
-        for filename, available in pairs(manifest) do
-            if type(filename) == "string" and type(available) == "string" then
-                local installed = installedVersion(filename)
-                if installed and compareVersions(installed, available) < 0 then
-                    outdated[#outdated + 1] = {
-                        file = filename, installed = installed, available = available,
-                    }
-                end
+        -- Per-patch direction for every manifest entry.
+        local statuses, outdated = {}, {}
+        for repo_path, available in pairs(manifest) do
+            if type(repo_path) == "string" and type(available) == "string" then
+                local e = entryStatus(repo_path, available)
+                statuses[#statuses + 1] = e
+                if e.status == "update_available" then outdated[#outdated + 1] = e end
             end
         end
-        table.sort(outdated, function(a, b) return a.file < b.file end)
+        table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
+        table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
 
-        if #outdated == 0 then
-            styledNote(_("All Patches Up To Date"), _("Patches Up To Date"))
-            return
+        local update_started = false
+        local status_menu
+        local items = {}
+        if #outdated > 0 then
+            items[#items + 1] = {
+                text = T(_("Update All Patches (%1)"), #outdated),
+                callback = function()
+                    update_started = true
+                    UIManager:close(status_menu)
+                    updatePatches(outdated, cleanupWifi)
+                end,
+            }
         end
-
-        local lines = {}
-        for _i, u in ipairs(outdated) do
-            lines[#lines + 1] = T(_("%1: %2 → %3"), u.file, u.installed, u.available)
+        for _, e in ipairs(statuses) do
+            items[#items + 1] = {
+                text = e.filename,
+                mandatory = e.status_text,
+                select_enabled = false,
+            }
         end
-        UIManager:show(ConfirmBox:new{
-            text = T(_("Patch Updates Available:\n\n%1\n\nDownload and install them?"),
-                table.concat(lines, "\n")),
-            ok_text = _("Update All"),
-            ok_callback = function() installPatchUpdates(outdated) end,
-        })
+        status_menu = Menu:new{
+            title = _("Patch Update Status"),
+            item_table = items,
+            close_callback = function()
+                -- Dismissed without updating: still put Wi-Fi back.
+                if not update_started then cleanupWifi() end
+            end,
+        }
+        UIManager:show(status_menu)
     end)
 end
 
