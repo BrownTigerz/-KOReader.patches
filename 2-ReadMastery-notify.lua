@@ -2,7 +2,7 @@
 ReadMastery - Notification Style Patch
 =======================================
 
-Version: 1.0.3
+Version: 1.0.4
 
 Drop this file, unmodified plugin included, into your KOReader
 `patches/` folder:
@@ -76,6 +76,10 @@ All settings are stored in their own file
 ReadMastery's own data file.
 
 Changelog:
+  1.0.4 (2026-10-11) - Title case for all user-facing menu texts, per
+    the shared convention: style options, banner position label,
+    duration options ("2 Seconds"), and the font picker's default
+    entry. Notification/toast strings untouched.
   1.0.3 (2026-10-11) - Shared notification contract v1: publishes
     _G.__readmastery_note(text, timeout) on successful install, so
     other patches can show a status note in the user's chosen style
@@ -127,7 +131,7 @@ local Screen = Device.screen
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.3"
+local PATCH_VERSION = "1.0.4"
 
 -- =================================================================
 -- Settings (own file - ReadMastery's own data.json is never touched)
@@ -198,7 +202,7 @@ local FONT_GROUPS = {
 local function buildFontMenu()
     local font_menu = {
         {
-            text = "Default (KOReader UI font)",
+            text = "Default (KOReader UI Font)",
             radio = true,
             checked_func = function() return Notify.font_path == nil end,
             callback = function()
@@ -894,7 +898,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         local duration_menu = {}
         for _, secs in ipairs(duration_options) do
             table.insert(duration_menu, {
-                text = secs .. " seconds",
+                text = secs .. " Seconds",
                 radio = true,
                 checked_func = function() return Notify.duration == secs end,
                 callback = function()
@@ -931,9 +935,9 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         -- Font - Preview, all in one contained menu.
         local style_menu = {}
         local style_options = {
-            { id = "full",    name = "Full (original popup, tap to close)" },
-            { id = "compact", name = "Compact (small centered box)" },
-            { id = "banner",  name = "Banner (auto-dismiss)" },
+            { id = "full",    name = "Full (Original Popup, Tap To Close)" },
+            { id = "compact", name = "Compact (Small Centered Box)" },
+            { id = "banner",  name = "Banner (Auto-Dismiss)" },
         }
         for _, opt in ipairs(style_options) do
             table.insert(style_menu, {
@@ -948,7 +952,7 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
             })
         end
         table.insert(style_menu, {
-            text = "Banner Position (Banner style only)",
+            text = "Banner Position (Banner Style Only)",
             sub_item_table = position_menu,
         })
         table.insert(style_menu, {
