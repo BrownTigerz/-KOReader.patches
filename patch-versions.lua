@@ -31,7 +31,7 @@ return {
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.4",
     ["2-xray-direct-lookup.lua"] = "1.1.10",
-    ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.1.5",
+    ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.1.6",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.6",
     ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.2.4",
     ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "1.1.5",
