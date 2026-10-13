@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.4 (2026-10-13)
+2-backup-patches.lua                                     2.2.5 (2026-10-13)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,9 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.5  2026-10-13
+    - Updater list groups entries under labeled "Patches" and
+      "Diagnostics" headers, easier to scan and tap the right one.
   2.2.4  2026-10-13
     - Updater UX per on-device feedback: no more progress bar (e-ink
       flicker) — a plain "Downloading <name>..." text shows per file
@@ -149,7 +152,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.4"
+local VERSION = "2.2.5"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1540,7 +1543,19 @@ function Backup.checkForPatchUpdates()
                 updatePatches(outdated)
             end,
         }
+        -- Patches and diagnostics under labeled headers, easier to scan
+        -- and tap. (statuses is sorted by repo path, so the debug/
+        -- entries come last.)
+        local in_debug = nil
         for _, e in ipairs(statuses) do
+            local is_debug = e.repo_path:sub(1, 6) == "debug/"
+            if is_debug ~= in_debug then
+                in_debug = is_debug
+                items[#items + 1] = {
+                    text = is_debug and _("Diagnostics") or _("Patches"),
+                    select_enabled = false,
+                }
+            end
             items[#items + 1] = {
                 text = e.filename,
                 mandatory = e.status_text,
