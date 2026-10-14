@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.7 (2026-10-14)
+2-backup-patches.lua                                     2.2.8 (2026-10-14)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.8  2026-10-14
+    - Fixed the status menu never appearing: the v2.2.5 section-header
+      loop used "for _, e", shadowing gettext's "_" with the loop index,
+      so _("Diagnostics") tried to call a number. Renamed to "for i, e".
   2.2.7  2026-10-14
     - Menu build/show wrapped in pcall with trace on failure, to
       capture the exact error when the status list doesn't appear.
@@ -159,7 +163,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.7"
+local VERSION = "2.2.8"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1492,11 +1496,9 @@ function Backup.checkForPatchUpdates()
         end
         table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
         table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
-        updaterTrace("menu", "sorted: %d statuses, %d outdated", #statuses, #outdated)
 
         local status_menu
         local items = {}
-        local menu_ok, menu_err = pcall(function()
 
         -- What tapping a status row does. update_available downloads just
         -- that patch; up_to_date offers a reinstall; not installed offers
@@ -1556,7 +1558,7 @@ function Backup.checkForPatchUpdates()
         -- and tap. (statuses is sorted by repo path, so the debug/
         -- entries come last.)
         local in_debug = nil
-        for _, e in ipairs(statuses) do
+        for i, e in ipairs(statuses) do
             local is_debug = e.repo_path:sub(1, 6) == "debug/"
             if is_debug ~= in_debug then
                 in_debug = is_debug
@@ -1575,18 +1577,7 @@ function Backup.checkForPatchUpdates()
             title = _("Patch Update Status"),
             item_table = items,
         }
-        end)  -- end pcall for menu building
-        if not menu_ok then
-            updaterTrace("menu", "BUILD FAILED: %s", tostring(menu_err))
-            return
-        end
-        updaterTrace("menu", "built %d items, showing menu", #items)
-        local show_ok, show_err = pcall(UIManager.show, UIManager, status_menu)
-        if show_ok then
-            updaterTrace("menu", "menu shown")
-        else
-            updaterTrace("menu", "SHOW FAILED: %s", tostring(show_err))
-        end
+        UIManager:show(status_menu)
     end)
 end
 
