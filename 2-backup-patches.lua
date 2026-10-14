@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.5 (2026-10-13)
+2-backup-patches.lua                                     2.2.6 (2026-10-14)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.6  2026-10-14
+    - Added updater trace points around the status menu build/show
+      to diagnose the menu not appearing when all patches are
+      already up to date.
   2.2.5  2026-10-13
     - Updater list groups entries under labeled "Patches" and
       "Diagnostics" headers, easier to scan and tap the right one.
@@ -152,7 +156,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.5"
+local VERSION = "2.2.6"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1485,6 +1489,7 @@ function Backup.checkForPatchUpdates()
         end
         table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
         table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
+        updaterTrace("menu", "sorted: %d statuses, %d outdated", #statuses, #outdated)
 
         local status_menu
 
@@ -1566,7 +1571,9 @@ function Backup.checkForPatchUpdates()
             title = _("Patch Update Status"),
             item_table = items,
         }
+        updaterTrace("menu", "built %d items, showing menu", #items)
         UIManager:show(status_menu)
+        updaterTrace("menu", "menu shown")
     end)
 end
 
