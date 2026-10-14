@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.6 (2026-10-14)
+2-backup-patches.lua                                     2.2.7 (2026-10-14)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,9 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.7  2026-10-14
+    - Menu build/show wrapped in pcall with trace on failure, to
+      capture the exact error when the status list doesn't appear.
   2.2.6  2026-10-14
     - Added updater trace points around the status menu build/show
       to diagnose the menu not appearing when all patches are
@@ -156,7 +159,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.6"
+local VERSION = "2.2.7"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1492,6 +1495,8 @@ function Backup.checkForPatchUpdates()
         updaterTrace("menu", "sorted: %d statuses, %d outdated", #statuses, #outdated)
 
         local status_menu
+        local items = {}
+        local menu_ok, menu_err = pcall(function()
 
         -- What tapping a status row does. update_available downloads just
         -- that patch; up_to_date offers a reinstall; not installed offers
@@ -1534,7 +1539,6 @@ function Backup.checkForPatchUpdates()
             end
         end
 
-        local items = {}
         -- Always listed: with nothing outdated, tapping it just says so.
         items[#items + 1] = {
             text = T(_("Update All Patches (%1)"), #outdated),
@@ -1571,9 +1575,18 @@ function Backup.checkForPatchUpdates()
             title = _("Patch Update Status"),
             item_table = items,
         }
+        end)  -- end pcall for menu building
+        if not menu_ok then
+            updaterTrace("menu", "BUILD FAILED: %s", tostring(menu_err))
+            return
+        end
         updaterTrace("menu", "built %d items, showing menu", #items)
-        UIManager:show(status_menu)
-        updaterTrace("menu", "menu shown")
+        local show_ok, show_err = pcall(UIManager.show, UIManager, status_menu)
+        if show_ok then
+            updaterTrace("menu", "menu shown")
+        else
+            updaterTrace("menu", "SHOW FAILED: %s", tostring(show_err))
+        end
     end)
 end
 
