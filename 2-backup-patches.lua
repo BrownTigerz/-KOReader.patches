@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.8 (2026-10-14)
+2-backup-patches.lua                                     2.2.9 (2026-10-16)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.9  2026-10-16
+    - Tapping a status row now pops up its actions: Update / Reinstall /
+      Install depending on state, plus Remove for any installed patch
+      (except this patch itself). Remove asks for confirmation and
+      offers to also remove the paired diagnostics file.
   2.2.8  2026-10-14
     - Fixed the status menu never appearing: the v2.2.5 section-header
       loop used "for _, e", shadowing gettext's "_" with the loop index,
@@ -163,7 +168,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.8"
+local VERSION = "2.2.9"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1500,15 +1505,28 @@ function Backup.checkForPatchUpdates()
         local status_menu
         local items = {}
 
-        -- What tapping a status row does. update_available downloads just
-        -- that patch; up_to_date offers a reinstall; not installed offers
-        -- an install; anything else just explains itself.
+        -- What tapping a status row does: a popup with the actions that make
+        -- sense for its state — Update / Reinstall / Install, plus Remove
+        -- for anything installed (except this patch itself, which can't
+        -- remove itself while running).
         local function rowTap(e)
-            if e.status == "update_available" then
+            local ButtonDialog = require("ui/widget/buttondialog")
+            local is_self = e.repo_path == "2-backup-patches.lua"
+            local action_dialog
+
+            local function closeAction()
+                if action_dialog then UIManager:close(action_dialog) end
+            end
+
+            local function doUpdate()
+                closeAction()
                 updaterTrace("row", "tap: update just %s", e.filename)
                 UIManager:close(status_menu)
                 updatePatches({ e })
-            elseif e.status == "up_to_date" then
+            end
+
+            local function doReinstall()
+                closeAction()
                 UIManager:show(ConfirmBox:new{
                     text = T(_("%1 is already up to date (%2).\n\nReinstall it anyway?"),
                         e.filename, e.installed),
@@ -1519,7 +1537,10 @@ function Backup.checkForPatchUpdates()
                         updatePatches({ e })
                     end,
                 })
-            elseif not e.dest then
+            end
+
+            local function doInstall()
+                closeAction()
                 UIManager:show(ConfirmBox:new{
                     text = T(_("%1 is not installed.\n\nInstall version %2?"),
                         e.filename, e.available),
@@ -1531,14 +1552,89 @@ function Backup.checkForPatchUpdates()
                         updatePatches({ e })
                     end,
                 })
-            else
-                UIManager:show(InfoMessage:new{
-                    text = e.status == "newer"
-                        and T(_("Installed %1 is newer than the published %2. Nothing to update."),
-                            e.installed, e.available)
-                        or T(_("Couldn't read the installed version of %1."), e.filename),
+            end
+
+            local function doRemove()
+                closeAction()
+                -- Offer the paired diagnostics file too, when this is a
+                -- main patch and its diagnostics is installed.
+                local diag_e
+                if e.repo_path:sub(1, 6) ~= "debug/" then
+                    local base = e.repo_path:match("^2%-(.+)%.lua$")
+                    if base then
+                        local diag_repo = "debug/2-zz-" .. base .. "-diagnostics.lua"
+                        for i, s in ipairs(statuses) do
+                            if s.repo_path == diag_repo and s.dest then
+                                diag_e = s
+                                break
+                            end
+                        end
+                    end
+                end
+                local text, ok_text
+                if diag_e then
+                    text = T(_("Remove %1 and its diagnostics file %2 from your device?"),
+                        e.filename, diag_e.filename)
+                    ok_text = _("Remove Both")
+                else
+                    text = T(_("Remove %1 from your device?"), e.filename)
+                    ok_text = _("Remove")
+                end
+                UIManager:show(ConfirmBox:new{
+                    text = text,
+                    ok_text = ok_text,
+                    ok_callback = function()
+                        updaterTrace("row", "tap: remove %s", e.filename)
+                        local ok1, err1 = os.remove(e.dest)
+                        if diag_e then
+                            local ok2, err2 = os.remove(diag_e.dest)
+                            updaterTrace("row", "removed diagnostics %s: %s",
+                                diag_e.filename, ok2 and "ok" or tostring(err2))
+                        end
+                        updaterTrace("row", "removed %s: %s",
+                            e.filename, ok1 and "ok" or tostring(err1))
+                        UIManager:close(status_menu)
+                        if ok1 then
+                            styledNote(T(_("Removed %1."), e.filename))
+                        else
+                            UIManager:show(InfoMessage:new{
+                                text = T(_("Couldn't remove %1.\n\n%2"),
+                                    e.filename, tostring(err1)),
+                            })
+                        end
+                    end,
                 })
             end
+
+            local buttons = {}
+            if e.status == "update_available" then
+                buttons[#buttons + 1] = {{
+                    text = _("Update"),
+                    callback = doUpdate,
+                }}
+            elseif not e.dest then
+                buttons[#buttons + 1] = {{
+                    text = _("Install"),
+                    callback = doInstall,
+                }}
+            elseif e.status ~= "newer" then
+                buttons[#buttons + 1] = {{
+                    text = _("Reinstall"),
+                    callback = doReinstall,
+                }}
+            end
+            if e.dest and not is_self then
+                buttons[#buttons + 1] = {{
+                    text = _("Remove"),
+                    callback = doRemove,
+                }}
+            end
+
+            action_dialog = ButtonDialog:new{
+                title = T(_("%1 — %2"), e.filename, e.status_text),
+                buttons = buttons,
+            }
+            UIManager:show(action_dialog)
         end
 
         -- Always listed: with nothing outdated, tapping it just says so.
