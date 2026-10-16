@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version: 1.1.4
+Version: 1.1.5
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -43,7 +43,7 @@ Safety nets in case you forget to delete it:
   - It expires 48 hours after it first loaded: from then on it installs no
     hooks at all, writes one line to the log per start, and shows a one-time
     "delete me" notice at startup.
-  - The shared log rotates at 256 KB (older part kept as diagnostics.log.old).
+  - The shared log rotates at 2 MB (older part kept as diagnostics.log.old).
 It never changes the main patch's behaviour. The "zz" makes it load after it.
 
 Changelog
@@ -68,6 +68,8 @@ Changelog
                      256 KB rotation to diagnostics.log.old) instead of the
                      patch's own ri-tweaks-diagnostics.log; line content and
                      all gating unchanged.
+  1.1.5  2026-10-12  Shared-log rotation cap raised from 256 KB to 2 MB
+                     (TK-approved; identical cap across all diagnostics).
 ]]
 
 local DataStorage = require("datastorage")
@@ -78,15 +80,15 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "1.1.4"
+local DIAG_VERSION = "1.1.5"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file
 -- (koreader/diagnostics.log) so a full test run reads as a single
--- chronological log. Rotation at 256 KB, older part kept as diagnostics.log.old.
+-- chronological log. Rotation at 2 MB, older part kept as diagnostics.log.old.
 local DIAG_TAG = "readinginsights-tweaks"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -124,6 +126,18 @@ local function shared_note(banner_text, minimal_text, timeout)
     if type(rm) == "function" then
         local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
         if ok and handled then return true end
+    end
+    return false
+end
+
+-- KOReader's PluginLoader wraps every plugin on* handler in a HandlerSandbox
+-- (a callable table, not a function) before userpatch callbacks run, so a bare
+-- type() == "function" check silently misses them. Accept any callable.
+local function isCallable(v)
+    if type(v) == "function" then return true end
+    if type(v) == "table" then
+        local mt = getmetatable(v)
+        return type(mt) == "table" and type(mt.__call) == "function"
     end
     return false
 end
@@ -293,7 +307,7 @@ end
 -- ---- Startup snapshot ----------------------------------------------------------------------
 local function snapshot()
     log("==================== ri-tweaks diagnostics %s started ====================", DIAG_VERSION)
-    log("expires in %dh | shared log rotates at 256 KB",
+    log("expires in %dh | shared log rotates at 2 MB",
         math.max(0, math.floor((first_load + EXPIRE_H * 3600 - os.time()) / 3600)))
     local ok_v, ver = pcall(function() return require("version"):getCurrentRevision() end)
     log("KOReader %s | device %s | screen %sx%s dpi %s", ok_v and q(ver) or "?",
@@ -541,7 +555,7 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
         plugin._ri_diag_patched = true
         log("Reading Insights %s loaded", riVersion(plugin))
         logCaps("Reading Insights loaded")
-        if type(plugin.onSuspend) == "function" then
+        if isCallable(plugin.onSuspend) then
             local orig = plugin.onSuspend
             plugin.onSuspend = function(self, ...)
                 touch("suspend")
@@ -563,7 +577,7 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
                 return unpack(r)
             end
         end
-        if type(plugin.onResume) == "function" then
+        if isCallable(plugin.onResume) then
             local orig = plugin.onResume
             plugin.onResume = function(self, ...)
                 touch("resume")
