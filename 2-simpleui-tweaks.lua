@@ -13,6 +13,10 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.4  Removed the tap gesture entirely (v2.9.2/v2.9.3 broke swipe; the
+         invisible tap zone was confusing). Back to swipe-only as in the
+         working v2.9.1. Swipe left/right on the Currently Reading cover
+         to change books.
   2.9.3  Removed the cover dots and the 2/2 page indicator visuals per TK
          (2/2 overlapped the title; header can't be hooked safely). Fixed
          the tap-zone crash (range must be a Geom, not a plain table).
@@ -99,7 +103,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.3"
+local VERSION = "2.9.4"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -971,27 +975,12 @@ local function addSwipe(root, st, ctx)
     end
     diagLog("addSwipe: registered, %d books, idx=%d", #st.fps, st.idx)
     local GestureRange = require("ui/gesturerange")
-    local Geom = require("ui/geometry")
     local BD = require("ui/bidi")
     tap.ges_events.SuiSwipeBooks = {
         GestureRange:new{ ges = "swipe", range = function() return tap.dimen end },
     }
-    -- v2.9.3: tappable zone at top-right (TK: swipe sometimes hits the quote
-    -- module; tap is unambiguous). Tap = next book. Invisible (TK asked to
-    -- remove the cover dots and the 2/2 overlapped the title; header can't be
-    -- hooked safely). Tap the top-right corner of the module.
-    -- v2.9.2 crash fix: range must return a Geom (has :contains), not a plain
-    -- table — gesturerange.lua:37 calls range:contains().
-    tap.ges_events.SuiTapPageIndicator = {
-        GestureRange:new{
-            ges = "tap",
-            range = function()
-                local d = tap.dimen
-                if not d then return nil end
-                return Geom:new{ x = d.x + d.w - 120, y = d.y, w = 120, h = 60 }
-            end,
-        },
-    }
+    -- v2.9.4: tap gesture REMOVED (v2.9.2/v2.9.3 broke swipe; tap zone was
+    -- invisible and confusing). Swipe only, as in working v2.9.1.
     local function advance(step, via)
         local n = #st.fps
         if n < 2 then return false end
@@ -1005,9 +994,6 @@ local function addSwipe(root, st, ctx)
                 return scr._refreshBookModSlot and scr:_refreshBookModSlot("currently")
             end)
             diagLog("%s: _refreshBookModSlot ok=%s done=%s", via, tostring(ok), tostring(done))
-            -- v2.9.1: fallback must do a FULL rebuild (keep_cache=false).
-            -- _refreshImmediate(true) keeps the ctx cache and only repaints,
-            -- leaving the old book visible ("stuck" on last book).
             if not (ok and done) and scr._refreshImmediate then
                 scr:_refreshImmediate(false)
                 diagLog("%s: fallback _refreshImmediate(false) called", via)
@@ -1030,16 +1016,8 @@ local function addSwipe(root, st, ctx)
         end
         return advance(step, "swipe")
     end
-    tap.onSuiTapPageIndicator = function(_self, _, ges)
-        diagLog("page indicator tapped")
-        return advance(1, "tap")
-    end
-    local orig_paint = root.paintTo
-    root.paintTo = function(self, bb, x, y, ...)
-        orig_paint(self, bb, x, y, ...)
-        -- v2.9.3: visuals removed per TK (dots on cover, 2/2 overlapped title).
-        -- Tap zone at top-right remains (invisible).
-    end
+    -- v2.9.3: visuals removed per TK (dots on cover, 2/2 overlapped title).
+    -- No paintTo hook needed.
 end
 
 local function patchCurrentlySwipe(M)
