@@ -13,6 +13,11 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.3  Removed the cover dots and the 2/2 page indicator visuals per TK
+         (2/2 overlapped the title; header can't be hooked safely). Fixed
+         the tap-zone crash (range must be a Geom, not a plain table).
+         Invisible tap zone at top-right of the module remains: tap for
+         next book.
   2.9.2  Tappable page indicator ("1/4") at top-right of Currently Reading
          (tap = next book) — swipe was sometimes captured by the quote
          module instead. Swipe diagnostics now log to diagnostics.log
@@ -94,7 +99,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.2"
+local VERSION = "2.9.3"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -966,20 +971,24 @@ local function addSwipe(root, st, ctx)
     end
     diagLog("addSwipe: registered, %d books, idx=%d", #st.fps, st.idx)
     local GestureRange = require("ui/gesturerange")
+    local Geom = require("ui/geometry")
     local BD = require("ui/bidi")
     tap.ges_events.SuiSwipeBooks = {
         GestureRange:new{ ges = "swipe", range = function() return tap.dimen end },
     }
-    -- v2.9.2: tappable page indicator at top-right (TK: swipe sometimes hits
-    -- the quote module instead — tap is unambiguous). Tap = next book.
+    -- v2.9.3: tappable zone at top-right (TK: swipe sometimes hits the quote
+    -- module; tap is unambiguous). Tap = next book. Invisible (TK asked to
+    -- remove the cover dots and the 2/2 overlapped the title; header can't be
+    -- hooked safely). Tap the top-right corner of the module.
+    -- v2.9.2 crash fix: range must return a Geom (has :contains), not a plain
+    -- table — gesturerange.lua:37 calls range:contains().
     tap.ges_events.SuiTapPageIndicator = {
         GestureRange:new{
             ges = "tap",
             range = function()
                 local d = tap.dimen
                 if not d then return nil end
-                -- top-right 120x60 zone (generous for e-ink taps)
-                return { x = d.x + d.w - 120, y = d.y, w = 120, h = 60 }
+                return Geom:new{ x = d.x + d.w - 120, y = d.y, w = 120, h = 60 }
             end,
         },
     }
@@ -1028,8 +1037,8 @@ local function addSwipe(root, st, ctx)
     local orig_paint = root.paintTo
     root.paintTo = function(self, bb, x, y, ...)
         orig_paint(self, bb, x, y, ...)
-        pcall(paintDots, bb, st, tap, x, y, self)
-        pcall(paintPageIndicator, bb, st, root, x, y)
+        -- v2.9.3: visuals removed per TK (dots on cover, 2/2 overlapped title).
+        -- Tap zone at top-right remains (invisible).
     end
 end
 
