@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.3
+Version: 1.0.4
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -47,9 +47,15 @@ Changelog:
                      Tweaks' then ReadMastery's notification style, falling
                      back to this patch's own; nothing is shown over the sleep
                      screen. Menus and dialogs untouched.
+  1.0.4  2026-10-11  Title case for menu texts: group headers, the chooser
+                     entry and its rows, and toggle-row labels now capitalize
+                     the first letter of every word (rest of each word
+                     preserved, so SimpleUI/X-Ray/Wi-Fi are unchanged).
+                     Notification, toast, and dialog strings untouched; moved
+                     plugin items keep their own text.
 ]]
 
-local PATCH_VERSION = "1.0.3"
+local PATCH_VERSION = "1.0.4"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -64,7 +70,7 @@ local NEW_GO_IN    = false       -- true: newly found add-ons go straight into
 -- frontend/ui/elements/*_menu_order.lua. Move lines between groups, add or
 -- remove ids, or add groups - then restart.
 local PLUGINS = {
-    { header = "Home & library",
+    { header = "Home & Library",
         "simpleui",               -- SimpleUI
         "bookshelf_tab",          -- Bookshelf (its whole menu tab moves here)
         "shortcutstoolbar",       -- Shortcuts Toolbar
@@ -75,7 +81,7 @@ local PLUGINS = {
         "glimpse",                -- Glimpse
         "foot_cream",             -- Footcream
     },
-    { header = "Stats & progress",
+    { header = "Stats & Progress",
         "readmastery",            -- ReadMastery
         "reading_insights_popup", -- Reading Insights
         "bookcard",               -- Book Card
@@ -183,6 +189,19 @@ local seen_groups = {}
 
 local function pack(...) return { n = select("#", ...), ... } end
 
+-- Menu items use title case: the first letter of every word capitalized
+-- ("clear crash.log" -> "Clear Crash.log"). The rest of each word is
+-- preserved, so SimpleUI, X-Ray, Wi-Fi and the like survive unchanged.
+local function titlecase(s)
+    return (s:gsub("%S+", function(w)
+        local i = w:find("%a")
+        if i and w:sub(i, i):match("%l") then
+            return w:sub(1, i - 1) .. w:sub(i, i):upper() .. w:sub(i + 1)
+        end
+        return w
+    end))
+end
+
 -- Shared notification contract v1: user-facing status notes first try the
 -- installed patches' styles (Network Tweaks, then ReadMastery notify),
 -- falling back to this patch's own default at each call site. Checked at
@@ -248,7 +267,7 @@ local function pickGroup(where, c, touchmenu)
         local current = (group_of[c.key] or c.default) == name
         buttons[#buttons + 1] = {{
             text = (current and "\u{2713} " or "") .. name
-                .. (name == c.default and ("  " .. _("(default)")) or ""),
+                .. (name == c.default and ("  " .. titlecase(_("(default)"))) or ""),
             callback = function()
                 UIManager:close(dlg)
                 local value = (name ~= c.default) and name or nil
@@ -266,7 +285,7 @@ end
 local function chooserItems(where)
     restart_asked = false
     local list = seen[where] or {}
-    local out, last_header = { { text = _("Tap: in or out · Hold: move to a group"), enabled = false, separator = true } }, nil
+    local out, last_header = { { text = titlecase(_("Tap: in or out · Hold: move to a group")), enabled = false, separator = true } }, nil
     for _i, c in ipairs(list) do
         if c.header ~= last_header then
             if #out > 0 then out[#out].separator = true end
@@ -287,7 +306,7 @@ local function chooserItems(where)
             hold_callback = function(touchmenu) pickGroup(where, c, touchmenu) end,
         }
     end
-    if #out == 1 then out[1] = { text = _("Nothing to choose yet"), enabled = false } end
+    if #out == 1 then out[1] = { text = titlecase(_("Nothing to choose yet")), enabled = false } end
     -- shown once: the next time you open this list they're no longer "new".
     -- Only clear what this menu actually showed, so a reader-only add-on keeps
     -- its tag until you open the chooser in the reader.
@@ -397,7 +416,9 @@ local function inject(where, items, order)
     local cands = {}
     local function add(key, id, label, group, broken)
         claimed[id] = true
-        cands[#cands + 1] = { key = key, id = id, label = label, default = group, broken = broken }
+        -- title case for the chooser rows (display only; the items themselves
+        -- are shared with their original menus and keep their own text)
+        cands[#cands + 1] = { key = key, id = id, label = titlecase(label), default = group, broken = broken }
     end
     for _i, g in ipairs(PLUGINS) do
         for _j, id in ipairs(g) do
@@ -541,7 +562,7 @@ local function inject(where, items, order)
     -- the chooser, always last, so turned-off items can be turned back on
     local cid = ENTRY_ID .. "choose"
     items[cid] = {
-        text = _("Choose what's in Add-ons"),
+        text = titlecase(_("Choose what's in Add-ons")),
         sub_item_table_func = function() return chooserItems(where) end,
     }
     if #plist > 0 then plist[#plist + 1] = SEPARATOR end
