@@ -1,11 +1,20 @@
 --[[
 2-zz-sleepscreen-banner-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.4
+Version 1.0.7
 
 CHANGELOG
+1.0.7 - shared-log rotation cap raised from 256 KB to 2 MB (identical
+         value across all diagnostics per contract)
+1.0.6 - count eligible highlights from the open book's live annotations
+         (like the banner patch) instead of only the sidecar on disk;
+         ALLOWED_HL_STYLES / FALLBACK_QUOTES_PATH now read live from the
+         banner patch's exposed settings instead of hardcoded copies
+1.0.5 - NOT FOUND message-container log line now says the sleep-screen
+         message is disabled when that's the case, instead of warning about
+         a layout change on every sleep
 1.0.4 - shared log contract v1: tagged lines now go to
          koreader/diagnostics.log (tag: sleepscreen-banner, rotation at
-         256 KB keeps diagnostics.log.old); the individual
+         2 MB keeps diagnostics.log.old); the individual
          sleepscreen-banner-diagnostics.log file is retired
 1.0.3 - status notification now goes through the shared notification
          contract v1 (Network Tweaks style > ReadMastery style > default)
@@ -27,7 +36,7 @@ Watches 2-kobo-style-sleepscreen-banner.lua from OUTSIDE (it never requires
 or edits that file) and writes tagged lines to:
     koreader/diagnostics.log   (shared log contract v1, tag: sleepscreen-banner)
 (Kobo: .adds/koreader/diagnostics.log)
-Rotation at 256 KB, older part kept as diagnostics.log.old.
+Rotation at 2 MB, older part kept as diagnostics.log.old.
 
 How to use:
   1. Put this file in koreader/patches/ next to
@@ -75,11 +84,11 @@ local ok_time, ktime = pcall(require, "ui/time")
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "sleepscreen-banner"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -109,10 +118,14 @@ local PER_SLEEP_ACTIVE_S = 60 -- how long after each sleep event to keep
                                -- normal reading in between sleeps doesn't
                                -- get logged at all.
 
--- keep these two in sync with the main patch if you change them there --
--- this file reads them independently rather than requiring the patch.
-local ALLOWED_HL_STYLES = { lighten = true, underscore = true }
-local FALLBACK_QUOTES_PATH = "/mnt/onboard/Famous Quotes.txt"
+-- read live from the banner patch (2-kobo-style-sleepscreen-banner.lua),
+-- which exposes them as _G.__sleepscreen_banner_settings; fall back to
+-- these defaults when the banner patch isn't installed
+local _banner_settings = _G.__sleepscreen_banner_settings
+local ALLOWED_HL_STYLES = (_banner_settings and _banner_settings.allowed_hl_styles)
+    or { lighten = true, underscore = true }
+local FALLBACK_QUOTES_PATH = (_banner_settings and _banner_settings.quotes_file_path)
+    or "/mnt/onboard/Famous Quotes.txt"
 
 -- --------------------------------------------------------------------------
 -- Log + timing helpers
@@ -208,7 +221,7 @@ if expired then
     return
 end
 
-log("==================== sleepscreen-banner diagnostics 1.0.4 started ====================")
+log("==================== sleepscreen-banner diagnostics 1.0.7 started ====================")
 log("window: %.0f of %d minutes used (persists across restarts)", elapsed_minutes, TTL_MINUTES)
 
 -- --------------------------------------------------------------------------
@@ -237,23 +250,37 @@ end
 -- --------------------------------------------------------------------------
 
 local function countEligibleHighlights(fp)
-    local DocSettings = require("docsettings")
-    if not (fp and DocSettings:hasSidecarFile(fp)) then
-        return 0, "no sidecar for this book"
+    --prefer the open book's live annotations, exactly like the banner patch:
+    --highlights made this session may not be flushed to the sidecar yet
+    local ok_ru, ReaderUI = pcall(require, "apps/reader/readerui")
+    local reader = ok_ru and ReaderUI and ReaderUI.instance or nil
+    local live = reader and reader.document and fp and reader.document.file == fp
+    local annotations, source_err
+    if live and reader.annotation then
+        annotations = reader.annotation.annotations
+        source_err = "no annotations in the open book"
+    else
+        local DocSettings = require("docsettings")
+        if not (fp and DocSettings:hasSidecarFile(fp)) then
+            return 0, "no sidecar for this book"
+        end
+        local ok_ds, ds = pcall(DocSettings.open, DocSettings, fp)
+        if not (ok_ds and ds) then return 0, "sidecar unreadable" end
+        local ok_a, ann = pcall(ds.readSetting, ds, "annotations")
+        annotations = ok_a and ann or nil
+        source_err = "no annotations in sidecar"
     end
-    local ok_ds, ds = pcall(DocSettings.open, DocSettings, fp)
-    if not (ok_ds and ds) then return 0, "sidecar unreadable" end
-    local ok_a, ann = pcall(ds.readSetting, ds, "annotations")
     local n = 0
-    if ok_a and type(ann) == "table" then
-        for _, a in ipairs(ann) do
+    if type(annotations) == "table" then
+        for _, a in ipairs(annotations) do
             if type(a) == "table" and type(a.text) == "string" and a.drawer
                     and ALLOWED_HL_STYLES[a.drawer] and util.trim(a.text) ~= "" then
                 n = n + 1
             end
         end
+        return n, nil
     end
-    return n, nil
+    return 0, source_err
 end
 
 local function countQuoteLines(path)
@@ -342,8 +369,9 @@ UIManager.show = function(self, widget, ...)
         log("pre-call message container: horizontal_position=%s  text=\"%s\"",
             q(pre.pre_hpos), q(pre.pre_text))
     else
-        log("pre-call message container: NOT FOUND at the expected widget path " ..
-            "(widget[1][1][2]) -- KOReader's ScreenSaver layout may have changed")
+        log("pre-call message container: NOT FOUND at the expected widget path (widget[1][1][2])" ..
+            ((ok_me and message_enabled) and " -- KOReader's ScreenSaver layout may have changed"
+                                           or " -- expected: sleep-screen message is disabled"))
     end
 
     local mem_before = collectgarbage("count")
