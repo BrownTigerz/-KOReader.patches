@@ -1,11 +1,14 @@
 --[[
 2-zz-shortcutstoolbar-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.5
+Version 1.0.6
 
 Changelog:
+  1.0.6 - Shared-log rotation cap raised from 256 KB to 2 MB
+          (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical across all
+          diagnostics per the shared-log contract).
   1.0.5 - Shared log contract v1: lines now go to the shared
           koreader/diagnostics.log with a [shortcutstoolbar] tag and
-          256 KB rotation (older part kept as diagnostics.log.old).
+          2 MB rotation (older part kept as diagnostics.log.old).
           The +Nms timing column stays on the line content. The expiry
           stamp moved to shortcutstoolbar-diagnostics.state.
   1.0.4 - Shared notification contract v1: the "done" note now routes
@@ -60,7 +63,7 @@ Battery safety (in case you forget to delete it):
     patch) for a fresh 24 hours.
   • No background polling and no timers of its own: the 5-minute window
     closes on elapsed time, checked at every hooked call. Nothing wakes
-    the device. Lines go to the shared diagnostics.log (256 KB rotation,
+    the device. Lines go to the shared diagnostics.log (2 MB rotation,
     older part kept as diagnostics.log.old).
 
 How to use:
@@ -82,16 +85,16 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.0.5"
+local DIAG_VERSION = "1.0.6"
 local STATE = DataStorage:getDataDir() .. "/shortcutstoolbar-diagnostics.state"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "shortcutstoolbar"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
