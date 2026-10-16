@@ -1,6 +1,6 @@
 --[[
 2-debugging-menu.lua
-Version 1.3.1
+Version 1.3.3
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
@@ -14,16 +14,17 @@ and off, and to tidy up their logs. Your diagnostic patches are never edited.
     diagnostic doesn't load and costs nothing, and the folder stays tidy.
     Changes apply after a restart (asked once). Old-style ".lua.disabled"
     diagnostics in patches/ are moved into debug/ the first time.
-  • Combine logs for sending: writes the shared diagnostics log (once),
-    plus the end of crash.log, into one file: koreader/debug-all.log.
-  • Delete all logs: removes every .log file except version.log and
+  • Combine Crash And Diagnostics Log For Review: writes the shared
+    diagnostics log (once), plus the end of crash.log, into one file:
+    koreader/debug-all.log.
+  • Delete All Logs: removes every .log file except version.log and
     crash.log, plus the diagnostics' stamp/state files (this also
     restarts their time windows), plus orphaned .state files left
     behind by removed patches. Asks first. Clearing crash.log stays
     a separate option below.
   • Hold a diagnostic: filter its lines out of the shared log, or delete
     its log lines and the patch itself.
-  • crash.log: shows its size, "Clear crash.log" empties it (asks first).
+  • Crash.log: shows its size, "Clear Crash.log" empties it (asks first).
     version.log (KOReader's update history) is never touched.
 
 Diagnostics are found automatically: any patch with "diagnostic" or
@@ -34,6 +35,10 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.3.3  Menu items use title case (first letter of every word capitalized).
+1.3.2  Combine moved to the very bottom of the menu and renamed to
+       "Combine Crash And Diagnostics Log For Review" so its purpose
+       is obvious.
 1.3.1  Delete all logs now removes every .log except version.log and
        crash.log, plus state files (including orphaned .state files
        from removed patches); Clear crash.log stays separate.
@@ -59,7 +64,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.3.1"
+local VERSION = "1.3.3"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -105,10 +110,21 @@ local function stemOf(base)
     return (base:gsub("^%d+%-", ""):gsub("^zz%-", ""):gsub("%-diagnostics?$", ""))
 end
 
+-- Menu items use title case: the first letter of every word capitalized
+-- ("clear crash.log" -> "Clear Crash.log").
+local function titlecase(s)
+    return (s:gsub("%S+", function(w)
+        local i = w:find("%a")
+        if i and w:sub(i, i):match("%l") then
+            return w:sub(1, i - 1) .. w:sub(i, i):upper() .. w:sub(i + 1)
+        end
+        return w
+    end))
+end
+
 local function prettyName(stem)
-    if NAMES[stem] then return NAMES[stem] end
-    local s = stem:gsub("[-_]", " ")
-    return (s:gsub("^%l", string.upper))
+    if NAMES[stem] then return titlecase(NAMES[stem]) end
+    return titlecase(stem:gsub("[-_]", " "))
 end
 
 local function fileSize(path)
@@ -541,7 +557,7 @@ local function holdMenu(d, tm)
         title = d.name,
         title_align = "center",
         buttons = {
-            {{ text = "Delete log", callback = function()
+            {{ text = "Delete Log", callback = function()
                 UIManager:close(dlg)
                 local files = filesOf(d)
                 local n = deleteFiles(files)
@@ -555,7 +571,7 @@ local function holdMenu(d, tm)
                     dropped > 0 and (", " .. dropped .. " lines") or ""))
                 refresh(tm)
             end }},
-            {{ text = "Delete log and patch", callback = function()
+            {{ text = "Delete Log And Patch", callback = function()
                 UIManager:close(dlg)
                 confirm(string.format("Delete %s and its log?\n\n%s", d.name,
                     d.base .. ".lua"), "Delete", function()
@@ -609,7 +625,7 @@ local function buildItems()
 
     local list = scan()
     if #list == 0 then
-        items[#items + 1] = { text = "No diagnostics found in patches/", enabled = false, separator = true }
+        items[#items + 1] = { text = "No Diagnostics Found In Patches/", enabled = false, separator = true }
     end
     for idx, d0 in ipairs(list) do
         local base = d0.base
@@ -633,8 +649,8 @@ local function buildItems()
                     local size = fmtSize(logSize(d))
                     logpart = size and ("log " .. size) or "no log"
                 end
-                return d.name .. "  ·  " .. logpart
-                    .. (pending and "  (after restart)" or "")
+                return titlecase(d.name .. "  ·  " .. logpart
+                    .. (pending and "  (after restart)" or ""))
             end,
             checked_func = function() local d = cur() return d and d.on end,
             enabled_func = function() return cur() ~= nil end,
@@ -653,22 +669,22 @@ local function buildItems()
 
     items[#items + 1] = {
         text_func = function()
-            return "Diagnostics log  ·  " .. (fmtSize(fileSize(SHARED_LOG)) or "none")
+            return "Diagnostics Log  ·  " .. (fmtSize(fileSize(SHARED_LOG)) or "none")
         end,
         enabled = false,
     }
-    items[#items + 1] = { text = "Combine logs for sending", keep_menu_open = true,
-        callback = function() combine() end }
-    items[#items + 1] = { text = "Delete all logs", keep_menu_open = true,
+    items[#items + 1] = { text = "Delete All Logs", keep_menu_open = true,
         callback = function(tm) deleteAll() refresh(tm) end, separator = true }
     items[#items + 1] = {
         text_func = function()
-            return "crash.log  ·  " .. (fmtSize(fileSize(CRASH)) or "none")
+            return "Crash.log  ·  " .. (fmtSize(fileSize(CRASH)) or "none")
         end,
         enabled = false,
     }
-    items[#items + 1] = { text = "Clear crash.log", keep_menu_open = true,
+    items[#items + 1] = { text = "Clear Crash.log", keep_menu_open = true,
         callback = function(tm) clearCrash() refresh(tm) end }
+    items[#items + 1] = { text = "Combine Crash And Diagnostics Log For Review", keep_menu_open = true,
+        callback = function() combine() end }
     return items
 end
 
