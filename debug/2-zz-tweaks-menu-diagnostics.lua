@@ -1,6 +1,6 @@
 --[[
 2-zz-tweaks-menu-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.3
+Version 1.0.5
 
 Watches the Add-ons menu patch (2-tweaks-menu.lua) from outside and writes
 tagged lines (shared log contract v1) to the shared diagnostics log:
@@ -43,7 +43,7 @@ In case you forget it:
   - 3 days after it first ran it stops logging for good and only shows a
     short "delete me" notice at startup.
   - Its own lines are capped at 256 KB (it stops writing, keeping the
-    start). The shared file itself rotates at 256 KB, older part kept as
+    start). The shared file itself rotates at 2 MB, older part kept as
     diagnostics.log.old.
 
 It doesn't change 2-tweaks-menu.lua. To time the Add-ons part separately it
@@ -54,6 +54,14 @@ hook just passes straight through. The "zz" makes it load after
 2-tweaks-menu.lua.
 
 Changelog:
+  1.0.5  2026-10-12  Shared-log rotation cap raised from 256 KB to 2 MB
+                      (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical in all
+                      12 diagnostics). Per-patch 256 KB write cap unchanged.
+  1.0.4  2026-10-11  Correctness walk now descends each tab page (the built
+                      menu is an array of tab-content arrays, so the old walk
+                      never reached the Add-ons chooser); chooser detection
+                      matches the title-case "Choose What's In Add-ons" from
+                      Tweaks Menu v1.0.4 as well as the old sentence case.
   1.0.3  2026-10-11  Shared log contract v1: log lines go to the shared
                       koreader/diagnostics.log tagged [tweaks-menu] instead
                       of tweaks-menu-diagnostics.log; per-patch 256 KB write
@@ -72,7 +80,7 @@ Changelog:
   1.0.0  2026-10-08  First release.
 ]]
 
-local PATCH_VERSION = "1.0.3"
+local PATCH_VERSION = "1.0.5"
 
 local WINDOW_S  = 10 * 60          -- logging window after KOReader starts
 local EXTEND_S  = 3 * 60           -- menu use keeps it open this much longer
@@ -99,11 +107,11 @@ local STAMP = DIR .. "/tweaks-menu-diagnostics.stamp"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "tweaks-menu"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -373,6 +381,13 @@ log("build timing split (Add-ons vs KOReader): %s", split and "yes" or "no, tota
 -- ---- Checking the built menu ------------------------------------------------------
 local CHOOSER_TEXT = _("Choose what's in Add-ons")
 
+-- the main patch title-cased this in v1.0.4 ("Choose What's In Add-ons");
+-- match either form so detection works before and after that update
+local function isChooser(it)
+    return type(it) == "table" and type(it.text) == "string"
+        and it.text:lower() == CHOOSER_TEXT:lower()
+end
+
 local function itemName(it)
     if type(it) ~= "table" then return q(it) end
     if type(it.text) == "string" then return it.text end
@@ -397,7 +412,7 @@ local function checkMenu(where, menu)
                     where_seen[it] = path
                     total = total + 1
                     if type(it.text) == "string" and it.text:find("^NEW:") then news[#news + 1] = path .. " > " .. it.text end
-                    if it.text == CHOOSER_TEXT then addons_path, addons_rows = path, #list end
+                    if isChooser(it) then addons_path, addons_rows = path, #list end
                     local sub = it.sub_item_table
                     if type(sub) == "table" then
                         if #sub == 0 then empties[#empties + 1] = path .. " > " .. name end
@@ -407,7 +422,11 @@ local function checkMenu(where, menu)
             end
         end
     end
-    walk(menu, where, 1)
+    -- the built menu is a list of tab pages (one array of items per tab);
+    -- walk each page's items (a page itself has no .text/.sub_item_table)
+    for _i, page in ipairs(menu) do
+        if type(page) == "table" then walk(page, where, 1) end
+    end
 
     log("  menu has %d items | Add-ons: %s", total,
         addons_path and string.format("%s (%d rows incl. headers + chooser)", addons_path, addons_rows) or "NOT FOUND")
@@ -475,7 +494,7 @@ if ok_tm and type(TouchMenu) == "table" and type(TouchMenu.updateItems) == "func
         local page, is_addons = self.item_table, false
         if type(page) == "table" then
             for _i, it in ipairs(page) do
-                if type(it) == "table" and it.text == CHOOSER_TEXT then is_addons = true break end
+                if isChooser(it) then is_addons = true break end
             end
         end
         if is_addons or d > SLOW_DRAW_MS then
