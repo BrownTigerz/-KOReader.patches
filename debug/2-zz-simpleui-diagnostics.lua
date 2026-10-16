@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.7.4
+Version 2.7.5
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -51,6 +51,8 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.7.5  SimpleUI Tweaks' Currently Reading swipe logs through this
+         diagnostic ("swipe:" lines), only while it's logging.
   2.7.4  Shared-log rotation cap raised from 256 KB to 2 MB (identical
          value across all 12 diagnostics per TK).
   2.7.3  Night Mode timing fix: the toggle is now detected before the
@@ -218,7 +220,11 @@ do
     end
 end
 
-write("==================== simpleui diagnostics 2.7.4 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+-- Other SimpleUI patches (SimpleUI Tweaks' Currently Reading swipe) log
+-- through this, so their lines follow this diagnostic's window and expiry.
+package.loaded["simpleui_diagnostics"] = { log = log }
+
+write("==================== simpleui diagnostics 2.7.5 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
