@@ -25,10 +25,10 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.1.3 |
 | `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.1.6 |
 | `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.2.3 |
-| `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 1.1.5 |
+| `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 1.1.4 |
 | `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.0.4 |
 | `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.0.6 |
-| `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.0.5 |
+| `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.0.6 |
 | `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.7.2 |
 | `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.0.7 |
 | `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.1.6 |

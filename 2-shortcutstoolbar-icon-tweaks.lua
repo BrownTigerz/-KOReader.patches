@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.11.0
+Version: 1.12.2
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -46,6 +46,30 @@ and SSH indicators also run at most one short catch-up timer after a tap
 while asleep.
 
 Changelog
+  1.12.2 Title case for all user-facing menu/item labels ("Reset All Icon
+         Tweaks", "Night Mode", "Power Off", ...). First letter of each
+         word only; SimpleUI/X-Ray/Wi-Fi/SSH-style names untouched.
+  1.12.1 Trimmed: the one-time 1.6 settings migration is gone (it has run;
+         old per-view entries are still read as a fallback). Modules used
+         on every redraw/event are looked up once at load instead of each
+         time. Small duplicates removed. No behaviour change.
+  1.12.0 Reader toolbar opens ~110 ms faster after the first time: the
+         book cover thumbnail is kept for the open book instead of being
+         extracted and shrunk on every menu open (measured: 120-130 ms
+         builds, 90% of it the cover). Re-done when the book or its custom
+         cover changes.
+  1.11.3 No timer left pending over sleep: the Wi-Fi-off event sent while
+         going to sleep is synced once on wake instead (diagnostics
+         flagged one 0.3s check scheduled while asleep).
+  1.11.2 Fewer redraws (from on-device diagnostics): network events that
+         arrive together are repainted once. With Network Tweaks
+         installed, SSH / Calibre icons rely on its announcements alone:
+         no catch-up checks after a tap and no 1.5s follow-up repaint. An
+         SSH toggle went from 3 redraws to 1.
+  1.11.1 Audit fixes: nothing is built for a button whose layout isn't
+         recognised; a network repaint no longer replaces a pending SSH /
+         Calibre catch-up check while a popup covers the toolbar; two
+         KOReader/plugin lookups guarded so an error can't break a tap.
   1.11.0 Holding the built-in Search button (reader) opens the same power
          options as Restart. Tap still searches.
   1.10.0 Hold actions: built-in Wi-Fi opens the network list (Network
@@ -100,13 +124,16 @@ Changelog
   1.0.0  Custom icons per shortcut, global and per-icon colour modes.
 --]]
 
+local Device = require("device")
+local UIManager = require("ui/uimanager")
+local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.0"
+local PATCH_VERSION = "1.12.2"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
-    { id = "default",  text = "Default (follow UI)" },
-    { id = "original", text = "Keep original colours" },
+    { id = "default",  text = "Default (Follow UI)" },
+    { id = "original", text = "Keep Original Colours" },
     { id = "inverted", text = "Inverted" },
 }
 
@@ -132,7 +159,6 @@ end
 -- toasts (notifications, banners) and invisible helpers. A toast on top
 -- would otherwise get the repaint instead of the toolbar underneath it.
 local function screenWindow()
-    local UIManager = require("ui/uimanager")
     local stack = UIManager._window_stack
     if type(stack) == "table" then
         for i = #stack, 1, -1 do
@@ -161,7 +187,6 @@ end
 -- The screen holding this button: asked from KOReader first (exact), else
 -- the screen it was first drawn on.
 local function homeWindow(btn)
-    local UIManager = require("ui/uimanager")
     if UIManager.isSubwidgetShown then
         local ok, matched, _depth, w = pcall(UIManager.isSubwidgetShown, UIManager, btn)
         if ok and matched and w then return w end
@@ -175,10 +200,10 @@ end
 -- is built fresh, so nothing is lost.
 local function visibleWindow(btn)
     if not btn.dimen then return nil end
-    local UIManager = require("ui/uimanager")
     local first = btn._stb_win
-    if first and UIManager.isWidgetShown and not UIManager:isWidgetShown(first) then
-        return nil, true
+    if first and UIManager.isWidgetShown then
+        local ok, shown = pcall(UIManager.isWidgetShown, UIManager, first)
+        if ok and not shown then return nil, true end
     end
     local win = homeWindow(btn)
     if win and win == screenWindow() then return win end
@@ -207,7 +232,6 @@ local close_hooked = false
 local function hookClose()
     if close_hooked then return end
     close_hooked = true
-    local UIManager = require("ui/uimanager")
     local orig_close = UIManager.close
     UIManager.close = function(self, ...)
         local res = orig_close(self, ...)
@@ -227,6 +251,12 @@ end
 
 -- Wi-Fi counts as on while a connection is in progress (background
 -- connects take a few seconds), matching what the tap asked for.
+-- Network Tweaks announces SSH and Calibre changes the moment they happen
+-- (NetworkTweaksStateChanged), so with it installed no guessing is needed.
+local function networkTweaksActive()
+    return require("ui/network/manager").__network_tweaks == true
+end
+
 local function wifiOn()
     local NetworkMgr = require("ui/network/manager")
     return NetworkMgr:isWifiOn() or NetworkMgr.pending_connection == true
@@ -235,20 +265,19 @@ end
 local STATES = {
     { id = "wifi", text = "Wi-Fi", get = wifiOn },
     { id = "frontlight", text = "Frontlight", get = function()
-        local Device = require("device")
         if not Device:hasFrontlight() then return true end
         return Device:getPowerDevice():isFrontlightOn()
     end },
-    { id = "night_mode", text = "Night mode", get = function()
-        return require("device").screen.night_mode or G_reader_settings:isTrue("night_mode")
+    { id = "night_mode", text = "Night Mode", get = function()
+        return Device.screen.night_mode or G_reader_settings:isTrue("night_mode")
     end },
     -- Same check KOReader's own SSH menu uses for its checkmark.
-    { id = "ssh", text = "SSH server", get = function()
-        return require("libs/libkoreader-lfs").attributes("/tmp/dropbear_koreader.pid", "mode") == "file"
+    { id = "ssh", text = "SSH Server", get = function()
+        return lfs.attributes("/tmp/dropbear_koreader.pid", "mode") == "file"
     end },
     -- Calibre plugin's wireless client: its socket exists only while
     -- connected (it's cleared on disconnect or a failed connect).
-    { id = "calibre", text = "Calibre connection", get = function()
+    { id = "calibre", text = "Calibre Connection", get = function()
         local W = package.loaded["wireless"]
         return type(W) == "table" and W.calibre_socket ~= nil
     end },
@@ -285,58 +314,21 @@ local function groupId(key)
     group_cache[key] = id
     return id
 end
-local toggleId = groupId
 
--- Settings for a toolbar key: shared group first, old per-view entry second.
+-- Settings for a toolbar key: shared group first; an old per-view entry
+-- (e.g. from a backup made before 1.6) still works as a fallback.
 local function keySettings(s, key)
     return s.keys[groupId(key)] or s.keys[key]
 end
 
--- One-time move of pre-1.6 per-view entries onto shared groups. If the
--- reader and library copies differed, the library copy wins.
-local migrated = false
-local function migrate()
-    if migrated then return end
-    local ok_m, Manager = pcall(require, "custom_shortcut_manager")
-    if not ok_m then return end
-    migrated = true
-    local s = loadSettings()
-    local changed = false
-    if s.stay_open ~= nil then s.stay_open = nil; changed = true end -- 1.8.0 option, removed
-    for _i, view in ipairs({ "fb", "reader" }) do
-        for _j, it in ipairs(Manager.getShortcutDataItems(view)) do
-            local gid = groupId(it.key)
-            if gid ~= it.key and s.keys[it.key] then
-                if not s.keys[gid] then s.keys[gid] = s.keys[it.key] end
-                s.keys[it.key] = nil
-                changed = true
-            end
-            local old = s.toggles and s.toggles["label:" .. tostring(it.label)]
-            if old then
-                s.toggles[gid] = true
-                changed = true
-            end
-        end
-    end
-    if s.toggles then
-        for id in pairs(s.toggles) do
-            if id:sub(1, 6) == "label:" or id:sub(1, 4) == "key:" then
-                s.toggles[id] = nil
-                changed = true
-            end
-        end
-    end
-    if changed then saveSettings(s) end
-end
-
 local function getToggled(key)
     local t = (G_reader_settings:readSetting(SETTINGS_KEY) or {}).toggles
-    return t and t[toggleId(key)] == true
+    return t and t[groupId(key)] == true
 end
 -- Not a real device state: flips each time the icon is tapped and is
 -- remembered across restarts. For custom shortcuts that toggle something
 -- KOReader can't report on.
-table.insert(STATES, 1, { id = "tap", text = "Tap toggle", get = getToggled })
+table.insert(STATES, 1, { id = "tap", text = "Tap Toggle", get = getToggled })
 
 local STATE_BY_ID = {}
 for _, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
@@ -347,7 +339,7 @@ for _, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
 
 local function fileExists(f)
     if not f then return false end
-    return require("libs/libkoreader-lfs").attributes(f, "mode") == "file"
+    return lfs.attributes(f, "mode") == "file"
 end
 
 local function newIcon(btn, file, alpha)
@@ -361,7 +353,7 @@ end
 local function installPaint(img, mode, state, off_img, style, key)
     local base = img.paintTo
     img.paintTo = function(self, bb, x, y)
-        local night = require("device").screen.night_mode and true or false
+        local night = Device.screen.night_mode and true or false
         local flip = (mode == "original" and night) or (mode == "inverted" and not night)
 
         local on = true
@@ -410,6 +402,19 @@ local function tweakButton(btn, key)
 
     local file = custom or (btn.image and btn.image.file)
     if not file then return end
+
+    -- Find where the image sits first, so nothing is built (or the current
+    -- off icon freed) if the button's layout isn't what we expect.
+    local old = btn.image
+    local hg = btn.horizontal_group
+    local slot
+    if hg then
+        for i = 1, #hg do
+            if hg[i] == old then slot = i; break end
+        end
+    end
+    if not slot then return end -- unexpected layout: leave button untouched
+
     local alpha = mode ~= "default"
     local img = newIcon(btn, file, alpha)
     local style = k.off_style or (k.off_file and "icon") or "dim"
@@ -422,15 +427,6 @@ local function tweakButton(btn, key)
     btn._stb_off_img = off_img
     installPaint(img, mode, state, off_img, style, key)
 
-    local old = btn.image
-    local hg = btn.horizontal_group
-    local slot
-    if hg then
-        for i = 1, #hg do
-            if hg[i] == old then slot = i; break end
-        end
-    end
-    if not slot then return end -- unexpected layout: leave button untouched
     btn.image = img
     hg[slot] = img
     btn:update()
@@ -451,22 +447,21 @@ local ASYNC_STATES = { calibre = true, ssh = true }
 local REFRESH_STEPS = { 1, 3, 6, 10 } -- seconds after the tap
 
 local function addStateRefresh(btn, key)
-    local UIManager = require("ui/uimanager")
     local cb = btn.callback
     if not cb then return end
     btn.callback = function(...)
-        local top = visibleWindow(btn) or screenWindow()
         local s = loadSettings()
         local k = keySettings(s, key)
         if k and k.state == "tap" then
-            local id = toggleId(key)
+            local id = groupId(key)
             s.toggles = s.toggles or {}
             s.toggles[id] = (not s.toggles[id]) or nil
             saveSettings(s)
+            local top = visibleWindow(btn) or screenWindow()
             if top and btn.dimen then UIManager:setDirty(top, "ui", btn.dimen) end
         end
         local state = k and STATE_BY_ID[k.state]
-        local async = state and ASYNC_STATES[state.id]
+        local async = state and ASYNC_STATES[state.id] and not networkTweaksActive()
         local before
         if async then
             local ok, v = pcall(state.get, key)
@@ -527,7 +522,6 @@ local live = setmetatable({}, { __mode = "k" })
 
 local function syncLive()
     if next(live) == nil then return end
-    local UIManager = require("ui/uimanager")
     local s = loadSettings()
     local want_wifi = wifiOn() and "wifi" or "wifi.open.0"
     for btn, key in pairs(live) do
@@ -547,7 +541,7 @@ local function syncLive()
                 live[btn] = nil
             elseif win then
                 UIManager:setDirty(win, "ui", btn.dimen)
-            elseif btn._stb_win then
+            elseif btn._stb_win and not waiting[btn] then
                 waitForScreen(btn, function()
                     local w = visibleWindow(btn)
                     if w then UIManager:setDirty(w, "ui", btn.dimen) end
@@ -557,14 +551,28 @@ local function syncLive()
     end
 end
 
--- Coalesced: a burst of events (connecting → connected) is one repaint,
--- plus one follow-up for things that start after the connect.
-local function scheduleSync()
+-- Coalesced: events arriving close together (Wi-Fi off, then SSH off a
+-- moment later) wait for the last one and repaint once. Without Network
+-- Tweaks there's also one follow-up for things that start after a connect;
+-- with it, those changes are announced and need no follow-up.
+local SETTLE_S = 0.3
+
+-- Going to sleep turns Wi-Fi off, which sends a disconnect event. Nothing
+-- can be seen while asleep, so no timer is left pending across sleep: the
+-- sync is noted and done once on wake instead.
+local sync_on_wake = false
+
+local function scheduleSync(on_wake)
     if next(live) == nil then return end
-    local UIManager = require("ui/uimanager")
+    if not on_wake and Device.screen_saver_mode then
+        sync_on_wake = true
+        return
+    end
     UIManager:unschedule(syncLive)
-    UIManager:nextTick(syncLive)
-    UIManager:scheduleIn(FOLLOW_UP_S, syncLive)
+    UIManager:scheduleIn(SETTLE_S, syncLive)
+    if not networkTweaksActive() then
+        UIManager:scheduleIn(FOLLOW_UP_S, syncLive)
+    end
 end
 
 local net_hooked = false
@@ -572,11 +580,16 @@ local function hookNetworkEvents()
     if net_hooked then return end
     net_hooked = true
 
-    local UIManager = require("ui/uimanager")
     local orig_bc = UIManager.broadcastEvent
     UIManager.broadcastEvent = function(self, event, ...)
         local res = orig_bc(self, event, ...)
-        if type(event) == "table" and NET_EVENTS[event.handler] then scheduleSync() end
+        local handler = type(event) == "table" and event.handler
+        if handler and NET_EVENTS[handler] then
+            scheduleSync()
+        elseif handler == "onResume" and sync_on_wake then
+            sync_on_wake = false
+            scheduleSync(true)
+        end
         return res
     end
 
@@ -616,9 +629,7 @@ end
 -- book and settings are saved; reboot / power off ask to confirm.
 local function holdPower()
     local _ = require("gettext")
-    local Device = require("device")
     local Event = require("ui/event")
-    local UIManager = require("ui/uimanager")
     local ButtonDialog = require("ui/widget/buttondialog")
 
     local dialog
@@ -636,7 +647,7 @@ local function holdPower()
     table.insert(buttons, { action(_("Exit KOReader"), "Exit") })
     local device_row = {}
     if Device:canReboot() then table.insert(device_row, action(_("Reboot"), "RequestReboot")) end
-    if Device:canPowerOff() then table.insert(device_row, action(_("Power off"), "RequestPowerOff")) end
+    if Device:canPowerOff() then table.insert(device_row, action(_("Power Off"), "RequestPowerOff")) end
     if #device_row > 0 then table.insert(buttons, device_row) end
     table.insert(buttons, { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } })
 
@@ -682,13 +693,12 @@ local building = false
 local function withCapture(config, fn, ...)
     if building or type(config) ~= "table" then return fn(...) end
     local IconButton = require("ui/widget/iconbutton")
-    local Screen = require("device").screen
+    local Screen = Device.screen
     local icon_size = Screen:scaleBySize(config.icon_size or 32)
     local padding_h = Screen:scaleBySize(config.spacing or 8)
     local queue = expectedKeys(config)
     local desynced = false
     group_cache = {} -- pick up edited shortcuts
-    migrate()
     local captured = {}
     local orig_new = IconButton.new
 
@@ -732,9 +742,8 @@ local function withCapture(config, fn, ...)
             orig_set(self, icon)
             tweakButton(self, key)
         end
-        if k and k.state then trackScreen(btn) end
+        if key == "wifi" or (k and k.state) then trackScreen(btn) end
         if key == "wifi" or (k and k.state and NET_STATES[k.state]) then
-            trackScreen(btn)
             live[btn] = key
             hookNetworkEvents()
         end
@@ -770,14 +779,98 @@ local function hookExecute()
     local orig_execute = Manager.execute
     Manager.execute = function(shortcut, menu, ...)
         local ev = type(shortcut) == "table" and STAY_OPEN[shortcut.dispatcher_action]
-        if ev and Manager.getActionSource(shortcut) == "system" then
-            local UIManager = require("ui/uimanager")
-            local Event = require("ui/event")
+        local ok_src, src = false, nil
+        if ev then ok_src, src = pcall(Manager.getActionSource, shortcut) end
+        if ok_src and src == "system" then
+                    local Event = require("ui/event")
             UIManager:broadcastEvent(Event:new(ev))
             return true
         end
         return orig_execute(shortcut, menu, ...)
     end
+end
+
+-- --------------------------------------------------------------------------
+-- Book cover cache for the reader toolbar
+-- --------------------------------------------------------------------------
+-- The plugin's book info panel pulls the cover out of the book and shrinks
+-- it to thumbnail size on every reader-menu open: ~60 ms + ~50 ms on a
+-- Clara Colour, 90% of the build. The thumbnail is kept for the open book
+-- instead, so only the first open pays. Re-done when the book or its custom
+-- cover changes. One thumbnail in memory (a few tens of KB).
+-- Fails safe: if the plugin's panel changes shape, it's left alone.
+
+local cover_cache = { key = nil, bb = nil }
+
+local function findUpvalue(fn, name)
+    if type(fn) ~= "function" then return nil end
+    local i = 1
+    while true do
+        local n, v = debug.getupvalue(fn, i)
+        if not n then return nil end
+        if n == name then return i, v end
+        i = i + 1
+    end
+end
+
+local function coverKey(ui)
+    local file = ui.document and ui.document.file
+    if not file then return nil end
+    local custom
+    local ok_ds, DocSettings = pcall(require, "docsettings")
+    if ok_ds and DocSettings.findCustomCoverFile then
+        local ok, path = pcall(DocSettings.findCustomCoverFile, DocSettings, file)
+        if ok and path then
+            custom = path .. "@" .. tostring(lfs.attributes(path, "modification"))
+        end
+    end
+    return file .. "|" .. (custom or "")
+end
+
+local function hookCoverCache(plugin_home)
+    local _bi, book_fn = findUpvalue(plugin_home, "createBookInfoPanel")
+    local ci, orig_cover = findUpvalue(book_fn, "buildCoverWidget")
+    if not ci then return end
+    local _w, cover_w = findUpvalue(orig_cover, "COVER_W")
+    local _h, cover_h = findUpvalue(orig_cover, "COVER_H")
+    if type(cover_w) ~= "number" or type(cover_h) ~= "number" then return end
+
+    debug.setupvalue(book_fn, ci, function(ui)
+        local ok_k, key = pcall(coverKey, ui)
+        if not (ok_k and key) then return orig_cover(ui) end
+
+        if cover_cache.key ~= key then
+            if cover_cache.bb then pcall(cover_cache.bb.free, cover_cache.bb) end
+            cover_cache.key, cover_cache.bb = key, nil
+            local ok, thumb = pcall(function() return ui.bookinfo:getCoverImage(ui.document) end)
+            if ok and thumb then
+                -- Same sizing as the plugin.
+                local w, h = thumb:getWidth(), thumb:getHeight()
+                local scale = math.min(cover_w / w, cover_h / h)
+                w = math.min(math.floor(w * scale) + 1, cover_w)
+                h = math.min(math.floor(h * scale) + 1, cover_h)
+                local ok_s, bb = pcall(function()
+                    return require("ui/renderimage"):scaleBlitBuffer(thumb, w, h, true)
+                end)
+                if ok_s and bb then cover_cache.bb = bb end
+            end
+        end
+
+        local bb = cover_cache.bb
+        if not bb then return nil end -- book has no cover (also remembered)
+        local Blitbuffer = require("ffi/blitbuffer")
+        local FrameContainer = require("ui/widget/container/framecontainer")
+        local ImageWidget = require("ui/widget/imagewidget")
+        local Size = require("ui/size")
+        return FrameContainer:new{
+            bordersize = Size.border.thin,
+            color      = Blitbuffer.COLOR_LIGHT_GRAY,
+            padding    = 0,
+            -- The cache owns the bitmap: the menu must not free it on close.
+            ImageWidget:new{ image = bb, image_disposable = false,
+                             width = bb:getWidth(), height = bb:getHeight() },
+        }
+    end)
 end
 
 local function hookHomeContent()
@@ -791,6 +884,7 @@ local function hookHomeContent()
     HomeContent.__stb_icon_tweaks = true
 
     local orig_home = HomeContent.createHomeContent
+    pcall(hookCoverCache, orig_home)
     HomeContent.createHomeContent = function(menu, config, ...)
         return withCapture(config, orig_home, menu, config, ...)
     end
@@ -838,8 +932,6 @@ end
 
 local function pickIcon(on_pick)
     local DataStorage = require("datastorage")
-    local lfs = require("libs/libkoreader-lfs")
-    local UIManager = require("ui/uimanager")
     local ok, IconBrowser = pcall(require, "icon_browser")
     local user_dir = DataStorage:getDataDir() .. "/icons"
     local start = lfs.attributes(user_dir, "mode") == "directory" and user_dir or nil
@@ -879,7 +971,7 @@ local function perIconMenu(key)
 
     local colour = {
         {
-            text = _("Use global setting"),
+            text = _("Use Global Setting"),
             radio = true,
             checked_func = function() local _s, k = getK(); return k.mode == nil end,
             callback = function() local s, k = getK(); k.mode = nil; putK(s, k) end,
@@ -896,7 +988,7 @@ local function perIconMenu(key)
         {
             text_func = function()
                 local _s, k = getK()
-                return k.file and T(_("Icon: %1"), k.file:match("[^/]+$")) or _("Icon: original")
+                return k.file and T(_("Icon: %1"), k.file:match("[^/]+$")) or _("Icon: Original")
             end,
             keep_menu_open = true,
             callback = function(touchmenu)
@@ -907,7 +999,7 @@ local function perIconMenu(key)
             end,
         },
         {
-            text = _("Restore original icon"),
+            text = _("Restore Original Icon"),
             enabled_func = function() local _s, k = getK(); return k.file ~= nil end,
             keep_menu_open = true,
             callback = function(touchmenu)
@@ -919,7 +1011,7 @@ local function perIconMenu(key)
         {
             text_func = function()
                 local _s, k = getK()
-                return T(_("Colour: %1"), k.mode and modeText(k.mode) or _("global"))
+                return T(_("Colour: %1"), k.mode and modeText(k.mode) or _("Global"))
             end,
             sub_item_table = colour,
             separator = true,
@@ -928,7 +1020,7 @@ local function perIconMenu(key)
             text_func = function()
                 local _s, k = getK()
                 local st = k.state and STATE_BY_ID[k.state]
-                return T(_("On/off indicator: %1"), st and st.text or _("off"))
+                return T(_("On/Off Indicator: %1"), st and st.text or _("Off"))
             end,
             sub_item_table_func = function()
                 local t = {
@@ -942,7 +1034,7 @@ local function perIconMenu(key)
                 }
                 for _i, st in ipairs(STATES) do
                     table.insert(t, {
-                        text = st.id == "tap" and _("Tap toggle (flips on each tap)")
+                        text = st.id == "tap" and _("Tap Toggle (Flips On Each Tap)")
                             or T(_("Follow %1"), st.text),
                         radio = true,
                         checked_func = function() local _s, k = getK(); return k.state == st.id end,
@@ -950,12 +1042,12 @@ local function perIconMenu(key)
                     })
                 end
                 table.insert(t, {
-                    text = _("Reset tap toggle to off"),
+                    text = _("Reset Tap Toggle To Off"),
                     enabled_func = function() local _s, k = getK(); return k.state == "tap" and getToggled(key) end,
                     keep_menu_open = true,
                     callback = function(touchmenu)
                         local s = loadSettings()
-                        if s.toggles then s.toggles[toggleId(key)] = nil end
+                        if s.toggles then s.toggles[groupId(key)] = nil end
                         saveSettings(s); refreshViews()
                         if touchmenu then touchmenu:updateItems() end
                     end,
@@ -963,9 +1055,9 @@ local function perIconMenu(key)
                 t[#t].separator = true
                 local function curStyle(k) return k.off_style or (k.off_file and "icon") or "dim" end
                 local styles = {
-                    { id = "dim",        text = _("Dim when off") },
-                    { id = "invert_off", text = _("Inverted when off") },
-                    { id = "invert_on",  text = _("Inverted when on") },
+                    { id = "dim",        text = _("Dim When Off") },
+                    { id = "invert_off", text = _("Inverted When Off") },
+                    { id = "invert_on",  text = _("Inverted When On") },
                 }
                 for _i, sty in ipairs(styles) do
                     table.insert(t, {
@@ -979,8 +1071,8 @@ local function perIconMenu(key)
                 table.insert(t, {
                     text_func = function()
                         local _s, k = getK()
-                        return k.off_file and T(_("Custom icon when off: %1"), k.off_file:match("[^/]+$"))
-                            or _("Custom icon when off…")
+                        return k.off_file and T(_("Custom Icon When Off: %1"), k.off_file:match("[^/]+$"))
+                            or _("Custom Icon When Off…")
                     end,
                     radio = true,
                     enabled_func = function() local _s, k = getK(); return k.state ~= nil end,
@@ -1001,15 +1093,14 @@ end
 
 local function buildMenu()
     local _ = require("gettext")
-    local UIManager = require("ui/uimanager")
     local ConfirmBox = require("ui/widget/confirmbox")
     return {
-        text = _("Icon tweaks"),
+        text = _("Icon Tweaks"),
         sub_item_table_func = function()
             local t = {
                 {
                     text_func = function()
-                        return _("Global colour: ") .. modeText(loadSettings().mode)
+                        return _("Global Colour: ") .. modeText(loadSettings().mode)
                     end,
                     sub_item_table = modeRadio(
                         function() return loadSettings().mode end,
@@ -1018,7 +1109,6 @@ local function buildMenu()
                 },
             }
             group_cache = {}
-            migrate()
             for _i, it in ipairs(allShortcuts()) do
                 local key = it.key
                 table.insert(t, {
@@ -1031,10 +1121,10 @@ local function buildMenu()
             end
             t[#t].separator = true
             table.insert(t, {
-                text = _("Reset all icon tweaks"),
+                text = _("Reset All Icon Tweaks"),
                 callback = function()
                     UIManager:show(ConfirmBox:new{
-                        text = _("Reset all icon and colour tweaks?"),
+                        text = _("Reset All Icon And Colour Tweaks?"),
                         ok_callback = function()
                             G_reader_settings:delSetting(SETTINGS_KEY)
                             refreshViews()
