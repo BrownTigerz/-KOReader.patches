@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.5  Fixed swipe diagnostics log path (was writing to wrong location;
+         now uses DataStorage path like other diagnostics).
   2.9.4  Removed the tap gesture entirely (v2.9.2/v2.9.3 broke swipe; the
          invisible tap zone was confusing). Back to swipe-only as in the
          working v2.9.1. Swipe left/right on the Currently Reading cover
@@ -103,7 +105,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.4"
+local VERSION = "2.9.5"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -892,11 +894,12 @@ end
 local function diagLog(fmt, ...)
     -- v2.9.2: swipe diagnostics to the shared log (TK 2026-10-16: swipe
     -- sometimes changes the quote instead of the book — gesture conflict).
-    local ok, UIManager = pcall(require, "ui/uimanager")
-    if not ok or not UIManager then return end
+    -- v2.9.4 fix: use DataStorage path, not relative "diagnostics.log".
     local msg = string.format(fmt, ...)
     pcall(function()
-        local f = io.open("diagnostics.log", "a")
+        local DS = require("datastorage")
+        local dir = DS and DS:getDataDir() or "."
+        local f = io.open(dir .. "/diagnostics.log", "a")
         if f then
             f:write(string.format("[simpleui] %s swipe: %s\n", os.date("%H:%M:%S"), msg))
             f:close()
