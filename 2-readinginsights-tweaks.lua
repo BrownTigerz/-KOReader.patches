@@ -1,6 +1,6 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 1.1.2
+    Version: 1.1.5
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin). Each one is on its own toggle.
 
@@ -72,6 +72,20 @@
                          tap is used when present (works across the full height
                          of tall cover cells); this patch's day dialog and its
                          toggle remain only for older Reading Insights.
+      1.1.3  2026-10-09  Taller cover cells: the streak popup's fit-to-screen now
+                         accounts for the taller rows (covers were shrunk ~45% more
+                         than needed). Records covers and Statistics calendar covers
+                         check the exact widget layout before adding anything (a
+                         layout change now skips them instead of misplacing them).
+      1.1.4  2026-10-11  Fixed the sleep-card install guard: KOReader wraps plugin
+                         on* handlers in callable HandlerSandbox tables before
+                         userpatch callbacks run, so the bare type()=="function"
+                         check was a false negative — it warned on every load and
+                         left the whole sleep-card block (flush, wraps, card)
+                         uninstalled. Now accepts callables, and only warns when
+                         the sleep-card setting is actually on.
+      1.1.5  2026-10-11  Title case for all menu item texts (TK convention):
+                         first letter of every word capitalized.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -106,7 +120,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.1.2" -- the only number to change when updating
+local PATCH_VERSION = "1.1.5" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -674,6 +688,11 @@ function Hook.wrap(orig)
     end
 end
 
+-- Row height as a multiple of the cell width, for the fit-to-screen math.
+function Hook.rowRatio()
+    return (getSetting("enabled") and getSetting("tall") and Hook.caps.tall) and TALL_RATIO or 1
+end
+
 -- Used by the portrait-fit edit: only shrink when our tall cells are on screen.
 function Hook.tall()
     return getSetting("enabled") and getSetting("tall") and true or false
@@ -934,7 +953,12 @@ local function patchRecords(mod, deps)
             local center = self[1]
             local box = center and center[1]
             local content = box and box[1]
-            if type(content) ~= "table" or not content.getSize then return end
+            -- exact layout check: the card's first row holds Reading Insights' own title row
+            local first = type(content) == "table" and content[1]
+            if type(first) ~= "table" or first[2] ~= self._title_row or not content.getSize then
+                logger.warn(TAG, "records layout changed; record covers skipped")
+                return
+            end
             local width = content:getSize().w
             local tiles, list = recordTiles(RecordsData.load() or {}, width)
             if not tiles then return end
@@ -1006,6 +1030,13 @@ local function coverizeStatsCalendar(view)
     local this_month = os.date("%Y-%m") == view.cur_month
     for _w, week in ipairs(view.weeks) do
         local dc = week.day_container
+        -- exact layout check: KOReader's week is LeftContainer > OverlapGroup > day_container
+        local wrap = week[1]
+        local overlaps = type(wrap) == "table" and wrap[1]
+        if not (type(overlaps) == "table" and overlaps[1] == dc) then
+            logger.warn(TAG, "Statistics calendar layout changed; covers skipped")
+            return
+        end
         if dc and week.dimen then
             local group = OverlapGroup:new{ dimen = week.dimen:copy(), dc }
             local border = week.day_border or 0
@@ -1108,6 +1139,12 @@ local EDITS = {
         {
             cap = "native_day_tap", -- Reading Insights 6.15+: its own tap-a-day book list
             detect = "self._day_zones",
+        },
+        {
+            cap = "tall_fit", -- shrink math: rows are TALL_RATIO x cell tall, not 1 x cell
+            replace = "local delta_cell = math.ceil((measured_h - target_h) / 6) + 2",
+            with = "local delta_cell = math.ceil((measured_h - target_h) / (6 * ((" .. HK .. " and " .. HK ..
+                ".rowRatio()) or 1))) + 2",
         },
         {
             cap = "tall",
@@ -1299,6 +1336,18 @@ function SleepCard:init()
     }
 end
 
+-- KOReader's PluginLoader wraps every plugin on* handler in a HandlerSandbox
+-- (a callable table, not a function) before userpatch callbacks run, so a bare
+-- type() == "function" check silently misses them. Accept any callable.
+local function isCallable(v)
+    if type(v) == "function" then return true end
+    if type(v) == "table" then
+        local mt = getmetatable(v)
+        return type(mt) == "table" and type(mt.__call) == "function"
+    end
+    return false
+end
+
 local ok_up, userpatch = pcall(require, "userpatch")
 if not ok_up or type(userpatch) ~= "table" or type(userpatch.registerPatchPluginFunc) ~= "function" then
     logger.warn(TAG, "userpatch unavailable; sleep card skipped")
@@ -1310,8 +1359,10 @@ userpatch.registerPatchPluginFunc("statistics", function(plugin)
 end)
 userpatch.registerPatchPluginFunc("readinginsights", function(plugin)
     if plugin._ri_tweaks_patched then return end -- runs on every plugin instance creation
-    if type(plugin.onSuspend) ~= "function" or type(plugin.onResume) ~= "function" then
-        logger.warn(TAG, "plugin changed; sleep card skipped")
+    if not isCallable(plugin.onSuspend) or not isCallable(plugin.onResume) then
+        if getSetting("sleep_card") then
+            logger.warn(TAG, "plugin changed; sleep card skipped")
+        end
         return
     end
     plugin._ri_tweaks_patched = true
@@ -1361,15 +1412,15 @@ local function menuItem()
     local item = {
         text = _("Reading Insights Tweaks"),
         sub_item_table = {
-            toggle(_("Streak calendar: book covers"), "enabled"),
-            toggle(_("Streak calendar: taller cover cells"), "tall", "enabled"),
-            toggle(_("Book calendar: cover header"), "book_header"),
-            toggle(_("Heatmap: shade by daily goal"), "heatmap_goal"),
-            toggle(_("Records: book covers"), "records"),
-            toggle(_("Sleep screen: now reading card"), "sleep_card"),
-            toggle(_("Statistics calendar: book covers"), "stats_calendar"),
+            toggle(_("Streak Calendar: Book Covers"), "enabled"),
+            toggle(_("Streak Calendar: Taller Cover Cells"), "tall", "enabled"),
+            toggle(_("Book Calendar: Cover Header"), "book_header"),
+            toggle(_("Heatmap: Shade By Daily Goal"), "heatmap_goal"),
+            toggle(_("Records: Book Covers"), "records"),
+            toggle(_("Sleep Screen: Now Reading Card"), "sleep_card"),
+            toggle(_("Statistics Calendar: Book Covers"), "stats_calendar"),
             {
-                text_func = function() return T(_("Daily goal: %1"), fmtDuration(goalSecs())) end,
+                text_func = function() return T(_("Daily Goal: %1"), fmtDuration(goalSecs())) end,
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     UIManager:show(SpinWidget:new{
@@ -1390,7 +1441,7 @@ local function menuItem()
     -- for older versions (shown once Reading Insights has loaded its calendar view).
     if not Hook.caps.native_day_tap then
         table.insert(item.sub_item_table, 3,
-            toggle(_("Streak calendar: tap a day for details"), "day_tap", "enabled"))
+            toggle(_("Streak Calendar: Tap A Day For Details"), "day_tap", "enabled"))
     end
     return item
 end
