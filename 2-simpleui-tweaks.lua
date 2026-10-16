@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.9.0
+Version 2.9.6
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,13 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.6  Swipe fixed for real: SimpleUI's home screen takes every left/right
+         swipe itself and only passes it to a book module that has an
+         onSwipe handler (how Cover Deck gets its swipes). Ours was named
+         differently, so the home screen never passed it on. Also: the book
+         you swiped to survives a full home rebuild (it only resets when a
+         book is opened or the list changes), and the swipe log is capped
+         at 128 KB.
   2.9.5  Fixed swipe diagnostics log path (was writing to wrong location;
          now uses DataStorage path like other diagnostics).
   2.9.4  Removed the tap gesture entirely (v2.9.2/v2.9.3 broke swipe; the
@@ -105,7 +112,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.5"
+local VERSION = "2.9.6"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -899,7 +906,10 @@ local function diagLog(fmt, ...)
     pcall(function()
         local DS = require("datastorage")
         local dir = DS and DS:getDataDir() or "."
-        local f = io.open(dir .. "/diagnostics.log", "a")
+        local path = dir .. "/diagnostics.log"
+        local lfs = require("libs/libkoreader-lfs")
+        if (lfs.attributes(path, "size") or 0) > 128 * 1024 then return end
+        local f = io.open(path, "a")
         if f then
             f:write(string.format("[simpleui] %s swipe: %s\n", os.date("%H:%M:%S"), msg))
             f:close()
@@ -977,11 +987,11 @@ local function addSwipe(root, st, ctx)
         return
     end
     diagLog("addSwipe: registered, %d books, idx=%d", #st.fps, st.idx)
-    local GestureRange = require("ui/gesturerange")
     local BD = require("ui/bidi")
-    tap.ges_events.SuiSwipeBooks = {
-        GestureRange:new{ ges = "swipe", range = function() return tap.dimen end },
-    }
+    -- SimpleUI's home screen catches every left/right swipe itself
+    -- (ScreenWidget:onScreenSwipe) and hands it to the first widget with an
+    -- onSwipe method inside a book module it lands on, else turns the page.
+    -- So the handler has to be called onSwipe; a ges_events entry never fires.
     -- v2.9.4: tap gesture REMOVED (v2.9.2/v2.9.3 broke swipe; tap zone was
     -- invisible and confusing). Swipe only, as in working v2.9.1.
     local function advance(step, via)
@@ -1006,7 +1016,7 @@ local function addSwipe(root, st, ctx)
         end
         return true
     end
-    tap.onSuiSwipeBooks = function(_self, _, ges)
+    tap.onSwipe = function(_self, _, ges)
         local dir = ges and ges.direction
         diagLog("swipe detected, dir=%s", tostring(dir))
         if BD.mirroredUILayout() then
@@ -1032,10 +1042,17 @@ local function patchCurrentlySwipe(M)
         end
         local key = ctx.pfx or ""
         local n = math.max(2, math.min(6, tonumber(cfg.currently_books) or 4))
+        -- Opening any book (even the same one) updates the top history entry's
+        -- time, so that's what starts the list again from the current book.
+        -- Not the ctx table: a full home rebuild makes a new one, and the
+        -- swipe's fallback refresh is a full rebuild.
+        local okh, RH = pcall(require, "readhistory")
+        local h1 = okh and type(RH) == "table" and type(RH.hist) == "table" and RH.hist[1]
+        local stamp = type(h1) == "table" and tostring(h1.file) .. "@" .. tostring(h1.time) or ""
         local st = swipe_state[key]
-        if not st or st.ctx ~= ctx or st.top ~= ctx.current_fp or st.n ~= n then
+        if not st or st.stamp ~= stamp or st.top ~= ctx.current_fp or st.n ~= n then
             local okl, fps = pcall(inProgressList, ctx, n)
-            st = { ctx = ctx, top = ctx.current_fp, idx = 1, n = n, dots = {},
+            st = { stamp = stamp, top = ctx.current_fp, idx = 1, n = n, dots = {},
                    fps = okl and fps or { ctx.current_fp } }
             swipe_state[key] = st
         end
