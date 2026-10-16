@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.8.1
+Version 2.9.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,17 +13,19 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.0  Currently Reading: swipe left/right to step through your most recent
+         books still in progress (4 by default, 2-6; finished ones skipped),
+         with dots on the cover showing where you are. Tap opens the book
+         shown. Only the module is repainted, no flash. Modules > Currently
+         Reading: swipe between books.
+  2.8.5  Title case for all menu item texts (per TK's house convention).
+  2.8.4  Reverted the 2.8.0 title/nav hook changes (they caused module
+         build failures with makeAlphaTextBox on some setups); kept the
+         shared notification contract v1 from 2.8.1. Title/nav styling
+         fixes are parked pending a root-cause fix.
   2.8.1  Shared notification contract v1: status notes (restart prompt,
          colour/size validation) go through Network Tweaks' or ReadMastery
          notify's style when installed, else the InfoMessage default.
-  2.8.0  Fixed two silently-dead features on SimpleUI 2.7.5. Section titles
-         are built by engines/sui_section_label now, not the screen engine,
-         so the old sectionLabel hook never installed: title colour, bold
-         and Night Mode day-look work again. The nav bar patcher was never
-         defined, so nav labels/icons Night Mode treatment never installed
-         either: it now wraps the bar builders. Also: plain (non-mask)
-         makeColoredText lets the active colour through again, which titles
-         need.
   2.7.0  Windows opened from the menu while it stays open (e.g. Shortcuts
          Toolbar: ReadMastery quests) keep SimpleUI home underneath, so
          closing them goes back to the menu over the home instead of the
@@ -86,7 +88,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.8.1"
+local VERSION = "2.9.0"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -121,6 +123,8 @@ local DEFAULTS = {
     title_size       = 100,         -- section title size, % (x SimpleUI's own label scale)
     titles           = {},          -- per-section overrides: [module id] = { color, bold, size }
     module_colors    = {},          -- per-module text: [module id] = { text, night }
+    currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
+    currently_books  = 4,           --   how many (current book included), 2-6
 }
 
 local userpatch  = require("userpatch")
@@ -822,6 +826,158 @@ local function quietQuoteBuild(M)
     end
 end
 
+-- ---- Currently Reading: swipe between books --------------------------------
+-- Swipe left/right on the module to step through the most recent books still
+-- in progress (from KOReader's reading history, finished ones skipped). Dots on
+-- the cover show where you are. Only this module is repainted (SimpleUI's own
+-- single-slot refresh, the one Cover Deck swipes use). A new home build (e.g.
+-- after closing a book) starts again from the current book.
+local swipe_state = {}   -- [screen pfx] = { ctx, top, idx, fps, n, dots = {} }
+local SCAN_MAX = 30      -- history entries looked at, at most
+
+local function inProgressList(ctx, n)
+    local fps, seen = { ctx.current_fp }, { [ctx.current_fp] = true }
+    local okh, RH = pcall(require, "readhistory")
+    local hist = okh and type(RH) == "table" and RH.hist
+    if type(hist) ~= "table" then return fps end
+    local okl, lfs = pcall(require, "libs/libkoreader-lfs")
+    local okb, SH = pcall(require, "modules/module_books_shared")
+    for i = 1, math.min(#hist, SCAN_MAX) do
+        if #fps >= n then break end
+        local fp = hist[i] and hist[i].file
+        if type(fp) == "string" and not seen[fp] then
+            seen[fp] = true
+            if okl and lfs.attributes(fp, "mode") == "file" then
+                local pct, status
+                local pd = type(ctx.prefetched) == "table" and ctx.prefetched[fp]
+                if type(pd) == "table" and pd.percent ~= nil then
+                    pct = pd.percent
+                    status = type(pd.summary) == "table" and pd.summary.status or nil
+                elseif okb and type(SH) == "table" and type(SH.getBookData) == "function" then
+                    local okd, bd = pcall(SH.getBookData, fp)
+                    if okd and type(bd) == "table" then pct, status = bd.percent, bd.status end
+                end
+                if not ((pct or 0) >= 1 or status == "complete") then fps[#fps + 1] = fp end
+            end
+        end
+    end
+    return fps
+end
+
+local function findTappable(w, depth)
+    if type(w) ~= "table" or depth > 8 then return nil end
+    if rawget(w, "_cover_slots") and rawget(w, "ges_events") then return w end
+    for i = 1, #w do
+        local t = findTappable(w[i], depth + 1)
+        if t then return t end
+    end
+end
+
+-- Dots in a small white pill at the bottom of the cover (no extra height).
+local function paintDots(bb, st, tap, x, y, root)
+    local n = #st.fps
+    local key = st.idx .. "/" .. n
+    local tw = st.dots[key]
+    if not tw then
+        local parts = {}
+        for i = 1, n do parts[i] = (i == st.idx) and "\226\151\143" or "\226\151\139" end
+        tw = require("ui/widget/textwidget"):new{
+            text = table.concat(parts, " "),
+            face = require("ui/font"):getFace("cfont", 12),
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        st.dots[key] = tw
+    end
+    local sz = tw:getSize()
+    local pad = Screen:scaleBySize(4)
+    local pw, ph = sz.w + pad * 2, sz.h + math.floor(pad / 2)
+    local r
+    local slot = type(tap._cover_slots) == "table" and tap._cover_slots[1]
+    if type(slot) == "table" and type(slot.container) == "table" then
+        local c = slot.container[slot.idx or 1]
+        r = (type(c) == "table" and c.dimen and c.dimen.x and c.dimen) or slot.container.dimen
+    end
+    local px, py
+    if r and r.x and r.w and r.w >= pw then
+        px = r.x + math.floor((r.w - pw) / 2)
+        py = r.y + r.h - ph - pad
+    else
+        local rs = root.getSize and root:getSize() or { w = 0, h = 0 }
+        px = x + rs.w - pw - pad
+        py = y + rs.h - ph - pad
+    end
+    bb:paintRect(px, py, pw, ph, Blitbuffer.COLOR_WHITE)
+    bb:paintBorder(px, py, pw, ph, 1, Blitbuffer.COLOR_GRAY_9 or Blitbuffer.COLOR_DARK_GRAY)
+    tw:paintTo(bb, px + pad, py + math.floor(pad / 4))
+end
+
+local function addSwipe(root, st, ctx)
+    local tap = findTappable(root, 0)
+    if not tap then return end
+    local GestureRange = require("ui/gesturerange")
+    local BD = require("ui/bidi")
+    tap.ges_events.SuiSwipeBooks = {
+        GestureRange:new{ ges = "swipe", range = function() return tap.dimen end },
+    }
+    tap.onSuiSwipeBooks = function(_self, _, ges)
+        local dir = ges and ges.direction
+        if BD.mirroredUILayout() then
+            if dir == "west" then dir = "east" elseif dir == "east" then dir = "west" end
+        end
+        local step = (dir == "west" and 1) or (dir == "east" and -1) or nil
+        if not step then return false end
+        local n = #st.fps
+        st.idx = (st.idx - 1 + step) % n + 1
+        local scr = ctx._screen_widget
+        if type(scr) == "table" then
+            local ok, done = pcall(function()
+                return scr._refreshBookModSlot and scr:_refreshBookModSlot("currently")
+            end)
+            if not (ok and done) and scr._refreshImmediate then scr:_refreshImmediate(true) end
+        end
+        return true
+    end
+    local orig_paint = root.paintTo
+    root.paintTo = function(self, bb, x, y, ...)
+        orig_paint(self, bb, x, y, ...)
+        pcall(paintDots, bb, st, tap, x, y, self)
+    end
+end
+
+local function patchCurrentlySwipe(M)
+    if type(M.build) ~= "function" or wrapped[M.build] then return end
+    local orig = M.build
+    M.build = function(w, ctx, ...)
+        if not cfg.currently_swipe or type(ctx) ~= "table" or not ctx.current_fp then
+            return orig(w, ctx, ...)
+        end
+        local key = ctx.pfx or ""
+        local n = math.max(2, math.min(6, tonumber(cfg.currently_books) or 4))
+        local st = swipe_state[key]
+        if not st or st.ctx ~= ctx or st.top ~= ctx.current_fp or st.n ~= n then
+            local okl, fps = pcall(inProgressList, ctx, n)
+            st = { ctx = ctx, top = ctx.current_fp, idx = 1, n = n, dots = {},
+                   fps = okl and fps or { ctx.current_fp } }
+            swipe_state[key] = st
+        end
+        if #st.fps < 2 then return orig(w, ctx, ...) end
+        if st.idx > #st.fps then st.idx = 1 end
+        local use = ctx
+        if st.idx > 1 then
+            -- this build only: another book; reads and writes go to the real ctx
+            use = setmetatable({ current_fp = st.fps[st.idx], currently_book_stats = false },
+                               { __index = ctx, __newindex = ctx })
+        end
+        local widget = orig(w, use, ...)
+        if widget ~= nil then
+            local ok, err = pcall(addSwipe, widget, st, ctx)
+            if not ok then logger.warn(TAG, "currently swipe:", err) end
+        end
+        return widget
+    end
+    wrapped[M.build] = true
+end
+
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
     local file_id = name:match("module_(.+)$")
@@ -839,6 +995,7 @@ local function patchModule(name, M)
         wrapped[M.makeInstance] = true
     end
     if file_id == "quote" then quietQuoteBuild(M) end
+    if file_id == "currently" then patchCurrentlySwipe(M) end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
@@ -865,14 +1022,9 @@ local function patchCore(UI)
                 o.fgcolor = c
                 opts = o
             end
-            -- Only the mask path renders its inner text black (tinted
-            -- afterwards), so only it needs the inner text kept black.
-            -- A plain TextWidget (no fgcolor) takes the active colour like
-            -- any other text.
-            local masked = type(opts) == "table" and opts.fgcolor ~= nil
-            if masked then suspended = suspended + 1 end
+            suspended = suspended + 1   -- inner text must stay black (it's the mask)
             local ok, res = pcall(orig, opts)
-            if masked then suspended = suspended - 1 end
+            suspended = suspended - 1
             if not ok then error(res, 0) end
             if flip_kind and type(res) == "table" then
                 if res._fg then makeNightAwareMask(res, flip_kind)
@@ -922,37 +1074,44 @@ local function patchCore(UI)
     return core_ok
 end
 
--- Section titles: SimpleUI builds (and caches) them in
--- engines/sui_section_label (M.get) now, not in the screen engine, so hook
--- that. The module id comes along directly - no label lookup needed.
-local function patchSectionLabel(SL)
-    if type(SL) ~= "table" or type(SL.get) ~= "function" then return false end
-    local orig = SL.get
-    if ours[orig] then return true end
-    SL.get = mine(function(cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, ...)
-        local prev = cur_title_id
-        cur_title_id = id
-        in_title = in_title + 1
-        local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
-                               orig, cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, ...))
-        in_title = in_title - 1
-        cur_title_id = prev
-        if not res[1] then error(res[2], 0) end
-        return unpack(res, 2, res.n)
-    end)
-    return true
-end
-
--- Nav bar: wrap the bar builders so nav labels/icons get the Night Mode
--- treatment (day-look labels, original icon colours) at paint time.
-local function patchBottombar(BB)
-    if type(BB) ~= "table" then return false end
+local function patchEngine(E)
     local done = false
-    for _i, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows", "buildBarWidgetWithKeyFocus" }) do
-        local orig = BB[fname]
-        if type(orig) == "function" and not ours[orig] then
-            BB[fname] = mine(function(...) return flipScope("nav", orig, ...) end)
-            done = true
+    local function tryFn(fn)
+        local orig_label, idx = findUpvalue(fn, "sectionLabel")
+        if type(orig_label) == "function" then
+            if ours[orig_label] then return true end
+            debug.setupvalue(fn, idx, mine(function(text, w, right_text, page_nav, lf, ...)
+                local id = (type(page_nav) == "table" and page_nav.mod_id)
+                        or (type(text) == "string" and label_to_id[text])
+                        or last_mod_id
+                local prev = cur_title_id
+                cur_title_id = id
+                in_title = in_title + 1
+                local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
+                                       orig_label, text, w, right_text, page_nav, lf, ...))
+                in_title = in_title - 1
+                cur_title_id = prev
+                if not res[1] then error(res[2], 0) end
+                return unpack(res, 2, res.n)
+            end))
+            return true
+        end
+    end
+    for _i, v in pairs(E or {}) do
+        if done then break end
+        if type(v) == "function" then
+            if tryFn(v) then done = true break end
+            local i = 1
+            while not done do
+                local n, uv = debug.getupvalue(v, i)
+                if n == nil then break end
+                if type(uv) == "table" then
+                    for _i, m in pairs(uv) do
+                        if type(m) == "function" and tryFn(m) then done = true break end
+                    end
+                end
+                i = i + 1
+            end
         end
     end
     return done
@@ -969,6 +1128,135 @@ local function patchTopbar(T)
     return true
 end
 
+-- ---- nav bar "day look" for backgrounds/borders (fixes the Framed style) ------
+-- In Night Mode the bar's own fills, borders and indicator would stay
+-- inverted while its labels/icons get the day look, so e.g. black icons end
+-- up on a black frame. Flip those too, at paint time.
+local function cachedInv(self, slot, c)
+    local src_slot = slot .. "_of"
+    if not self[slot] or not rawequal(self[src_slot], c) then
+        self[slot], self[src_slot] = invColor(c), c
+    end
+    return self[slot]
+end
+
+local function makeNightAwareFill(node)
+    if node._sui_fill_night then return end
+    node._sui_fill_night = true
+    local orig = node.paintTo
+    node.paintTo = function(self, bb, x, y)
+        if cfg.nav_labels_black and Screen.night_mode and in_mask == 0 then
+            local bg, col, bc = rawget(self, "background"), self.color, rawget(self, "border_color")
+            if bg  then self.background   = cachedInv(self, "_sui_inv_bg", bg) end
+            if col then self.color        = cachedInv(self, "_sui_inv_col", col) end
+            if bc  then self.border_color = cachedInv(self, "_sui_inv_bc", bc) end
+            local ok, err = pcall(orig, self, bb, x, y)
+            if bg then self.background = bg end
+            if col then self.color = col end
+            if bc then self.border_color = bc end
+            if not ok then error(err, 0) end
+            return
+        end
+        return orig(self, bb, x, y)
+    end
+end
+
+local function walkNav(node, depth, seen)
+    if type(node) ~= "table" or depth > 14 or seen[node] then return end
+    seen[node] = true
+    if not rawget(node, "_sui_nav_night") and not rawget(node, "_fg")
+       and type(node.paintTo) == "function"
+       and (rawget(node, "background") or rawget(node, "border_color")
+            or (tonumber(rawget(node, "bordersize")) or 0) > 0) then
+        makeNightAwareFill(node)
+    end
+    for i = 1, #node do walkNav(node[i], depth + 1, seen) end
+end
+
+-- Backdrops/scrims read the palette at paint time: swap it for the bar.
+local NAV_PALETTE_KEYS = { "surface", "surface_flat", "gray" }
+local function makeNavPalettePaint(w)
+    if type(w) ~= "table" or w._sui_nav_palette then return end
+    w._sui_nav_palette = true
+    local orig = w.paintTo
+    local saved, inv_cache = {}, {}
+    w.paintTo = function(self, bb, x, y)
+        local C = accentPalette()
+        if not (C and cfg.nav_labels_black and Screen.night_mode and in_mask == 0) then
+            return orig(self, bb, x, y)
+        end
+        for i = 1, #NAV_PALETTE_KEYS do
+            local k = NAV_PALETTE_KEYS[i]
+            local v = C[k]
+            if v then
+                if not inv_cache[k] or not rawequal(inv_cache[k .. "_of"], v) then
+                    inv_cache[k], inv_cache[k .. "_of"] = invColor(v), v
+                end
+                saved[k] = v
+                C[k] = inv_cache[k]
+            end
+        end
+        local ok, err = pcall(orig, self, bb, x, y)
+        for i = 1, #NAV_PALETTE_KEYS do
+            local k = NAV_PALETTE_KEYS[i]
+            if saved[k] then C[k] = saved[k]; saved[k] = nil end   -- truthiness only
+        end
+        if not ok then error(err, 0) end
+    end
+end
+
+local function dayLookNav(w, whole_bar)
+    walkNav(w, 0, {})
+    if whole_bar then makeNavPalettePaint(w) end
+end
+
+-- Section title size: SimpleUI sizes titles from Config.getLabelScale().
+-- Only scale while a section title is being built, so any other caller
+-- (none today) is never affected.
+local function patchConfig(Cf)
+    if type(Cf) ~= "table" or type(Cf.getLabelScale) ~= "function" then
+        return false
+    end
+    local orig = Cf.getLabelScale
+    if not ours[orig] then
+        Cf.getLabelScale = mine(function(...)
+            local v = orig(...)
+            if in_title == 0 then return v end
+            local pct = titleSize(cur_title_id)
+            if type(v) == "number" and pct ~= 100 then return v * pct / 100 end
+            return v
+        end)
+    end
+    return true
+end
+
+local function patchBottombar(B)
+    if type(B) ~= "table" then return end
+    local n = 0
+    for _i, fname in ipairs({ "buildBarWidget", "buildBarWidgetWithArrows",
+                             "buildBarWidgetWithKeyFocus", "buildTabCell",
+                             "buildNavpagerArrowCell" }) do
+        local orig = B[fname]
+        if ours[orig] then
+            n = n + 1
+        elseif type(orig) == "function" then
+            local whole_bar = fname:find("^buildBarWidget") ~= nil
+            B[fname] = mine(function(...)
+                local outermost = flip_kind == nil
+                local res = pack(flipScope("nav", orig, ...))
+                -- post-process once, on the outermost call (whole bar, or a
+                -- single cell rebuilt on its own e.g. after a page change)
+                if outermost and type(res[1]) == "table" then
+                    pcall(dayLookNav, res[1], whole_bar)
+                end
+                return unpack(res, 1, res.n)
+            end)
+            n = n + 1
+        end
+    end
+    return n > 0
+end
+
 -- ---- install on load ------------------------------------------------------------------
 local handled = {}
 local attempts = {}
@@ -979,9 +1267,10 @@ local patchBookshelfPark   -- Bookshelf: Close Bookshelf -> SimpleUI home (defin
 local function patcherFor(name)
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
-    if name == "engines/sui_section_label" then return patchSectionLabel end
+    if name == "engines/sui_screen_engine" then return patchEngine end
     if name == "screens/sui_bottombar" then return patchBottombar end
     if name == "screens/sui_topbar" then return patchTopbar end
+    if name == "infra/sui_config" then return patchConfig end
     if name:find("^modules/module_") then
         return function(mod) patchModule(name, mod); return true end
     end
@@ -1193,6 +1482,21 @@ local function set(key, value, needs_restart)
     if needs_restart then askRestart() else repaintNow() end
 end
 
+-- Settings that change what the home screen builds: rebuild it now.
+local function setHome(key, value)
+    cfg[key] = value
+    saveConfig()
+    for k in pairs(swipe_state) do swipe_state[k] = nil end
+    local UIManager = orig_require("ui/uimanager")
+    for i = #(UIManager._window_stack or {}), 1, -1 do
+        local w = UIManager._window_stack[i].widget
+        if type(w) == "table" and w.name == "homescreen" and type(w._refreshImmediate) == "function" then
+            pcall(w._refreshImmediate, w, false)
+            return
+        end
+    end
+end
+
 local function customColorDialog(current, on_save)
     local UIManager = orig_require("ui/uimanager")
     local InputDialog = orig_require("ui/widget/inputdialog")
@@ -1227,7 +1531,7 @@ end
 local PALETTE = {
     { "Black",      "#000000" }, { "Charcoal",   "#333333" }, { "Dark grey", "#555555" }, { "Grey",   "#888888" },
     { "Silver",     "#AAAAAA" }, { "Light grey", "#CCCCCC" }, { "White",     "#FFFFFF" }, { "Navy",   "#1F3A68" },
-    { "Blue",       "#2E6FD8" }, { "Sky",        "#6FB7E9" }, { "Teal",       "#1B8A8A" }, { "Green",  "#2E8B57" },
+    { "Blue",       "#2E6FD8" }, { "Sky",        "#6FB7E9" }, { "Teal",      "#1B8A8A" }, { "Green",  "#2E8B57" },
     { "Olive",      "#6B8E23" }, { "Gold",       "#D4A017" }, { "Orange",    "#E07B24" }, { "Red",    "#C62828" },
     { "Maroon",     "#7B1E2B" }, { "Pink",       "#E78FB3" }, { "Purple",    "#6A3D9A" }, { "Brown",  "#7A4E2D" },
     -- deep, fully saturated shades that hold up on colour e-ink
@@ -1430,7 +1734,7 @@ local function colorMenuWith(get, put, off_label, inherit_label)
         end,
     }
     items[#items + 1] = {
-        text = off_label or _("SimpleUI default"), radio = true,
+        text = off_label or _("SimpleUI Default"), radio = true,
         checked_func = function() return get() == "none" end,
         callback = function() put("none") end,
     }
@@ -1462,7 +1766,7 @@ local function sizeMenuWith(get, put, inherit_label)
     end
     for _i, pct in ipairs(SIZE_PRESETS) do
         items[#items + 1] = {
-            text = pct == 100 and (pct .. "% " .. _("(default)")) or (pct .. "%"),
+            text = pct == 100 and (pct .. "% " .. _("(Default)")) or (pct .. "%"),
             radio = true,
             checked_func = function() return get() == pct end,
             callback = function() put(pct) end,
@@ -1631,11 +1935,11 @@ local function buildMenu()
     end
     local text_colour_items = {
         {
-            text = _("All modules"),
+            text = _("All Modules"),
             sub_item_table = {
                 { text = _("Colour"), sub_item_table = colorMenu("module_text", true) },
-                { text = _("Colour in Night Mode"),
-                  sub_item_table = colorMenu("night_text", true, _("Off (inverts with the screen)")) },
+                { text = _("Colour In Night Mode"),
+                  sub_item_table = colorMenu("night_text", true, _("Off (Inverts With The Screen)")) },
             },
             separator = true,
         },
@@ -1649,11 +1953,11 @@ local function buildMenu()
             sub_item_table = {
                 { text = _("Colour"),
                   sub_item_table = colorMenuWith(modGet(id, "text"), modPut(id, "text"),
-                                                 nil, _("Same as all modules")) },
-                { text = _("Colour in Night Mode"),
+                                                 nil, _("Same As All Modules")) },
+                { text = _("Colour In Night Mode"),
                   sub_item_table = colorMenuWith(modGet(id, "night"), modPut(id, "night"),
-                                                 _("Off (inverts with the screen)"), _("Same as all modules")) },
-                { text = _("Reset this module"),
+                                                 _("Off (Inverts With The Screen)"), _("Same As All Modules")) },
+                { text = _("Reset This Module"),
                   callback = function()
                       cfg.module_colors[id] = nil
                       saveConfig(); applyConfig(); askRestart()
@@ -1664,7 +1968,7 @@ local function buildMenu()
 
     local titles_items = {
         {
-            text = _("All sections"),
+            text = _("All Sections"),
             sub_item_table = {
                 { text = _("Colour"), sub_item_table = colorMenu("section_titles", true) },
                 item(_("Bold"), toggle(boldTbl, "titles", askRestart)),
@@ -1675,7 +1979,7 @@ local function buildMenu()
             },
         },
         {
-            text = _("Day look in Night Mode"),
+            text = _("Day Look In Night Mode"),
             checked_func = function() return cfg.titles_day_night end,
             callback = function() set("titles_day_night", not cfg.titles_day_night) end,
             separator = true,
@@ -1690,27 +1994,27 @@ local function buildMenu()
             sub_item_table = {
                 { text = _("Colour"),
                   sub_item_table = colorMenuWith(sectionGet(id, "color"), sectionPut(id, "color"),
-                                                 nil, _("Same as all sections")) },
+                                                 nil, _("Same As All Sections")) },
                 { text = _("Bold"),
                   sub_item_table = {
-                    { text = _("Same as all sections"), radio = true,
+                    { text = _("Same As All Sections"), radio = true,
                       checked_func = function() return sectionGet(id, "bold")() == nil end,
                       callback = function() sectionPut(id, "bold")(nil) end,
                       separator = true },
                     { text = _("Bold"), radio = true,
                       checked_func = function() return sectionGet(id, "bold")() == true end,
                       callback = function() sectionPut(id, "bold")(true) end },
-                    { text = _("Not bold"), radio = true,
+                    { text = _("Not Bold"), radio = true,
                       checked_func = function() return sectionGet(id, "bold")() == false end,
                       callback = function() sectionPut(id, "bold")(false) end },
                   } },
                 { text_func = function()
                       local v = sectionGet(id, "size")()
-                      return _("Size") .. ": " .. (v and (v .. "%") or _("same as all"))
+                      return _("Size") .. ": " .. (v and (v .. "%") or _("Same As All"))
                   end,
                   sub_item_table = sizeMenuWith(sectionGet(id, "size"), sectionPut(id, "size"),
-                                                _("Same as all sections")) },
-                { text = _("Reset this section"),
+                                                _("Same As All Sections")) },
+                { text = _("Reset This Section"),
                   callback = function()
                       cfg.titles[id] = nil
                       saveConfig(); applyConfig(); askRestart()
@@ -1725,41 +2029,59 @@ local function buildMenu()
             {
                 text = _("Modules"),
                 sub_item_table = {
-                    { text = _("Text colour"),
+                    { text = _("Text Colour"),
                       sub_item_table = text_colour_items },
-                    { text = _("Also recolour grey text"),
+                    { text = _("Also Recolour Grey Text"),
                       checked_func = function() return cfg.recolor_all end,
                       callback = function() set("recolor_all", not cfg.recolor_all, true) end,
                       separator = true },
-                    { text = _("Progress & borders colour"),
+                    { text = _("Progress & Borders Colour"),
                       sub_item_table = colorMenu("accent", true) },
-                    { text = _("Progress track colour"),
+                    { text = _("Progress Track Colour"),
                       sub_item_table = colorMenu("track", true) },
-                    { text = _("Use progress colours in"),
+                    { text = _("Use Progress Colours In"),
                       sub_item_table = accent_items,
                       separator = true },
-                    { text = _("Quick Actions icons keep original colours in Night Mode"),
+                    { text = _("Quick Actions Icons Keep Original Colours In Night Mode"),
                       checked_func = function() return cfg.qa_icons_original end,
-                      callback = function() set("qa_icons_original", not cfg.qa_icons_original) end },
+                      callback = function() set("qa_icons_original", not cfg.qa_icons_original) end,
+                      separator = true },
+                    { text = _("Currently Reading: Swipe Between Books"),
+                      help_text = _("Swipe left or right on Currently Reading to step through your most recent books still in progress. Dots on the cover show where you are."),
+                      checked_func = function() return cfg.currently_swipe end,
+                      callback = function() setHome("currently_swipe", not cfg.currently_swipe) end },
+                    { text_func = function()
+                          return string.format(_("Books To Swipe Through: %d"), cfg.currently_books)
+                      end,
+                      enabled_func = function() return cfg.currently_swipe end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for k = 2, 6 do
+                              items[#items + 1] = { text = tostring(k), radio = true,
+                                  checked_func = function() return cfg.currently_books == k end,
+                                  callback = function() setHome("currently_books", k) end }
+                          end
+                          return items
+                      end },
                 },
             },
             {
-                text = _("Section titles"),
+                text = _("Section Titles"),
                 sub_item_table = titles_items,
             },
             {
-                text = _("Nav bar"),
+                text = _("Nav Bar"),
                 sub_item_table = {
-                    { text = _("Day look in Night Mode"),
+                    { text = _("Day Look In Night Mode"),
                       checked_func = function() return cfg.nav_labels_black end,
                       callback = function() set("nav_labels_black", not cfg.nav_labels_black) end },
-                    { text = _("Icons keep original colours in Night Mode"),
+                    { text = _("Icons Keep Original Colours In Night Mode"),
                       checked_func = function() return cfg.nav_icons_original end,
                       callback = function() set("nav_icons_original", not cfg.nav_icons_original) end },
                 },
             },
             {
-                text = _("KOReader menu"),
+                text = _("KOReader Menu"),
                 sub_item_table = {
                     { text_func = function()
                           local n = 0
@@ -1768,24 +2090,24 @@ local function buildMenu()
                       end,
                       help_text = _("For colour icons you've swapped in (same file name in koreader/icons/). Plain black icons would disappear on the dark Night Mode menu. Applies the next time the menu opens."),
                       sub_item_table_func = tabItems },
-                    { text = _("Arrows keep original colours in Night Mode"),
+                    { text = _("Arrows Keep Original Colours In Night Mode"),
                       help_text = _("Back arrow and page arrows. Only useful with colour arrow icons swapped in. Applies the next time the menu opens."),
                       checked_func = function() return cfg.menu_icons.arrows end,
                       callback = function() cfg.menu_icons.arrows = not cfg.menu_icons.arrows; saveConfig() end },
                 },
             },
             {
-                text = _("Status bar"),
+                text = _("Status Bar"),
                 sub_item_table = {
                     item(_("Bold"), toggle(boldTbl, "topbar", refreshTopbarNow)),
-                    { text = _("Day look in Night Mode"),
+                    { text = _("Day Look In Night Mode"),
                       checked_func = function() return cfg.topbar_day_night end,
                       callback = function() set("topbar_day_night", not cfg.topbar_day_night) end },
                 },
                 separator = true,
             },
             {
-                text = _("Reset to defaults"),
+                text = _("Reset To Defaults"),
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     local UIManager = orig_require("ui/uimanager")
@@ -1819,7 +2141,7 @@ local function lazyMenu()
                 return menu.sub_item_table
             end
             logger.warn(TAG, "menu build failed:", menu)
-            return { { text = _("Couldn't load settings (see crash.log)"), enabled = false } }
+            return { { text = _("Couldn't Load Settings (See Crash.log)"), enabled = false } }
         end,
     }
 end
