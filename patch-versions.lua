@@ -24,6 +24,7 @@ return {
     ["2-debugging-menu.lua"] = "1.3.3",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.1.3",
     ["2-network-tweaks.lua"] = "1.8.2",
+    ["2-quickmenu-toggle-state.lua"] = "1.0.3",
     ["2-readinginsights-tweaks.lua"] = "1.1.5",
     ["2-shelfsync-tweaks.lua"] = "1.11.11",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.12.2",
