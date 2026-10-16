@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.9.6
+Version 2.9.9
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,15 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.9  Currently Reading dots are drawn shapes now: a filled black dot for
+         the book showing, black outlined circles for the others (the text
+         glyph outlines were too faint to see).
+  2.9.8  Swipe logging follows the SimpleUI diagnostic: on while it's
+         installed and logging, off otherwise (no setting to remember).
+  2.9.7  Currently Reading: dots are back, in a small row below the cover
+         (not on it), filled dot = the book showing. The row only appears
+         when there are 2+ books to swipe through. Swipe logging is off now
+         that swipes work.
   2.9.6  Swipe fixed for real: SimpleUI's home screen takes every left/right
          swipe itself and only passes it to a book module that has an
          onSwipe handler (how Cover Deck gets its swipes). Ours was named
@@ -112,7 +121,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.6"
+local VERSION = "2.9.9"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -898,86 +907,47 @@ local function findTappable(w, depth)
 end
 
 -- Dots in a small white pill at the bottom of the cover (no extra height).
+-- Swipe lines go to the SimpleUI diagnostic's log while it's on (and within
+-- its logging window); without it, nothing is written.
 local function diagLog(fmt, ...)
-    -- v2.9.2: swipe diagnostics to the shared log (TK 2026-10-16: swipe
-    -- sometimes changes the quote instead of the book — gesture conflict).
-    -- v2.9.4 fix: use DataStorage path, not relative "diagnostics.log".
-    local msg = string.format(fmt, ...)
-    pcall(function()
-        local DS = require("datastorage")
-        local dir = DS and DS:getDataDir() or "."
-        local path = dir .. "/diagnostics.log"
-        local lfs = require("libs/libkoreader-lfs")
-        if (lfs.attributes(path, "size") or 0) > 128 * 1024 then return end
-        local f = io.open(path, "a")
-        if f then
-            f:write(string.format("[simpleui] %s swipe: %s\n", os.date("%H:%M:%S"), msg))
-            f:close()
-        end
-    end)
+    local D = package.loaded["simpleui_diagnostics"]
+    if type(D) ~= "table" or type(D.log) ~= "function" then return end
+    pcall(D.log, "swipe: " .. fmt, ...)
 end
 
-local function paintDots(bb, st, tap, x, y, root)
+-- Dots in a row just below the module, centred under the cover. The module
+-- reports itself that much taller (getSize), so SimpleUI lays out and
+-- refreshes the extra row with it; the module's own widgets are untouched.
+local DOT     = Screen:scaleBySize(9)   -- dot size
+local DOT_GAP = Screen:scaleBySize(6)   -- space between dots
+local RING    = math.max(2, Screen:scaleBySize(1.5))  -- outline width of the other dots
+local DOTS_GAP = Screen:scaleBySize(5)  -- space between the cover and the dots
+
+-- Drawn shapes, not text glyphs: a filled black dot for the book showing,
+-- black outlined circles for the others (thin glyph outlines were too faint).
+local function paintDots(bb, st, tap, x, y, base_h)
     local n = #st.fps
-    local key = st.idx .. "/" .. n
-    local tw = st.dots[key]
-    if not tw then
-        local parts = {}
-        for i = 1, n do parts[i] = (i == st.idx) and "\226\151\143" or "\226\151\139" end
-        tw = require("ui/widget/textwidget"):new{
-            text = table.concat(parts, " "),
-            face = require("ui/font"):getFace("cfont", 12),
-            fgcolor = Blitbuffer.COLOR_BLACK,
-        }
-        st.dots[key] = tw
-    end
-    local sz = tw:getSize()
-    local pad = Screen:scaleBySize(4)
-    local pw, ph = sz.w + pad * 2, sz.h + math.floor(pad / 2)
-    local r
+    local total = n * DOT + (n - 1) * DOT_GAP
+    local cx, cw
     local slot = type(tap._cover_slots) == "table" and tap._cover_slots[1]
     if type(slot) == "table" and type(slot.container) == "table" then
         local c = slot.container[slot.idx or 1]
-        r = (type(c) == "table" and c.dimen and c.dimen.x and c.dimen) or slot.container.dimen
+        local r = (type(c) == "table" and c.dimen and c.dimen.x and c.dimen) or slot.container.dimen
+        if r and r.x and r.w then cx, cw = r.x, r.w end
     end
-    local px, py
-    if r and r.x and r.w and r.w >= pw then
-        px = r.x + math.floor((r.w - pw) / 2)
-        py = r.y + r.h - ph - pad
-    else
-        local rs = root.getSize and root:getSize() or { w = 0, h = 0 }
-        px = x + rs.w - pw - pad
-        py = y + rs.h - ph - pad
+    if not cx then cx, cw = x, total end   -- no cover position: left edge
+    local px = cx + math.floor((cw - total) / 2)
+    local py = y + base_h + DOTS_GAP
+    local radius = math.floor(DOT / 2)
+    for i = 1, n do
+        local dx = px + (i - 1) * (DOT + DOT_GAP)
+        if i == st.idx then
+            bb:paintRoundedRect(dx, py, DOT, DOT, Blitbuffer.COLOR_BLACK, radius)
+        else
+            bb:paintRoundedRect(dx, py, DOT, DOT, Blitbuffer.COLOR_WHITE, radius)
+            bb:paintBorder(dx, py, DOT, DOT, RING, Blitbuffer.COLOR_BLACK, radius)
+        end
     end
-    bb:paintRect(px, py, pw, ph, Blitbuffer.COLOR_WHITE)
-    bb:paintBorder(px, py, pw, ph, 1, Blitbuffer.COLOR_GRAY_9 or Blitbuffer.COLOR_DARK_GRAY)
-    tw:paintTo(bb, px + pad, py + math.floor(pad / 4))
-end
-
-local function paintPageIndicator(bb, st, root, x, y)
-    -- v2.9.2: tappable "1/4" at top-right of the module (TK's request:
-    -- swipe sometimes lands on the quote module instead).
-    local n = #st.fps
-    if n < 2 then return end
-    local key = "pi_" .. st.idx .. "/" .. n
-    local tw = st.dots[key]
-    if not tw then
-        tw = require("ui/widget/textwidget"):new{
-            text = string.format("%d/%d", st.idx, n),
-            face = require("ui/font"):getFace("cfont", 14),
-            fgcolor = Blitbuffer.COLOR_BLACK,
-        }
-        st.dots[key] = tw
-    end
-    local sz = tw:getSize()
-    local pad = Screen:scaleBySize(6)
-    local pw, ph = sz.w + pad * 2, sz.h + pad
-    local rs = root.getSize and root:getSize() or { w = 0, h = 0 }
-    local px = x + rs.w - pw - pad
-    local py = y + pad
-    bb:paintRect(px, py, pw, ph, Blitbuffer.COLOR_WHITE)
-    bb:paintBorder(px, py, pw, ph, 1, Blitbuffer.COLOR_GRAY_9 or Blitbuffer.COLOR_DARK_GRAY)
-    tw:paintTo(bb, px + pad, py + math.floor(pad / 2))
 end
 
 local function addSwipe(root, st, ctx)
@@ -1029,8 +999,21 @@ local function addSwipe(root, st, ctx)
         end
         return advance(step, "swipe")
     end
-    -- v2.9.3: visuals removed per TK (dots on cover, 2/2 overlapped title).
-    -- No paintTo hook needed.
+    -- v2.9.7: dots back, in their own row below the cover (not on it).
+    if rawget(root, "_sui_dots_hooked") then return end
+    rawset(root, "_sui_dots_hooked", true)
+    local Geom = require("ui/geometry")
+    local orig_size, orig_paint = root.getSize, root.paintTo
+    local extra = DOT + DOTS_GAP * 2
+    root.getSize = function(self)
+        local sz = orig_size(self)
+        return Geom:new{ x = sz.x, y = sz.y, w = sz.w, h = sz.h + extra }
+    end
+    root.paintTo = function(self, bb, x, y, ...)
+        orig_paint(self, bb, x, y, ...)
+        local ok, base = pcall(orig_size, self)
+        if ok and base then pcall(paintDots, bb, st, tap, x, y, base.h) end
+    end
 end
 
 local function patchCurrentlySwipe(M)
