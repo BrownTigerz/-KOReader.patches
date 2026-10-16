@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.7.2
+Version 2.7.4
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -51,9 +51,16 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.7.4  Shared-log rotation cap raised from 256 KB to 2 MB (identical
+         value across all 12 diagnostics per TK).
+  2.7.3  Night Mode timing fix: the toggle is now detected before the
+         repaint runs, so the logged "first redraw after Night Mode
+         toggle" is genuinely the first repaint that rendered it. Before,
+         the toggle was detected after orig_repaint had already drawn it,
+         so the logged time was actually the second repaint.
   2.7.2  Shared log contract v1: all lines now go to the shared
          koreader/diagnostics.log, tagged "[simpleui]"; rotation at
-         256 KB (older part kept as diagnostics.log.old). The old
+         2 MB (older part kept as diagnostics.log.old). The old
          per-file simpleui-diagnostics.log is no longer written.
   2.7.1  Guarded SimpleUI API reads (keepIconColorsInNight, getIcon) with
          pcall: a throw there ran inside userpatch's unguarded patchfunc
@@ -120,11 +127,11 @@ end
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
--- single chronological log. Rotation at 256 KB, older part kept as
+-- single chronological log. Rotation at 2 MB, older part kept as
 -- diagnostics.log.old.
 local DIAG_TAG = "simpleui"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
-local SHARED_MAX_BYTES = 256 * 1024
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -205,13 +212,13 @@ do
         if w then w:write(first, "\n") w:close() end
     end
     if os.difftime(os.time(), first) > EXPIRE_S then
-        write("simpleui diagnostics 2.7.2 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
+        write("simpleui diagnostics 2.7.4 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
             .. "): not watching anything. Delete this patch, or delete simpleui-diagnostics.state for 3 more days.")
         return
     end
 end
 
-write("==================== simpleui diagnostics 2.7.2 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.7.4 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
@@ -375,7 +382,6 @@ if ok_ui and type(UIManager) == "table" then
     local stats = { n = 0, total = 0, max = 0, slow = 0, taps = 0, tap_total = 0, tap_max = 0 }
     local last_summary = os.time()
     local last_night = Screen.night_mode
-    local night_changed_at
     local pending_tap
 
     -- who asks for screen updates: setDirty callers, counted per minute
@@ -446,6 +452,18 @@ if ok_ui and type(UIManager) == "table" then
             local refreshes = type(self._refresh_stack) == "table" and #self._refresh_stack or 0
             PAINT.painted = false
             PAINT.parts = {}
+            -- Check the Night Mode toggle BEFORE the repaint runs, so the
+            -- repaint timed below is the first one that rendered it (2.7.3:
+            -- the toggle was detected after orig_repaint had already drawn
+            -- it, so the logged "first redraw" was actually the second).
+            local night_toggled = Screen.night_mode ~= last_night
+            if night_toggled then
+                last_night = Screen.night_mode
+                local S = package.loaded["features/sui_style"]
+                log("Night Mode turned %s (SimpleUI 'Don't Invert Colored Icons': %s)",
+                    last_night and "ON" or "OFF",
+                    (type(S) == "table" and type(S.keepIconColorsInNight) == "function") and q(S.keepIconColorsInNight()) or "n/a")
+            end
             local t0 = now_ms()
             local res = { orig_repaint(self, ...) }
             local took = now_ms() - t0
@@ -478,16 +496,8 @@ if ok_ui and type(UIManager) == "table" then
                 if lag > stats.tap_max then stats.tap_max = lag end
                 if lag > SLOW_TAP_MS then log("slow tap response: %d ms from tap to screen", lag) end
             end
-            if Screen.night_mode ~= last_night then
-                last_night = Screen.night_mode
-                night_changed_at = now_ms()
-                local S = package.loaded["features/sui_style"]
-                log("Night Mode turned %s (SimpleUI 'Don't Invert Colored Icons': %s)",
-                    last_night and "ON" or "OFF",
-                    (type(S) == "table" and type(S.keepIconColorsInNight) == "function") and q(S.keepIconColorsInNight()) or "n/a")
-            elseif night_changed_at then
+            if night_toggled then
                 log("  first redraw after Night Mode toggle: %d ms", took)
-                night_changed_at = nil
             end
             if os.time() - last_summary >= 60 then
                 last_summary = os.time()
