@@ -13,6 +13,10 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.2  Tappable page indicator ("1/4") at top-right of Currently Reading
+         (tap = next book) — swipe was sometimes captured by the quote
+         module instead. Swipe diagnostics now log to diagnostics.log
+         ([simpleui] tag): handler fires, idx changes, refresh results.
   2.9.1  Fixed swipe getting stuck on last book: the fallback refresh now
          does a full rebuild (was repaint-only, leaving the old book visible).
   2.9.0  Currently Reading: swipe left/right to step through your most recent
@@ -90,7 +94,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.1"
+local VERSION = "2.9.2"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -876,6 +880,21 @@ local function findTappable(w, depth)
 end
 
 -- Dots in a small white pill at the bottom of the cover (no extra height).
+local function diagLog(fmt, ...)
+    -- v2.9.2: swipe diagnostics to the shared log (TK 2026-10-16: swipe
+    -- sometimes changes the quote instead of the book — gesture conflict).
+    local ok, UIManager = pcall(require, "ui/uimanager")
+    if not ok or not UIManager then return end
+    local msg = string.format(fmt, ...)
+    pcall(function()
+        local f = io.open("diagnostics.log", "a")
+        if f then
+            f:write(string.format("[simpleui] %s swipe: %s\n", os.date("%H:%M:%S"), msg))
+            f:close()
+        end
+    end)
+end
+
 local function paintDots(bb, st, tap, x, y, root)
     local n = #st.fps
     local key = st.idx .. "/" .. n
@@ -913,42 +932,104 @@ local function paintDots(bb, st, tap, x, y, root)
     tw:paintTo(bb, px + pad, py + math.floor(pad / 4))
 end
 
+local function paintPageIndicator(bb, st, root, x, y)
+    -- v2.9.2: tappable "1/4" at top-right of the module (TK's request:
+    -- swipe sometimes lands on the quote module instead).
+    local n = #st.fps
+    if n < 2 then return end
+    local key = "pi_" .. st.idx .. "/" .. n
+    local tw = st.dots[key]
+    if not tw then
+        tw = require("ui/widget/textwidget"):new{
+            text = string.format("%d/%d", st.idx, n),
+            face = require("ui/font"):getFace("cfont", 14),
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        st.dots[key] = tw
+    end
+    local sz = tw:getSize()
+    local pad = Screen:scaleBySize(6)
+    local pw, ph = sz.w + pad * 2, sz.h + pad
+    local rs = root.getSize and root:getSize() or { w = 0, h = 0 }
+    local px = x + rs.w - pw - pad
+    local py = y + pad
+    bb:paintRect(px, py, pw, ph, Blitbuffer.COLOR_WHITE)
+    bb:paintBorder(px, py, pw, ph, 1, Blitbuffer.COLOR_GRAY_9 or Blitbuffer.COLOR_DARK_GRAY)
+    tw:paintTo(bb, px + pad, py + math.floor(pad / 2))
+end
+
 local function addSwipe(root, st, ctx)
     local tap = findTappable(root, 0)
-    if not tap then return end
+    if not tap then
+        diagLog("addSwipe: no tappable widget found, swipe not registered")
+        return
+    end
+    diagLog("addSwipe: registered, %d books, idx=%d", #st.fps, st.idx)
     local GestureRange = require("ui/gesturerange")
     local BD = require("ui/bidi")
     tap.ges_events.SuiSwipeBooks = {
         GestureRange:new{ ges = "swipe", range = function() return tap.dimen end },
     }
-    tap.onSuiSwipeBooks = function(_self, _, ges)
-        local dir = ges and ges.direction
-        if BD.mirroredUILayout() then
-            if dir == "west" then dir = "east" elseif dir == "east" then dir = "west" end
-        end
-        local step = (dir == "west" and 1) or (dir == "east" and -1) or nil
-        if not step then return false end
+    -- v2.9.2: tappable page indicator at top-right (TK: swipe sometimes hits
+    -- the quote module instead — tap is unambiguous). Tap = next book.
+    tap.ges_events.SuiTapPageIndicator = {
+        GestureRange:new{
+            ges = "tap",
+            range = function()
+                local d = tap.dimen
+                if not d then return nil end
+                -- top-right 120x60 zone (generous for e-ink taps)
+                return { x = d.x + d.w - 120, y = d.y, w = 120, h = 60 }
+            end,
+        },
+    }
+    local function advance(step, via)
         local n = #st.fps
         if n < 2 then return false end
+        local old = st.idx
         st.idx = (st.idx - 1 + step) % n + 1
-        -- Clamp idx in case fps changed (book finished) between swipes.
         if st.idx < 1 then st.idx = 1 elseif st.idx > n then st.idx = n end
+        diagLog("%s: idx %d -> %d (n=%d)", via, old, st.idx, n)
         local scr = ctx._screen_widget
         if type(scr) == "table" then
             local ok, done = pcall(function()
                 return scr._refreshBookModSlot and scr:_refreshBookModSlot("currently")
             end)
+            diagLog("%s: _refreshBookModSlot ok=%s done=%s", via, tostring(ok), tostring(done))
             -- v2.9.1: fallback must do a FULL rebuild (keep_cache=false).
             -- _refreshImmediate(true) keeps the ctx cache and only repaints,
             -- leaving the old book visible ("stuck" on last book).
-            if not (ok and done) and scr._refreshImmediate then scr:_refreshImmediate(false) end
+            if not (ok and done) and scr._refreshImmediate then
+                scr:_refreshImmediate(false)
+                diagLog("%s: fallback _refreshImmediate(false) called", via)
+            end
+        else
+            diagLog("%s: no _screen_widget, no refresh", via)
         end
         return true
+    end
+    tap.onSuiSwipeBooks = function(_self, _, ges)
+        local dir = ges and ges.direction
+        diagLog("swipe detected, dir=%s", tostring(dir))
+        if BD.mirroredUILayout() then
+            if dir == "west" then dir = "east" elseif dir == "east" then dir = "west" end
+        end
+        local step = (dir == "west" and 1) or (dir == "east" and -1) or nil
+        if not step then
+            diagLog("swipe: no step for dir=%s, ignoring", tostring(dir))
+            return false
+        end
+        return advance(step, "swipe")
+    end
+    tap.onSuiTapPageIndicator = function(_self, _, ges)
+        diagLog("page indicator tapped")
+        return advance(1, "tap")
     end
     local orig_paint = root.paintTo
     root.paintTo = function(self, bb, x, y, ...)
         orig_paint(self, bb, x, y, ...)
         pcall(paintDots, bb, st, tap, x, y, self)
+        pcall(paintPageIndicator, bb, st, root, x, y)
     end
 end
 
