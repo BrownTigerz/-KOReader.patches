@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.9.9
+Version 2.9.10
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,10 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.10 Currently Reading: days read and time left now show for the books
+         you swipe to too, not just the current one (their stats id is read
+         once from the book's sidecar; SimpleUI only had it for the
+         current book).
   2.9.9  Currently Reading dots are drawn shapes now: a filled black dot for
          the book showing, black outlined circles for the others (the text
          glyph outlines were too faint to see).
@@ -121,7 +125,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.9"
+local VERSION = "2.9.10"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1016,6 +1020,32 @@ local function addSwipe(root, st, ctx)
     end
 end
 
+-- Days read / time left for a swiped-to book. The module only finds a book's
+-- stats id (partial md5) in SimpleUI's prefetch, which holds the current
+-- book; for the others it's read once from the book's sidecar and kept.
+local function bookStats(M, st, fp, ctx)
+    if type(M.fetchBookStatsForCtx) ~= "function" then return false end
+    st.md5 = st.md5 or {}
+    local md5 = st.md5[fp]
+    if md5 == nil then
+        local pd = type(ctx.prefetched) == "table" and ctx.prefetched[fp]
+        md5 = type(pd) == "table" and pd.partial_md5_checksum or nil
+        if not md5 then
+            local okd, DS = pcall(require, "docsettings")
+            local ok, ds = false, nil
+            if okd and type(DS) == "table" then ok, ds = pcall(DS.open, DS, fp) end
+            if ok and ds then
+                md5 = ds:readSetting("partial_md5_checksum")
+                pcall(function() ds:close() end)
+            end
+        end
+        st.md5[fp] = md5 or false
+    end
+    if not md5 then return false end
+    local ok, stats = pcall(M.fetchBookStatsForCtx, md5, ctx.db_conn)
+    return (ok and stats) and { fp = fp, stats = stats } or false
+end
+
 local function patchCurrentlySwipe(M)
     if type(M.build) ~= "function" or wrapped[M.build] then return end
     local orig = M.build
@@ -1044,7 +1074,8 @@ local function patchCurrentlySwipe(M)
         local use = ctx
         if st.idx > 1 then
             -- this build only: another book; reads and writes go to the real ctx
-            use = setmetatable({ current_fp = st.fps[st.idx], currently_book_stats = false },
+            local fp = st.fps[st.idx]
+            use = setmetatable({ current_fp = fp, currently_book_stats = bookStats(M, st, fp, ctx) },
                                { __index = ctx, __newindex = ctx })
         end
         local widget = orig(w, use, ...)
