@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.9.1  Fixed swipe getting stuck on last book: the fallback refresh now
+         does a full rebuild (was repaint-only, leaving the old book visible).
   2.9.0  Currently Reading: swipe left/right to step through your most recent
          books still in progress (4 by default, 2-6; finished ones skipped),
          with dots on the cover showing where you are. Tap opens the book
@@ -88,7 +90,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.0"
+local VERSION = "2.9.1"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -927,13 +929,19 @@ local function addSwipe(root, st, ctx)
         local step = (dir == "west" and 1) or (dir == "east" and -1) or nil
         if not step then return false end
         local n = #st.fps
+        if n < 2 then return false end
         st.idx = (st.idx - 1 + step) % n + 1
+        -- Clamp idx in case fps changed (book finished) between swipes.
+        if st.idx < 1 then st.idx = 1 elseif st.idx > n then st.idx = n end
         local scr = ctx._screen_widget
         if type(scr) == "table" then
             local ok, done = pcall(function()
                 return scr._refreshBookModSlot and scr:_refreshBookModSlot("currently")
             end)
-            if not (ok and done) and scr._refreshImmediate then scr:_refreshImmediate(true) end
+            -- v2.9.1: fallback must do a FULL rebuild (keep_cache=false).
+            -- _refreshImmediate(true) keeps the ctx cache and only repaints,
+            -- leaving the old book visible ("stuck" on last book).
+            if not (ok and done) and scr._refreshImmediate then scr:_refreshImmediate(false) end
         end
         return true
     end
