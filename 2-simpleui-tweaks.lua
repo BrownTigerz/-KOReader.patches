@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.2
+Version 2.11.3
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,10 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.3 TBR panel: history icon uses SimpleUI's own history.svg; swipe
+         loops through all 3 views (TBR/New/History) and never closes —
+         only tapping outside closes the panel. History view shows
+         completion status ("Completed", "X% read", "Not started").
   2.11.2 TBR panel fixes: 2 view dots (not 3, History is tap-only); history
          icon is a drawn circular arrow (tap fixed); swiping back from
          History returns to the previous view instead of closing.
@@ -143,7 +147,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.2"
+local VERSION = "2.11.3"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1648,7 +1652,9 @@ local function bookMeta(fp)
     if not title or title == "" then
         title = (fp:match("([^/]+)$") or fp):gsub("%.[^.]+$", "")
     end
-    return title, type(bd) == "table" and bd.authors or "", okb and SH or nil
+    local percent = type(bd) == "table" and bd.percent or nil
+    local status = type(bd) == "table" and bd.status or nil
+    return title, type(bd) == "table" and bd.authors or "", okb and SH or nil, percent, status
 end
 
 local tbr_panel_open = false
@@ -1745,37 +1751,21 @@ local function openTBRPanel(hs, view)
         text = title_text,
         face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
     }
-    -- History button (top-right): drawn circular arrow (history/undo symbol).
-    -- Unicode symbols don't render reliably on Kobo, so we draw it.
-    local hist_size = Screen:scaleBySize(32)
+    -- History button (top-right): SimpleUI's own history.svg icon.
+    local hist_size = Screen:scaleBySize(28)
+    local IconWidget = require("ui/widget/iconwidget")
+    local hist_icon_path = nil
+    -- SimpleUI's plugin dir: koreader/plugins/<name>.koplugin/icons/history.svg
+    if type(sui_name) == "string" and sui_name ~= "" then
+        local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
+        local lfs = require("libs/libkoreader-lfs")
+        if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
+    end
     local hist_icon = InputContainer:new{
         dimen = Geom:new{ w = hist_size, h = hist_size },
-        -- Invisible spacer gives the container a real child for layout;
-        -- the icon itself is drawn in paintTo below.
-        VerticalSpan:new{ width = hist_size },
+        hist_icon_path and IconWidget:new{ icon = hist_icon_path, width = hist_size, height = hist_size }
+            or VerticalSpan:new{ width = hist_size },  -- fallback spacer
     }
-    hist_icon.paintTo = function(self, bb, x, y)
-        local d = self.dimen
-        -- x, y are the widget's position; d.x, d.y are 0 relative to parent
-        local cx, cy = x + d.w / 2, y + d.h / 2
-        local r = math.min(d.w, d.h) / 2 - Screen:scaleBySize(4)
-        local col = Blitbuffer.COLOR_BLACK
-        -- circular arrow: arc (270 degrees) + arrowhead
-        for i = 0, 11 do
-            local a1 = (i * 2 * math.pi) / 16 + math.pi / 4
-            local a2 = ((i + 1) * 2 * math.pi) / 16 + math.pi / 4
-            local x1, y1 = cx + r * math.cos(a1), cy + r * math.sin(a1)
-            local x2, y2 = cx + r * math.cos(a2), cy + r * math.sin(a2)
-            bb:paintRect(math.min(x1, x2), math.min(y1, y2),
-                         math.abs(x2 - x1) + 2, math.abs(y2 - y1) + 2, col)
-        end
-        -- arrowhead at the end of the arc (pointing counterclockwise)
-        local ae = (12 * 2 * math.pi) / 16 + math.pi / 4
-        local ax, ay = cx + r * math.cos(ae), cy + r * math.sin(ae)
-        local s = Screen:scaleBySize(6)
-        bb:paintRect(ax - s, ay - 1, s, 3, col)
-        bb:paintRect(ax - 1, ay - s, 3, s, col)
-    end
     hist_icon.ges_events = {
         TapHist = { GestureRange:new{ ges = "tap", range = hist_icon.dimen } },
     }
@@ -1816,7 +1806,7 @@ local function openTBRPanel(hs, view)
     local SH
     for i = 1, math.min(TBR_ROWS, #list) do
         local fp = list[i]
-        local title, authors, sh_mod = bookMeta(fp)
+        local title, authors, sh_mod, percent, status = bookMeta(fp)
         SH = SH or sh_mod
         local cover = SH and SH.getBookCover and SH.getBookCover(fp, cover_w, cover_h)
         if not cover and SH and SH.coverPlaceholder then cover = SH.coverPlaceholder(title, authors, cover_w, cover_h) end
@@ -1829,6 +1819,19 @@ local function openTBRPanel(hs, view)
         if authors ~= "" then
             meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
             meta[#meta + 1] = TextWidget:new{ text = authors, face = author_face, max_width = text_w }
+        end
+        -- History view: show completion status or progress
+        if view == "history" then
+            local prog_text
+            if status == "complete" or (percent and percent >= 1) then
+                prog_text = _("Completed")
+            elseif percent and percent > 0 then
+                prog_text = string.format(_("%d%% read"), math.floor(percent * 100))
+            else
+                prog_text = _("Not started")
+            end
+            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
+            meta[#meta + 1] = TextWidget:new{ text = prog_text, face = author_face, max_width = text_w }
         end
         local row = InputContainer:new{
             dimen = Geom:new{ w = pw - pad * 2, h = cover_h },
@@ -1875,17 +1878,17 @@ local function openTBRPanel(hs, view)
         group[#group + 1] = more
     end
 
-    -- View indicators at the bottom: 2 dots for the swipeable views
-    -- (To Be Read / Newly Added). Filled dot = current view.
-    -- History is tap-only, not swipeable, so it has no dot.
+    -- View indicators at the bottom: 3 dots for the swipeable views
+    -- (To Be Read / Newly Added / History). Filled dot = current view.
     -- Same drawn-dot style as Currently Reading.
-    if view == "tbr" or view == "new" then
     do
-        local cur = (view == "new") and 2 or 1
+        local views = { "tbr", "new", "history" }
+        local cur = 1
+        for i, v in ipairs(views) do if v == view then cur = i break end end
         local dots = HorizontalGroup:new{ align = "center" }
         local dot_r = Screen:scaleBySize(4)
         local dot_gap = Screen:scaleBySize(10)
-        for i = 1, 2 do
+        for i = 1, 3 do
             local dot = InputContainer:new{
                 dimen = Geom:new{ w = dot_r * 2, h = dot_r * 2 },
             }
@@ -1911,11 +1914,10 @@ local function openTBRPanel(hs, view)
                 end
             end
             dots[#dots + 1] = dot
-            if i < 2 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
+            if i < 3 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
         end
         group[#group + 1] = VerticalSpan:new{ width = pad }
         group[#group + 1] = dots
-    end
     end
 
     local frame = FrameContainer:new{
@@ -1941,32 +1943,21 @@ local function openTBRPanel(hs, view)
     end
     function root:onSwipeClose(_, ges)
         local dir = ges and ges.direction
-        local v = tbr_panel_view
-        -- From History: swipe towards the edge goes back to the previous
-        -- view (not close). History is a detour, not a destination.
-        if v == "history" then
-            if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then
-                close()
-                tbr_panel_view = tbr_panel_prev_view
-                UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)
-            end
-            return true
-        end
-        -- Swipe towards the edge it came from: close the panel.
-        -- Swipe away from the edge: switch between To Be Read and Newly Added.
-        if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then
-            close()
-        elseif (side == "left" and dir == "east") or (side ~= "left" and dir == "west") then
-            if v == "tbr" then
-                close()
-                tbr_panel_view = "new"
-                UIManager:nextTick(function() openTBRPanel(hs, "new") end)
-            elseif v == "new" then
-                close()
-                tbr_panel_view = "tbr"
-                UIManager:nextTick(function() openTBRPanel(hs, "tbr") end)
-            end
-        end
+        if dir ~= "west" and dir ~= "east" then return true end
+        -- Swipe cycles through all 3 views in order. Never closes on swipe;
+        -- only tapping outside the panel closes it.
+        local order = { "tbr", "new", "history" }
+        local idx = 1
+        for i, v in ipairs(order) do if v == tbr_panel_view then idx = i break end end
+        -- swipe west (left) = next, swipe east (right) = previous
+        local step = (dir == "west") and 1 or -1
+        local next_idx = ((idx - 1 + step) % 3) + 1
+        local next_view = order[next_idx]
+        -- remember where we came from for the history toggle
+        if tbr_panel_view ~= "history" then tbr_panel_prev_view = tbr_panel_view end
+        close()
+        tbr_panel_view = next_view
+        UIManager:nextTick(function() openTBRPanel(hs, next_view) end)
         return true
     end
     tbr_panel_open = true
