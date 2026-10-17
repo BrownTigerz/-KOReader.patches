@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.9 (2026-10-16)
+2-backup-patches.lua                                     2.2.10 (2026-10-16)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.10  2026-10-16
+    - Login stripping now also covers backup.koplugin's new cloud
+      credential files (settings/backup_cloud_creds.lua and
+      settings/backup_cloud_tokens.lua), so WebDAV/FTP/SFTP passwords
+      and OAuth tokens don't leak into backups.
   2.2.9  2026-10-16
     - Tapping a status row now pops up its actions: Update / Reinstall /
       Install depending on state, plus Remove for any installed patch
@@ -168,7 +173,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.9"
+local VERSION = "2.2.10"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -2053,6 +2058,8 @@ Backup.addSecrets{
         "shelfsync_storygraph_login.lua",
         "goodreadskosync_keyring.lua",     -- tweaks: key for the above
         "shelfsync_keyring.lua",           -- ShelfSync: key for its passwords
+        "backup_cloud_creds.lua",          -- backup.koplugin: WebDAV/FTP/SFTP passwords
+        "backup_cloud_tokens.lua",         -- backup.koplugin: OAuth tokens (GDrive/OneDrive/Dropbox)
     },
     folders = { "goodreadskosync" },       -- tweaks: Goodreads session
     keys = {
