@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.7.5
+Version 2.7.7
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -51,6 +51,14 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.7.7  New Books check also runs on the SimpleUI 2.7.5 release (once at
+         start): its library scan's newest books and the newest files on
+         disk, with the reason any are left out.
+  2.7.6  New Books: logs SimpleUI's newly-added list whenever it changes,
+         the newest books its library scan sees, and once per start the
+         newest files on disk with the reason SimpleUI leaves any out
+         (file type, hidden folder, too deep, scan cap). Books dropped as
+         finished are logged too.
   2.7.5  SimpleUI Tweaks' Currently Reading swipe logs through this
          diagnostic ("swipe:" lines), only while it's logging.
   2.7.4  Shared-log rotation cap raised from 256 KB to 2 MB (identical
@@ -224,7 +232,7 @@ end
 -- through this, so their lines follow this diagnostic's window and expiry.
 package.loaded["simpleui_diagnostics"] = { log = log }
 
-write("==================== simpleui diagnostics 2.7.5 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.7.7 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
@@ -1115,4 +1123,146 @@ if ok_ui and type(UIManager) == "table" and type(UIManager._refresh) == "functio
         for i = 1, math.min(6, #list) do bits[#bits + 1] = list[i][2] .. " x " .. list[i][1] end
         if #bits > 0 then log("  white flashes: %s", table.concat(bits, "; ")) end
     end
+end
+
+-- --------------------------------------------------------------------------
+-- 8. New Books: why a newly added book does (or doesn't) show
+--    What SimpleUI's "new_books" list returns (logged when it changes), the
+--    newest books its library scan sees, and, once per start, the newest
+--    files actually on disk under the home folder with the reason SimpleUI
+--    leaves any of them out (file type, hidden folder, too deep, scan cap).
+--    Plus each book the list drops as finished.
+-- --------------------------------------------------------------------------
+do
+    local function day(t) return t and os.date("%Y-%m-%d %I:%M %p", t) or "?" end
+    local function base(fp) return tostring(fp):match("([^/]+)$") or tostring(fp) end
+
+    -- Independent walk: every file, hidden folders included, deeper than
+    -- SimpleUI goes. Notes why SimpleUI's own scan would skip each one.
+    local SIMPLEUI_EXTS = { epub = true, mobi = true, azw3 = true, azw = true, kfx = true,
+        pdf = true, djvu = true, fb2 = true, cbz = true, cbr = true,
+        doc = true, docx = true, rtf = true, txt = true }
+    local NOT_BOOKS = { sdr = true, lua = true, json = true, jpg = true, jpeg = true, png = true,
+        db = true, log = true, opf = true, calibre = true, old = true, xml = true, ini = true }
+    local function diskNewest(home)
+        local out, count = {}, 0
+        local function walk(dir, depth, hidden)
+            if depth > 12 or count > 40000 then return end
+            local ok, iter, obj = pcall(lfs.dir, dir)
+            if not ok or type(iter) ~= "function" then return end
+            for e in iter, obj do
+                count = count + 1
+                if e ~= "." and e ~= ".." then
+                    local fp = dir .. "/" .. e
+                    local a = lfs.attributes(fp)
+                    if a and a.mode == "directory" then
+                        if e:sub(-4) ~= ".sdr" then walk(fp, depth + 1, hidden or e:sub(1, 1) == ".") end
+                    elseif a and a.mode == "file" then
+                        local ext = (e:match("%.([^%.]+)$") or ""):lower()
+                        if not NOT_BOOKS[ext] and e:sub(1, 1) ~= "." then
+                            local why
+                            if not SIMPLEUI_EXTS[ext] then why = "file type ." .. ext .. " not in SimpleUI's list"
+                            elseif hidden then why = "inside a hidden folder (name starts with .)"
+                            elseif depth > 8 then why = "folder too deep (SimpleUI goes 8 levels)" end
+                            out[#out + 1] = { fp = fp, mtime = a.modification or 0, why = why }
+                        end
+                    end
+                end
+            end
+        end
+        walk(home, 0, false)
+        table.sort(out, function(x, y) return x.mtime > y.mtime end)
+        return out, count
+    end
+
+    local disk_done = false
+    local function reportScan()
+        local okl, LS = pcall(require, "engines/sui_library_scan")
+        if okl and type(LS) == "table" and type(LS.getRaw) == "function" then
+            local okh, home = pcall(LS.resolveHomeDir)
+            local okr, raw = pcall(LS.getRaw, okh and home or nil)
+            if okr and type(raw) == "table" then
+                table.sort(raw, function(x, y) return (x.mtime or 0) > (y.mtime or 0) end)
+                local top = {}
+                for i = 1, math.min(5, #raw) do
+                    top[#top + 1] = string.format("%s (%s)", base(raw[i].fp), day(raw[i].mtime))
+                end
+                log("new books: SimpleUI's scan of %s sees %d books; newest: %s",
+                    tostring(home), #raw, table.concat(top, " | "))
+            end
+            if not disk_done then
+                disk_done = true
+                local t1 = now_ms()
+                local files, n = diskNewest(home)
+                local seen = {}
+                if okr and type(raw) == "table" then for _i, r in ipairs(raw) do seen[r.fp] = true end end
+                log("new books: newest files on disk under %s (%d entries walked, %d ms):",
+                    tostring(home), n, now_ms() - t1)
+                for i = 1, math.min(8, #files) do
+                    local f = files[i]
+                    local status = f.why and ("SKIPPED: " .. f.why)
+                        or (seen[f.fp] and "in SimpleUI's scan")
+                        or "NOT in SimpleUI's scan (scan cap of 20000 entries reached, or scan not refreshed yet)"
+                    log("  %d. %s (%s) - %s", i, f.fp, day(f.mtime), status)
+                end
+            end
+        end
+    end
+
+    local function hookSources()
+        local okS, Sources = pcall(require, "engines/sui_book_sources")
+        if not okS or type(Sources) ~= "table" or type(Sources.get) ~= "function" then
+            log("new books: SimpleUI without book sources (2.7.5 release): checking its library scan once")
+            pcall(reportScan)
+            return
+        end
+        local okg, src = pcall(Sources.get, "new_books")
+        if not okg or type(src) ~= "table" or type(src.getFileList) ~= "function" then
+            log("new books: no \"new_books\" source in SimpleUI")
+            return
+        end
+        if src._sui_diag then return end
+        src._sui_diag = true
+        local last_list, dropped = nil, {}
+
+        local orig_list = src.getFileList
+        src.getFileList = function(...)
+            local t0 = now_ms()
+            local res = { orig_list(...) }
+            if not on() then return unpack(res) end
+            local list = res[1]
+            local key = type(list) == "table" and table.concat(list, "\n") or tostring(list)
+            if key ~= last_list then
+                last_list = key
+                local names = {}
+                for i = 1, math.min(8, type(list) == "table" and #list or 0) do
+                    local m = lfs.attributes(list[i], "modification")
+                    names[#names + 1] = string.format("%d. %s (%s)", i, base(list[i]), day(m))
+                end
+                log("new books: list changed (%d candidates, %d ms): %s",
+                    type(list) == "table" and #list or 0, now_ms() - t0,
+                    #names > 0 and table.concat(names, " | ") or "(empty)")
+                reportScan()
+            end
+            return unpack(res)
+        end
+
+        if type(src.filterItem) == "function" then
+            local orig_filter = src.filterItem
+            src.filterItem = function(fp, ...)
+                local keep = orig_filter(fp, ...)
+                if not keep and on() and not dropped[fp] then
+                    dropped[fp] = true
+                    log("new books: left out as finished: %s", base(fp))
+                end
+                return keep
+            end
+        end
+        log("new books: watching SimpleUI's \"new_books\" list")
+    end
+
+    userpatch.registerPatchPluginFunc("simpleui", function()
+        local ok, err = pcall(hookSources)
+        if not ok then log("new books: couldn't hook (%s)", tostring(err)) end
+    end)
 end
