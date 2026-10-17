@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.6
+Version 2.11.7
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.7 TBR panel: back.svg wouldn't load on-device, so the History
+         view's back icon is now a drawn chevron (reliable on Kobo).
   2.11.6 TBR panel: header icon uses SimpleUI's own path resolver
          (infra/sui_paths) for the absolute plugin dir — the relative
          plugins/... path failed on Kobo where CWD isn't the app dir.
@@ -156,7 +158,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.6"
+local VERSION = "2.11.7"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1762,33 +1764,70 @@ local function openTBRPanel(hs, view)
     }
     -- Header icon (top-right): context-aware.
     -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
-    -- In History view: SimpleUI's back.svg → tap goes back to previous view.
+    -- In History view: drawn back chevron → tap goes back to previous view.
+    -- (back.svg doesn't load reliably on-device, so we draw the chevron.)
     local hist_size = Screen:scaleBySize(28)
     local IconWidget = require("ui/widget/iconwidget")
-    local icon_name = (view == "history") and "back.svg" or "history.svg"
+    local is_history_view = (view == "history")
     local hist_icon_path = nil
-    -- Use SimpleUI's own path resolver for the absolute plugin directory.
-    -- Relative "plugins/..." paths fail when KOReader's CWD isn't the app dir.
-    local okp, SuiPaths = pcall(require, "infra/sui_paths")
-    if okp and type(SuiPaths) == "table" and type(SuiPaths.getPluginDir) == "function" then
-        local okd, pdir = pcall(SuiPaths.getPluginDir)
-        if okd and type(pdir) == "string" and pdir ~= "" then
-            local p = pdir .. "icons/" .. icon_name
+    if not is_history_view then
+        -- Use SimpleUI's own path resolver for the absolute plugin directory.
+        -- Relative "plugins/..." paths fail when KOReader's CWD isn't the app dir.
+        local okp, SuiPaths = pcall(require, "infra/sui_paths")
+        if okp and type(SuiPaths) == "table" and type(SuiPaths.getPluginDir) == "function" then
+            local okd, pdir = pcall(SuiPaths.getPluginDir)
+            if okd and type(pdir) == "string" and pdir ~= "" then
+                local p = pdir .. "icons/history.svg"
+                local lfs = require("libs/libkoreader-lfs")
+                if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
+            end
+        end
+        -- Fallback: relative path (works when CWD is the KOReader dir)
+        if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
+            local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
             local lfs = require("libs/libkoreader-lfs")
             if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
         end
     end
-    -- Fallback: relative path (works when CWD is the KOReader dir)
-    if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
-        local p = "plugins/" .. sui_name .. ".koplugin/icons/" .. icon_name
-        local lfs = require("libs/libkoreader-lfs")
-        if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
-    end
     local hist_icon = InputContainer:new{
         dimen = Geom:new{ w = hist_size, h = hist_size },
-        hist_icon_path and IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
-            or VerticalSpan:new{ width = hist_size },  -- fallback spacer
+        (not is_history_view and hist_icon_path)
+            and IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
+            or VerticalSpan:new{ width = hist_size },  -- spacer; back chevron drawn in paintTo
     }
+    -- Drawn back chevron for History view (simple, reliable on Kobo)
+    if is_history_view then
+        hist_icon.paintTo = function(self, bb, x, y)
+            local d = self.dimen
+            local col = Blitbuffer.COLOR_BLACK
+            local t = Screen:scaleBySize(3)  -- line thickness
+            local m = Screen:scaleBySize(7)  -- margin
+            -- left-pointing chevron: two diagonal lines meeting at left center
+            local cx, cy = x + d.w / 2, y + d.h / 2
+            local w, h = d.w / 2 - m, d.h / 2 - m
+            -- upper diagonal: from center-left to top-right
+            local x1, y1 = cx - w, cy
+            local x2, y2 = cx + w, cy - h
+            local dx, dy = x2 - x1, y2 - y1
+            local len = math.sqrt(dx * dx + dy * dy)
+            local steps = math.floor(len)
+            for s = 0, steps do
+                local px = x1 + (dx * s) / steps
+                local py = y1 + (dy * s) / steps
+                bb:paintRect(px - t / 2, py - t / 2, t, t, col)
+            end
+            -- lower diagonal: from center-left to bottom-right
+            x2, y2 = cx + w, cy + h
+            dx, dy = x2 - x1, y2 - y1
+            len = math.sqrt(dx * dx + dy * dy)
+            steps = math.floor(len)
+            for s = 0, steps do
+                local px = x1 + (dx * s) / steps
+                local py = y1 + (dy * s) / steps
+                bb:paintRect(px - t / 2, py - t / 2, t, t, col)
+            end
+        end
+    end
     hist_icon.ges_events = {
         TapHist = { GestureRange:new{ ges = "tap", range = hist_icon.dimen } },
     }
