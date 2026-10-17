@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.5
+Version 2.11.6
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.6 TBR panel: header icon uses SimpleUI's own path resolver
+         (infra/sui_paths) for the absolute plugin dir — the relative
+         plugins/... path failed on Kobo where CWD isn't the app dir.
   2.11.5 TBR panel: header icon is context-aware — history icon in
          TBR/New views, back icon in History view (tap returns to
          previous view).
@@ -153,7 +156,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.5"
+local VERSION = "2.11.6"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1764,8 +1767,19 @@ local function openTBRPanel(hs, view)
     local IconWidget = require("ui/widget/iconwidget")
     local icon_name = (view == "history") and "back.svg" or "history.svg"
     local hist_icon_path = nil
-    -- SimpleUI's plugin dir: koreader/plugins/<name>.koplugin/icons/<icon>
-    if type(sui_name) == "string" and sui_name ~= "" then
+    -- Use SimpleUI's own path resolver for the absolute plugin directory.
+    -- Relative "plugins/..." paths fail when KOReader's CWD isn't the app dir.
+    local okp, SuiPaths = pcall(require, "infra/sui_paths")
+    if okp and type(SuiPaths) == "table" and type(SuiPaths.getPluginDir) == "function" then
+        local okd, pdir = pcall(SuiPaths.getPluginDir)
+        if okd and type(pdir) == "string" and pdir ~= "" then
+            local p = pdir .. "icons/" .. icon_name
+            local lfs = require("libs/libkoreader-lfs")
+            if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
+        end
+    end
+    -- Fallback: relative path (works when CWD is the KOReader dir)
+    if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
         local p = "plugins/" .. sui_name .. ".koplugin/icons/" .. icon_name
         local lfs = require("libs/libkoreader-lfs")
         if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
