@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.3
+Version 2.11.4
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.4 TBR panel: history icon fixed (was passing path as icon name,
+         now uses file=); 2 dots for swipe views (TBR/New), History is
+         tap-only via the icon again.
   2.11.3 TBR panel: history icon uses SimpleUI's own history.svg; swipe
          loops through all 3 views (TBR/New/History) and never closes —
          only tapping outside closes the panel. History view shows
@@ -147,7 +150,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.3"
+local VERSION = "2.11.4"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1763,7 +1766,7 @@ local function openTBRPanel(hs, view)
     end
     local hist_icon = InputContainer:new{
         dimen = Geom:new{ w = hist_size, h = hist_size },
-        hist_icon_path and IconWidget:new{ icon = hist_icon_path, width = hist_size, height = hist_size }
+        hist_icon_path and IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
             or VerticalSpan:new{ width = hist_size },  -- fallback spacer
     }
     hist_icon.ges_events = {
@@ -1878,17 +1881,17 @@ local function openTBRPanel(hs, view)
         group[#group + 1] = more
     end
 
-    -- View indicators at the bottom: 3 dots for the swipeable views
-    -- (To Be Read / Newly Added / History). Filled dot = current view.
+    -- View indicators at the bottom: 2 dots for the swipeable views
+    -- (To Be Read / Newly Added). Filled dot = current view.
+    -- History is tap-only via the icon, not swipeable.
     -- Same drawn-dot style as Currently Reading.
+    if view == "tbr" or view == "new" then
     do
-        local views = { "tbr", "new", "history" }
-        local cur = 1
-        for i, v in ipairs(views) do if v == view then cur = i break end end
+        local cur = (view == "new") and 2 or 1
         local dots = HorizontalGroup:new{ align = "center" }
         local dot_r = Screen:scaleBySize(4)
         local dot_gap = Screen:scaleBySize(10)
-        for i = 1, 3 do
+        for i = 1, 2 do
             local dot = InputContainer:new{
                 dimen = Geom:new{ w = dot_r * 2, h = dot_r * 2 },
             }
@@ -1914,10 +1917,11 @@ local function openTBRPanel(hs, view)
                 end
             end
             dots[#dots + 1] = dot
-            if i < 3 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
+            if i < 2 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
         end
         group[#group + 1] = VerticalSpan:new{ width = pad }
         group[#group + 1] = dots
+    end
     end
 
     local frame = FrameContainer:new{
@@ -1944,17 +1948,12 @@ local function openTBRPanel(hs, view)
     function root:onSwipeClose(_, ges)
         local dir = ges and ges.direction
         if dir ~= "west" and dir ~= "east" then return true end
-        -- Swipe cycles through all 3 views in order. Never closes on swipe;
+        -- Swipe cycles between the 2 swipeable views (TBR / New).
+        -- History is tap-only via the icon. Never closes on swipe;
         -- only tapping outside the panel closes it.
-        local order = { "tbr", "new", "history" }
-        local idx = 1
-        for i, v in ipairs(order) do if v == tbr_panel_view then idx = i break end end
-        -- swipe west (left) = next, swipe east (right) = previous
-        local step = (dir == "west") and 1 or -1
-        local next_idx = ((idx - 1 + step) % 3) + 1
-        local next_view = order[next_idx]
-        -- remember where we came from for the history toggle
-        if tbr_panel_view ~= "history" then tbr_panel_prev_view = tbr_panel_view end
+        local v = tbr_panel_view
+        if v == "history" then return true end  -- no swipe in History view
+        local next_view = (v == "tbr") and "new" or "tbr"
         close()
         tbr_panel_view = next_view
         UIManager:nextTick(function() openTBRPanel(hs, next_view) end)
