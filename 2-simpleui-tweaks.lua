@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.10
+Version 2.11.14
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,23 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.14 TBR panel: switching views rebuilds the panel in place instead of
+         closing and reopening it, so the home screen behind isn't redrawn
+         each time (about 60 ms less per switch).
+  2.11.13 TBR panel: back from History works again (2.11.12's faster view
+         switch overwrote where back should go, so it stayed on History).
+  2.11.12 TBR panel: switching views (swipe, history icon) is about 4x
+         faster: a quick refresh of the panel instead of a full flash, and
+         the home behind isn't flashed in between. Opening and closing the
+         panel still do one full flash, which also clears any faint ghost
+         left by switching.
+  2.11.11 New Books on SimpleUI 2.7.5 (no book sources there, which 2.11.10
+         relied on): the side panel's Newly Added view was always empty,
+         and the home New Books module used SimpleUI's own folder walk
+         (every 5 minutes, stops after 5000 entries, so a new book on a
+         bigger library could be missed). Both now rank the newest files
+         from SimpleUI's shared library scan, the one that notices a new
+         book straight away, recomputed only when it re-walks.
   2.11.10 New Books (home module and the side panel's Newly Added): a book
          you add (e.g. from Calibre) shows up right away instead of after
          up to 5 minutes. SimpleUI's library scan already spots new books
@@ -170,7 +187,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.10"
+local VERSION = "2.11.14"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1135,6 +1152,8 @@ local function patchCurrentlySwipe(M)
     wrapped[M.build] = true
 end
 
+local patchNewBooksModule   -- New Books (SimpleUI 2.7.5): defined below
+
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
     local file_id = name:match("module_(.+)$")
@@ -1153,6 +1172,7 @@ local function patchModule(name, M)
     end
     if file_id == "quote" then quietQuoteBuild(M) end
     if file_id == "currently" then patchCurrentlySwipe(M) end
+    if file_id == "new_books" and orig then pcall(patchNewBooksModule, orig) end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
@@ -1457,6 +1477,52 @@ local function patchBookSources(Sources)
     return true
 end
 
+-- SimpleUI 2.7.5 (release) has no book sources: its New Books module walks
+-- the home folder itself, only every 5 minutes, and stops after 5000
+-- entries (book sidecar folders and their files included), so on a bigger
+-- library a new book can be missed for good. This ranking uses SimpleUI's
+-- shared library scan instead (8 levels, 20000 entries, sidecars skipped,
+-- re-walks as soon as a folder changes): newest files by date, recomputed
+-- only when that scan re-walked. Used by the New Books module and the side
+-- panel's Newly Added view.
+local NEW_BOOKS_MAX = 15
+local nb_entry, nb_list
+local function newestBooks()
+    local okl, LS = pcall(require, "engines/sui_library_scan")
+    if not okl or type(LS) ~= "table" or type(LS.getRaw) ~= "function" then return nil end
+    local okh, home = pcall(LS.resolveHomeDir)
+    if not okh or not home or home == "" then return {} end
+    local getEntry = findUpvalue(LS.getRaw, "getEntry")
+    local entry
+    if type(getEntry) == "function" then
+        local oke, e = pcall(getEntry, home)
+        if oke then entry = e end
+    end
+    if entry ~= nil and entry == nb_entry and nb_list then return nb_list end
+    local okr, raw = pcall(LS.getRaw, home)
+    if not okr or type(raw) ~= "table" then return nil end
+    table.sort(raw, function(a, b)
+        if (a.mtime or 0) ~= (b.mtime or 0) then return (a.mtime or 0) > (b.mtime or 0) end
+        return tostring(a.fp) < tostring(b.fp)
+    end)
+    local fps = {}
+    for i = 1, math.min(NEW_BOOKS_MAX, #raw) do fps[i] = raw[i].fp end
+    nb_entry, nb_list = entry, fps
+    return fps
+end
+
+-- New Books module (2.7.5): swap its own folder walk for newestBooks().
+patchNewBooksModule = function(build)
+    local spec = findUpvalue(build, "spec")
+    if type(spec) ~= "table" or type(spec.getFileList) ~= "function" or ours[spec.getFileList] then return end
+    local orig = spec.getFileList
+    spec.getFileList = mine(function(...)
+        local ok, fps = pcall(newestBooks)
+        if ok and type(fps) == "table" then return fps end
+        return orig(...)   -- library scan missing: SimpleUI's own walk
+    end)
+end
+
 local function patcherFor(name)
     if name == "engines/sui_book_sources" then return patchBookSources end
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
@@ -1685,7 +1751,10 @@ local function newBooksList()
             if ok and type(list) == "table" then return list end
         end
     end
-    return {}
+    -- SimpleUI without book sources (2.7.5 release): same ranking as its
+    -- New Books module gets from this patch
+    local ok, fps = pcall(newestBooks)
+    return (ok and type(fps) == "table") and fps or {}
 end
 
 local function historyList()
@@ -1722,19 +1791,25 @@ local tbr_panel_open = false
 local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
 local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
 
-local function openTBRPanel(hs, view)
-    if tbr_panel_open then return end
+-- reuse: the open panel, to rebuild in place (view switch): no close, no
+-- repaint of the home behind it, just this panel's area refreshed.
+local function openTBRPanel(hs, view, switching, reuse)
+    if tbr_panel_open and not reuse then return end
     -- Apply the configured default view on every open, unless set to "last"
     -- (which keeps wherever you left off).
     local dv = cfg.tbr_panel_view
-    if dv == "last" then
+    if switching then
+        -- switching views inside an open panel: keep the view asked for
+    elseif dv == "last" then
         -- keep tbr_panel_view as-is (where you left off)
     elseif dv == "new" or dv == "history" then
         tbr_panel_view = dv
     else
         tbr_panel_view = "tbr"
     end
-    tbr_panel_prev_view = tbr_panel_view
+    -- a view switch has already set where "back" goes (history icon);
+    -- overwriting it here made back from History land on History again
+    if not switching then tbr_panel_prev_view = tbr_panel_view end
     tbr_panel_view = view or tbr_panel_view or "tbr"
     local side = cfg.tbr_panel
     local UIManager       = require("ui/uimanager")
@@ -1775,13 +1850,25 @@ local function openTBRPanel(hs, view)
     end
     local changed = false
 
-    local root = InputContainer:new{
-        dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
-        modal = true,
-        name = "sui_tbr_panel",
-    }
-    local function close()
+    local root
+    if reuse then
+        root = reuse
+        for k = #root, 1, -1 do root[k] = nil end
+    else
+        root = InputContainer:new{
+            dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
+            modal = true,
+            name = "sui_tbr_panel",
+        }
+    end
+    -- close(true): only to reopen in another view right away. No refresh
+    -- here: the new view's own refresh covers the same area.
+    local function close(for_switch)
         tbr_panel_open = false
+        if for_switch then
+            UIManager:close(root)
+            return
+        end
         UIManager:close(root, "full", panel_dimen)
         if changed and hs and type(hs._refreshImmediate) == "function" then
             pcall(hs._refreshImmediate, hs, false)   -- the home's TBR module catches up
@@ -1868,7 +1955,6 @@ local function openTBRPanel(hs, view)
     }
     function hist_icon:onTapHist()
         local v = tbr_panel_view
-        close()
         if v == "history" then
             -- back to the view we came from
             tbr_panel_view = tbr_panel_prev_view
@@ -1877,7 +1963,7 @@ local function openTBRPanel(hs, view)
             tbr_panel_prev_view = v
             tbr_panel_view = "history"
         end
-        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)
+        openTBRPanel(hs, tbr_panel_view, true, root)
         return true
     end
     local header = HorizontalGroup:new{ align = "center" }
@@ -1951,7 +2037,7 @@ local function openTBRPanel(hs, view)
                         tbrRemove(fp)
                         changed = true
                         close()
-                        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)   -- reopen with the new list
+                        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view, true) end)   -- reopen with the new list, same view
                     end }},
                     {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
                 },
@@ -2048,16 +2134,22 @@ local function openTBRPanel(hs, view)
         local v = tbr_panel_view
         if v == "history" then return true end  -- no swipe in History view
         local next_view = (v == "tbr") and "new" or "tbr"
-        close()
         tbr_panel_view = next_view
-        UIManager:nextTick(function() openTBRPanel(hs, next_view) end)
+        openTBRPanel(hs, next_view, true, root)
         return true
     end
     tbr_panel_open = true
     -- "full" (one flash of just the panel area) on open and close: a plain
     -- "ui" refresh left ghosts of the covers/home behind. "full" also isn't
     -- downgraded by "Avoid mandatory black flashes in UI".
-    UIManager:show(root, "full", panel_dimen)
+    -- Switching views inside the open panel uses a quick "ui" refresh
+    -- (~0.15 s instead of ~0.6 s); any faint ghost from it is cleared by
+    -- the full flash when the panel closes.
+    if reuse then
+        UIManager:setDirty(root, function() return "ui", panel_dimen end)
+    else
+        UIManager:show(root, switching and "ui" or "full", panel_dimen)
+    end
 end
 
 hookHomeEdgeSwipe = function(hs)
