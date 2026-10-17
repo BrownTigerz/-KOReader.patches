@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.9
+Version 2.11.10
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.10 New Books (home module and the side panel's Newly Added): a book
+         you add (e.g. from Calibre) shows up right away instead of after
+         up to 5 minutes. SimpleUI's library scan already spots new books
+         by checking folder dates (like Bookshelf's Latest); its newest-
+         books ranking just waited on its own 5-minute timer. Now it's
+         redone whenever the scan sees a change, reused otherwise.
   2.11.9 TBR panel: "Panel Opens To" now applies on every open (was only
          the first); added 4th option "Last View" to reopen wherever
          you left off.
@@ -164,7 +170,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.9"
+local VERSION = "2.11.10"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1415,7 +1421,44 @@ local MAX_ATTEMPTS = 3
 
 local patchBookshelfPark   -- Bookshelf: Close Bookshelf -> SimpleUI home (defined below)
 
+-- ---- New Books: show a newly added book right away -----------------------------------
+-- SimpleUI ranks "newest files" (New Books module, the side panel's Newly
+-- Added view) at most every 5 minutes, even though its library scan already
+-- notices a new or removed book straight away (it re-stats the library's
+-- folders, the way Bookshelf's "Latest" does). So a book sent from Calibre
+-- didn't show up for up to 5 minutes. Now the ranking is redone whenever that
+-- scan has re-walked the library, and reused otherwise (no extra disk work).
+local function patchBookSources(Sources)
+    if type(Sources) ~= "table" or type(Sources.get) ~= "function" then return false end
+    local ok, src = pcall(Sources.get, "new_books")
+    if not ok or type(src) ~= "table" or type(src.getFileList) ~= "function" then return false end
+    if ours[src.getFileList] then return true end
+    local okl, LS = pcall(require, "engines/sui_library_scan")
+    local getEntry = okl and type(LS) == "table" and findUpvalue(LS.getRaw, "getEntry")
+    if type(getEntry) ~= "function" or type(LS.resolveHomeDir) ~= "function"
+            or type(src.invalidate) ~= "function" then
+        logger.warn(TAG, "new books: SimpleUI's library scan changed, left as is")
+        return true
+    end
+    local orig, last = src.getFileList, nil
+    src.getFileList = mine(function(...)
+        -- same cheap folder check SimpleUI's scan does anyway; a new entry
+        -- table means it re-walked the library (something was added/removed)
+        local okh, home = pcall(LS.resolveHomeDir)
+        if okh and home and home ~= "" then
+            local oke, entry = pcall(getEntry, home)
+            if oke and entry ~= nil and entry ~= last then
+                last = entry
+                pcall(src.invalidate)
+            end
+        end
+        return orig(...)
+    end)
+    return true
+end
+
 local function patcherFor(name)
+    if name == "engines/sui_book_sources" then return patchBookSources end
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
     if name == "engines/sui_screen_engine" then return patchEngine end
