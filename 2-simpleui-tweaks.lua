@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.7
+Version 2.11.8
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.8 TBR panel: fixed tap-to-go-back in History view (custom paintTo
+         was breaking gestures); back icon is now simple "<" text.
+         New setting: Panel Opens To (To Be Read / Newly Added / History).
   2.11.7 TBR panel: back.svg wouldn't load on-device, so the History
          view's back icon is now a drawn chevron (reliable on Kobo).
   2.11.6 TBR panel: header icon uses SimpleUI's own path resolver
@@ -158,7 +161,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.7"
+local VERSION = "2.11.8"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -196,6 +199,7 @@ local DEFAULTS = {
     currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
     currently_books  = 4,           --   how many (current book included), 2-6
     tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
+    tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "new" / "history"
 }
 
 local userpatch  = require("userpatch")
@@ -1671,9 +1675,17 @@ end
 local tbr_panel_open = false
 local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
 local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
+local tbr_panel_view_initialized = false
 
 local function openTBRPanel(hs, view)
     if tbr_panel_open then return end
+    -- First open: use the configured default view
+    if not tbr_panel_view_initialized then
+        local dv = cfg.tbr_panel_view
+        if dv == "new" or dv == "history" then tbr_panel_view = dv else tbr_panel_view = "tbr" end
+        tbr_panel_prev_view = tbr_panel_view
+        tbr_panel_view_initialized = true
+    end
     tbr_panel_view = view or tbr_panel_view or "tbr"
     local side = cfg.tbr_panel
     local UIManager       = require("ui/uimanager")
@@ -1764,15 +1776,14 @@ local function openTBRPanel(hs, view)
     }
     -- Header icon (top-right): context-aware.
     -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
-    -- In History view: drawn back chevron → tap goes back to previous view.
-    -- (back.svg doesn't load reliably on-device, so we draw the chevron.)
+    -- In History view: "<" text → tap goes back to previous view.
+    -- (back.svg doesn't load reliably on-device; text always renders.)
     local hist_size = Screen:scaleBySize(28)
     local IconWidget = require("ui/widget/iconwidget")
     local is_history_view = (view == "history")
     local hist_icon_path = nil
     if not is_history_view then
         -- Use SimpleUI's own path resolver for the absolute plugin directory.
-        -- Relative "plugins/..." paths fail when KOReader's CWD isn't the app dir.
         local okp, SuiPaths = pcall(require, "infra/sui_paths")
         if okp and type(SuiPaths) == "table" and type(SuiPaths.getPluginDir) == "function" then
             local okd, pdir = pcall(SuiPaths.getPluginDir)
@@ -1782,52 +1793,27 @@ local function openTBRPanel(hs, view)
                 if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
             end
         end
-        -- Fallback: relative path (works when CWD is the KOReader dir)
         if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
             local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
             local lfs = require("libs/libkoreader-lfs")
             if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
         end
     end
+    local hist_icon_child
+    if not is_history_view and hist_icon_path then
+        hist_icon_child = IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
+    elseif is_history_view then
+        -- Simple text back arrow; always renders on Kobo
+        hist_icon_child = TextWidget:new{
+            text = "<", face = Font:getFace("tfont", 24), bold = true,
+        }
+    else
+        hist_icon_child = VerticalSpan:new{ width = hist_size }
+    end
     local hist_icon = InputContainer:new{
         dimen = Geom:new{ w = hist_size, h = hist_size },
-        (not is_history_view and hist_icon_path)
-            and IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
-            or VerticalSpan:new{ width = hist_size },  -- spacer; back chevron drawn in paintTo
+        hist_icon_child,
     }
-    -- Drawn back chevron for History view (simple, reliable on Kobo)
-    if is_history_view then
-        hist_icon.paintTo = function(self, bb, x, y)
-            local d = self.dimen
-            local col = Blitbuffer.COLOR_BLACK
-            local t = Screen:scaleBySize(3)  -- line thickness
-            local m = Screen:scaleBySize(7)  -- margin
-            -- left-pointing chevron: two diagonal lines meeting at left center
-            local cx, cy = x + d.w / 2, y + d.h / 2
-            local w, h = d.w / 2 - m, d.h / 2 - m
-            -- upper diagonal: from center-left to top-right
-            local x1, y1 = cx - w, cy
-            local x2, y2 = cx + w, cy - h
-            local dx, dy = x2 - x1, y2 - y1
-            local len = math.sqrt(dx * dx + dy * dy)
-            local steps = math.floor(len)
-            for s = 0, steps do
-                local px = x1 + (dx * s) / steps
-                local py = y1 + (dy * s) / steps
-                bb:paintRect(px - t / 2, py - t / 2, t, t, col)
-            end
-            -- lower diagonal: from center-left to bottom-right
-            x2, y2 = cx + w, cy + h
-            dx, dy = x2 - x1, y2 - y1
-            len = math.sqrt(dx * dx + dy * dy)
-            steps = math.floor(len)
-            for s = 0, steps do
-                local px = x1 + (dx * s) / steps
-                local py = y1 + (dy * s) / steps
-                bb:paintRect(px - t / 2, py - t / 2, t, t, col)
-            end
-        end
-    end
     hist_icon.ges_events = {
         TapHist = { GestureRange:new{ ges = "tap", range = hist_icon.dimen } },
     }
@@ -2695,6 +2681,25 @@ local function buildMenu()
                           { text = _("Off"), radio = true,
                             checked_func = function() return cfg.tbr_panel == "off" end,
                             callback = function() cfg.tbr_panel = "off" saveConfig() end },
+                      } },
+                    { text_func = function()
+                          local names = { tbr = _("To Be Read"), new = _("Newly Added"), history = _("History") }
+                          return string.format(_("Panel Opens To: %s"), names[cfg.tbr_panel_view] or cfg.tbr_panel_view)
+                      end,
+                      help_text = _("Which view the To Be Read side panel opens to."),
+                      sub_item_table = {
+                          { text = _("To Be Read"), radio = true,
+                            checked_func = function() return cfg.tbr_panel_view == "tbr" end,
+                            callback = function() cfg.tbr_panel_view = "tbr" saveConfig()
+                                tbr_panel_view_initialized = false end },
+                          { text = _("Newly Added"), radio = true,
+                            checked_func = function() return cfg.tbr_panel_view == "new" end,
+                            callback = function() cfg.tbr_panel_view = "new" saveConfig()
+                                tbr_panel_view_initialized = false end },
+                          { text = _("History"), radio = true,
+                            checked_func = function() return cfg.tbr_panel_view == "history" end,
+                            callback = function() cfg.tbr_panel_view = "history" saveConfig()
+                                tbr_panel_view_initialized = false end },
                       } },
                 },
             },
