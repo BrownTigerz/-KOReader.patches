@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.1
+Version 2.11.2
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.2 TBR panel fixes: 2 view dots (not 3, History is tap-only); history
+         icon is a drawn circular arrow (tap fixed); swiping back from
+         History returns to the previous view instead of closing.
   2.11.1 TBR panel: view indicator dots at the bottom (TBR/New/History),
          and the history icon is a drawn clock now (the Unicode arrow
          didn't render on Kobo).
@@ -140,7 +143,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.1"
+local VERSION = "2.11.2"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1650,6 +1653,7 @@ end
 
 local tbr_panel_open = false
 local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
+local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
 
 local function openTBRPanel(hs, view)
     if tbr_panel_open then return end
@@ -1741,36 +1745,51 @@ local function openTBRPanel(hs, view)
         text = title_text,
         face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
     }
+    -- History button (top-right): drawn circular arrow (history/undo symbol).
+    -- Unicode symbols don't render reliably on Kobo, so we draw it.
+    local hist_size = Screen:scaleBySize(32)
     local hist_icon = InputContainer:new{
-        dimen = Geom:new{ w = Screen:scaleBySize(32), h = Screen:scaleBySize(32) },
+        dimen = Geom:new{ w = hist_size, h = hist_size },
+        -- Invisible spacer gives the container a real child for layout;
+        -- the icon itself is drawn in paintTo below.
+        VerticalSpan:new{ width = hist_size },
     }
-    -- Drawn clock icon (history): circle with two hands. Unicode symbols
-    -- don't render reliably on Kobo, so we draw it with basic shapes.
     hist_icon.paintTo = function(self, bb, x, y)
         local d = self.dimen
+        -- x, y are the widget's position; d.x, d.y are 0 relative to parent
         local cx, cy = x + d.w / 2, y + d.h / 2
-        local r = math.min(d.w, d.h) / 2 - Screen:scaleBySize(3)
+        local r = math.min(d.w, d.h) / 2 - Screen:scaleBySize(4)
         local col = Blitbuffer.COLOR_BLACK
-        -- circle outline (approximated with 16 segments)
-        for i = 0, 15 do
-            local a1, a2 = (i * 2 * math.pi) / 16, ((i + 1) * 2 * math.pi) / 16
-            bb:paintRect(x + cx - r + r * math.cos(a1), y + cy - r + r * math.sin(a1),
-                         math.abs(r * (math.cos(a2) - math.cos(a1))) + 2,
-                         math.abs(r * (math.sin(a2) - math.sin(a1))) + 2, col)
+        -- circular arrow: arc (270 degrees) + arrowhead
+        for i = 0, 11 do
+            local a1 = (i * 2 * math.pi) / 16 + math.pi / 4
+            local a2 = ((i + 1) * 2 * math.pi) / 16 + math.pi / 4
+            local x1, y1 = cx + r * math.cos(a1), cy + r * math.sin(a1)
+            local x2, y2 = cx + r * math.cos(a2), cy + r * math.sin(a2)
+            bb:paintRect(math.min(x1, x2), math.min(y1, y2),
+                         math.abs(x2 - x1) + 2, math.abs(y2 - y1) + 2, col)
         end
-        -- hands: 12 o'clock and 4 o'clock
-        bb:paintRect(cx - 1, cy - r + 4, 3, r - 4, col)  -- minute hand (up)
-        local hx, hy = cx + (r - 6) * math.cos(math.pi / 6), cy + (r - 6) * math.sin(math.pi / 6)
-        bb:paintRect(math.min(cx, hx), math.min(cy, hy),
-                     math.abs(hx - cx) + 2, math.abs(hy - cy) + 2, col)  -- hour hand
+        -- arrowhead at the end of the arc (pointing counterclockwise)
+        local ae = (12 * 2 * math.pi) / 16 + math.pi / 4
+        local ax, ay = cx + r * math.cos(ae), cy + r * math.sin(ae)
+        local s = Screen:scaleBySize(6)
+        bb:paintRect(ax - s, ay - 1, s, 3, col)
+        bb:paintRect(ax - 1, ay - s, 3, s, col)
     end
     hist_icon.ges_events = {
-        TapHist = { GestureRange:new{ ges = "tap", range = function() return hist_icon.dimen end } },
+        TapHist = { GestureRange:new{ ges = "tap", range = hist_icon.dimen } },
     }
     function hist_icon:onTapHist()
         local v = tbr_panel_view
         close()
-        tbr_panel_view = (v == "history") and "tbr" or "history"
+        if v == "history" then
+            -- back to the view we came from
+            tbr_panel_view = tbr_panel_prev_view
+        else
+            -- remember where we were, go to history
+            tbr_panel_prev_view = v
+            tbr_panel_view = "history"
+        end
         UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)
         return true
     end
@@ -1856,16 +1875,17 @@ local function openTBRPanel(hs, view)
         group[#group + 1] = more
     end
 
-    -- View indicators at the bottom: 3 dots for TBR / New / History.
-    -- Filled dot = current view. Same drawn-dot style as Currently Reading.
+    -- View indicators at the bottom: 2 dots for the swipeable views
+    -- (To Be Read / Newly Added). Filled dot = current view.
+    -- History is tap-only, not swipeable, so it has no dot.
+    -- Same drawn-dot style as Currently Reading.
+    if view == "tbr" or view == "new" then
     do
-        local views = { "tbr", "new", "history" }
-        local cur = 1
-        for i, v in ipairs(views) do if v == view then cur = i break end end
+        local cur = (view == "new") and 2 or 1
         local dots = HorizontalGroup:new{ align = "center" }
         local dot_r = Screen:scaleBySize(4)
         local dot_gap = Screen:scaleBySize(10)
-        for i = 1, 3 do
+        for i = 1, 2 do
             local dot = InputContainer:new{
                 dimen = Geom:new{ w = dot_r * 2, h = dot_r * 2 },
             }
@@ -1891,10 +1911,11 @@ local function openTBRPanel(hs, view)
                 end
             end
             dots[#dots + 1] = dot
-            if i < 3 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
+            if i < 2 then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
         end
         group[#group + 1] = VerticalSpan:new{ width = pad }
         group[#group + 1] = dots
+    end
     end
 
     local frame = FrameContainer:new{
@@ -1920,13 +1941,23 @@ local function openTBRPanel(hs, view)
     end
     function root:onSwipeClose(_, ges)
         local dir = ges and ges.direction
+        local v = tbr_panel_view
+        -- From History: swipe towards the edge goes back to the previous
+        -- view (not close). History is a detour, not a destination.
+        if v == "history" then
+            if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then
+                close()
+                tbr_panel_view = tbr_panel_prev_view
+                UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)
+            end
+            return true
+        end
         -- Swipe towards the edge it came from: close the panel.
         -- Swipe away from the edge: switch between To Be Read and Newly Added.
         if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then
             close()
         elseif (side == "left" and dir == "east") or (side ~= "left" and dir == "west") then
-            local v = tbr_panel_view
-            if v == "tbr" or v == "history" then
+            if v == "tbr" then
                 close()
                 tbr_panel_view = "new"
                 UIManager:nextTick(function() openTBRPanel(hs, "new") end)
