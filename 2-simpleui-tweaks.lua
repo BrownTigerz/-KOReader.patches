@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.4
+Version 2.11.5
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.5 TBR panel: header icon is context-aware — history icon in
+         TBR/New views, back icon in History view (tap returns to
+         previous view).
   2.11.4 TBR panel: history icon fixed (was passing path as icon name,
          now uses file=); 2 dots for swipe views (TBR/New), History is
          tap-only via the icon again.
@@ -150,7 +153,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.4"
+local VERSION = "2.11.5"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1754,13 +1757,16 @@ local function openTBRPanel(hs, view)
         text = title_text,
         face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
     }
-    -- History button (top-right): SimpleUI's own history.svg icon.
+    -- Header icon (top-right): context-aware.
+    -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
+    -- In History view: SimpleUI's back.svg → tap goes back to previous view.
     local hist_size = Screen:scaleBySize(28)
     local IconWidget = require("ui/widget/iconwidget")
+    local icon_name = (view == "history") and "back.svg" or "history.svg"
     local hist_icon_path = nil
-    -- SimpleUI's plugin dir: koreader/plugins/<name>.koplugin/icons/history.svg
+    -- SimpleUI's plugin dir: koreader/plugins/<name>.koplugin/icons/<icon>
     if type(sui_name) == "string" and sui_name ~= "" then
-        local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
+        local p = "plugins/" .. sui_name .. ".koplugin/icons/" .. icon_name
         local lfs = require("libs/libkoreader-lfs")
         if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
     end
