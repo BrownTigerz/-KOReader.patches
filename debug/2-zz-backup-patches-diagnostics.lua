@@ -1,6 +1,6 @@
 --[[
 2-zz-backup-patches-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.6
+Version 1.2.0
 
 Watches Patch Backup & Restore (2-backup-patches.lua) and its hooks into
 Device Backup & Restore (backup.koplugin) from the outside, and writes
@@ -69,6 +69,17 @@ How to use:
   4. Delete this file (and the .state file) and restart.
 
 Changelog
+  1.2.0  Diagnostics standard: the "started" banner is the first line of
+         every start (it came 5 s in, after other lines). No timers of its
+         own: the startup report runs on the first pass of the main loop,
+         and the closing summary is written when the window ends, by the
+         first hooked event after it, instead of a 15-minute timer that sat
+         in KOReader's queue. An updater run no longer reopens logging after
+         the window has closed. Every hook runs its own checks inside
+         pcall, so an error in the diagnostic can't stop a backup, restore
+         or tap, and every original's results are returned in full. When
+         a device backup can't be reopened for checking, the reader's error
+         is logged (since 1.1.1 it always showed "(nil)").
   1.1.6  Updater tracing: receives the _G.__backup_updater_trace events
          the patch emits (2.2.2+) and logs them as tagged lines —
          manifest fetch, per-patch compare decisions, Wi-Fi on/off,
@@ -103,7 +114,7 @@ Changelog
   1.0.0  First version.
 ]]
 
-local DIAG_VERSION = "1.1.6"
+local DIAG_VERSION = "1.2.0"
 local WINDOW_S     = 15 * 60       -- logging window after start
 local EXTEND_S     = 5 * 60        -- extension when a backup/restore runs
 local EXPIRE_S     = 3 * 24 * 3600 -- stops hooking anything after this
@@ -196,10 +207,13 @@ do
 end
 
 if os.difftime(os.time(), first_run) > EXPIRE_S then
-    log("diagnostics %s expired (first run %s): not watching anything. Delete this patch.",
-        DIAG_VERSION, os.date("%b %d %I:%M %p", first_run))
+    log("backup-patches diagnostics %s expired (first run %s): not watching anything. "
+        .. "Delete this patch, or delete backup-patches-diagnostics.state for 3 more days.",
+        DIAG_VERSION, os.date("%Y-%m-%d %I:%M %p", first_run))
     return
 end
+
+log("==================== backup-patches diagnostics %s started ====================", DIAG_VERSION)
 
 local Backup = package.loaded.backup_patches
 if type(Backup) ~= "table" or type(Backup.targets) ~= "table" then
@@ -216,11 +230,19 @@ local SELF = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
 if SELF and raw_attr(SELF, "mode") ~= "file" then SELF = nil end
 local switched_off = false
 local next_self_check = 0
+local closed = false
+local closeWindow -- set at the end of the file (needs the counters)
 
 local function active()
-    if switched_off then return false end
+    if switched_off or closed then return false end
     local t = os.time()
-    if t > window_end then return false end
+    if t > window_end then
+        -- First hooked event after the window: close it, once, with the
+        -- summary. No timer waits for this.
+        closed = true
+        if closeWindow then pcall(closeWindow) end
+        return false
+    end
     if SELF and t >= next_self_check then
         next_self_check = t + 5
         if raw_attr(SELF, "mode") ~= "file" then
@@ -262,6 +284,15 @@ local function fromPatch()
     return false
 end
 
+-- Runs the diagnostic's own checks; any error in them is swallowed so the
+-- original call always goes ahead.
+local function watching(f, ...)
+    local ok, res = pcall(f, ...)
+    return ok and res
+end
+
+local function pack(...) return { n = select("#", ...), ... } end
+
 -- File work by the patch: totals, per tap, and while asleep.
 local ops = { read = 0, write = 0, remove = 0, dir = 0, stat = 0 }
 local tap_ops, sleep_ops
@@ -288,30 +319,34 @@ local function memKB() return math.floor(collectgarbage("count")) end
 -- --------------------------------------------------------------------------
 
 io.open = function(path, mode, ...)
-    if active() and fromPatch() then
-        count((mode and mode:find("[wa]")) and "write" or "read")
-    end
+    watching(function()
+        if active() and fromPatch() then
+            count((mode and mode:find("[wa]")) and "write" or "read")
+        end
+    end)
     return orig_open(path, mode, ...)
 end
 
 local orig_remove = os.remove
 os.remove = function(path, ...)
-    if active() and fromPatch() then
-        count("remove")
-        log("patch deleted %s", short(path))
-    end
+    watching(function()
+        if active() and fromPatch() then
+            count("remove")
+            log("patch deleted %s", short(path))
+        end
+    end)
     return orig_remove(path, ...)
 end
 
 local orig_dir = lfs.dir
 lfs.dir = function(path, ...)
-    if active() and fromPatch() then count("dir") end
+    watching(function() if active() and fromPatch() then count("dir") end end)
     return orig_dir(path, ...)
 end
 
 local orig_attr = lfs.attributes
 lfs.attributes = function(path, ...)
-    if active() and fromPatch() then count("stat") end
+    watching(function() if active() and fromPatch() then count("stat") end end)
     return orig_attr(path, ...)
 end
 
@@ -321,10 +356,12 @@ end
 
 local orig_sched = UIManager.scheduleIn
 UIManager.scheduleIn = function(self, ...)
-    if active() and fromPatch() then
-        log("TIMER scheduled by Patch Backup & Restore (unexpected)\n%s", debug.traceback("", 2))
-        if asleep and sleep_ops then sleep_ops.timers = (sleep_ops.timers or 0) + 1 end
-    end
+    watching(function()
+        if active() and fromPatch() then
+            log("TIMER scheduled by Patch Backup & Restore (unexpected)\n%s", debug.traceback("", 3))
+            if asleep and sleep_ops then sleep_ops.timers = (sleep_ops.timers or 0) + 1 end
+        end
+    end)
     return orig_sched(self, ...)
 end
 
@@ -334,11 +371,13 @@ end
 
 local orig_show = UIManager.show
 UIManager.show = function(self, w, ...)
-    if active() and type(w) == "table" and (w.text or w.title) and fromPatch() then
-        local text = tostring(w.text or w.title):gsub("\n", " "):sub(1, 90)
-        local kind = w.toast and "note" or (w.ok_callback and "question" or "popup")
-        log("shows %s: \"%s\"", kind, text)
-    end
+    watching(function()
+        if active() and type(w) == "table" and (w.text or w.title) and fromPatch() then
+            local text = tostring(w.text or w.title):gsub("\n", " "):sub(1, 90)
+            local kind = w.toast and "note" or (w.ok_callback and "question" or "popup")
+            log("shows %s: \"%s\"", kind, text)
+        end
+    end)
     return orig_show(self, w, ...)
 end
 
@@ -354,11 +393,12 @@ end
 -- updater run leaves full footprints. An updater run extends the logging
 -- window, like a backup or restore does.
 _G.__backup_updater_trace = function(event, msg)
-    if switched_off then return end
-    if os.difftime(os.time(), first_run) > EXPIRE_S then return end
-    if event == "run" then extend() end
-    if not active() then return end
-    log("updater %s: %s", event, msg)
+    watching(function()
+        -- Extends an open window only: once it has closed, nothing more.
+        if not active() then return end
+        if event == "run" then extend() end
+        log("updater %s: %s", event, msg)
+    end)
 end
 
 -- --------------------------------------------------------------------------
@@ -376,30 +416,33 @@ end
 
 local orig_send = UIManager.sendEvent
 UIManager.sendEvent = function(self, ev, ...)
-    local g = active() and type(ev) == "table" and ev.handler == "onGesture" and ev.args and ev.args[1]
-    if not (type(g) == "table" and (g.ges == "tap" or g.ges == "hold")) then
-        return orig_send(self, ev, ...)
-    end
-    local before = topName(self)
+    local g = watching(function()
+        local x = active() and type(ev) == "table" and ev.handler == "onGesture" and ev.args and ev.args[1]
+        return type(x) == "table" and (x.ges == "tap" or x.ges == "hold") and x or nil
+    end)
+    if not g then return orig_send(self, ev, ...) end
+    local before = watching(topName, self) or "?"
     tap_ops = newOps()
     local t = now()
-    local r = { orig_send(self, ev, ...) }
-    local took = ms(t)
+    local r = pack(orig_send(self, ev, ...))
     local mine = tap_ops
     tap_ops = nil
-    totals.taps = totals.taps + 1
-    local patch_work = (mine.read + mine.write + mine.remove + mine.dir + mine.stat) > 0
-    if took >= SLOW_TAP_MS then
-        totals.slow_taps = totals.slow_taps + 1
-        log("SLOW %s: screen held %d ms (on: %s)%s", g.ges, took, before,
-            patch_work and ("  patch did " .. opsText(mine)) or "  (not Patch Backup & Restore)")
-    elseif patch_work then
-        log("%s: %d ms, patch did %s", g.ges, took, opsText(mine))
-    end
-    if took > totals.slowest_ms then
-        totals.slowest_ms, totals.slowest_what = took, before
-    end
-    return unpack(r)
+    watching(function()
+        local took = ms(t)
+        totals.taps = totals.taps + 1
+        local patch_work = (mine.read + mine.write + mine.remove + mine.dir + mine.stat) > 0
+        if took >= SLOW_TAP_MS then
+            totals.slow_taps = totals.slow_taps + 1
+            log("SLOW %s: screen held %d ms (on: %s)%s", g.ges, took, before,
+                patch_work and ("  patch did " .. opsText(mine)) or "  (not Patch Backup & Restore)")
+        elseif patch_work then
+            log("%s: %d ms, patch did %s", g.ges, took, opsText(mine))
+        end
+        if took > totals.slowest_ms then
+            totals.slowest_ms, totals.slowest_what = took, before
+        end
+    end)
+    return unpack(r, 1, r.n)
 end
 
 -- --------------------------------------------------------------------------
@@ -409,21 +452,22 @@ end
 local orig_broadcast = UIManager.broadcastEvent
 UIManager.broadcastEvent = function(self, event, ...)
     local handler = type(event) == "table" and event.handler
-    if handler == "onSuspend" and active() then
-        log("going to sleep (memory %d KB)", memKB())
-        local r = { orig_broadcast(self, event, ...) }
+    if handler == "onSuspend" and watching(active) then
+        watching(log, "going to sleep (memory %d KB)", memKB())
+        local r = pack(orig_broadcast(self, event, ...))
         asleep, sleep_ops = true, newOps()
-        return unpack(r)
+        return unpack(r, 1, r.n)
     elseif handler == "onResume" and asleep then
         asleep = false
         local s = sleep_ops or newOps()
         sleep_ops = nil
-        if active() then
+        watching(function()
+            if not active() then return end
             local any = s.read + s.write + s.remove + s.dir + s.stat + (s.timers or 0)
             log("woke up: while asleep Patch Backup & Restore did %s%s",
                 any == 0 and "nothing (good)" or opsText(s),
                 (s.timers or 0) > 0 and (", scheduled " .. s.timers .. " timers") or "")
-        end
+        end)
     end
     return orig_broadcast(self, event, ...)
 end
@@ -443,32 +487,38 @@ if ok_a and type(Archiver) == "table" and type(Archiver.Writer) == "table" then
     local w_open, w_mem, w_close = W.open, W.addFileFromMemory, W.close
     if w_open and w_mem and w_close then
         W.open = function(self, path, ...)
-            local ok = w_open(self, path, ...)
-            if active() and fromPatch() then
-                rawset(self, "__diag", { path = path, t = now(), n = 0, bytes = 0, mem = memKB() })
-                if not ok then log("zip: could NOT create %s: %s", short(path), q(self.err)) end
-                watchRestore(path)
-            end
-            return ok
+            local r = pack(w_open(self, path, ...))
+            watching(function()
+                if active() and fromPatch() then
+                    rawset(self, "__diag", { path = path, t = now(), n = 0, bytes = 0, mem = memKB() })
+                    if not r[1] then log("zip: could NOT create %s: %s", short(path), q(self.err)) end
+                    watchRestore(path)
+                end
+            end)
+            return unpack(r, 1, r.n)
         end
         W.addFileFromMemory = function(self, name, data, ...)
-            local d = rawget(self, "__diag")
-            if d then
-                d.n = d.n + 1
-                d.bytes = d.bytes + #(data or "")
-            end
+            watching(function()
+                local d = rawget(self, "__diag")
+                if d then
+                    d.n = d.n + 1
+                    d.bytes = d.bytes + #(type(data) == "string" and data or "")
+                end
+            end)
             return w_mem(self, name, data, ...)
         end
         W.close = function(self, ...)
-            local r = { w_close(self, ...) }
-            local d = rawget(self, "__diag")
-            if d then
-                rawset(self, "__diag", nil)
-                log("zip: %s  %d entries, %s, %d ms, memory %+d KB", short(d.path), d.n, kb(d.bytes),
-                    ms(d.t), memKB() - d.mem)
-                extend()
-            end
-            return unpack(r)
+            local r = pack(w_close(self, ...))
+            watching(function()
+                local d = rawget(self, "__diag")
+                if d then
+                    rawset(self, "__diag", nil)
+                    log("zip: %s  %d entries, %s, %d ms, memory %+d KB", short(d.path), d.n, kb(d.bytes),
+                        ms(d.t), memKB() - d.mem)
+                    extend()
+                end
+            end)
+            return unpack(r, 1, r.n)
         end
     end
 end
@@ -633,7 +683,8 @@ end
 
 -- Opens a finished device backup and checks the icon map and logins.
 local function inspectDeviceBackup(Arch, path)
-    local r, rerr = Arch.createReader and Arch.createReader(path)
+    if type(Arch.createReader) ~= "function" then log("  can't check the backup: no reader") return end
+    local r, rerr = Arch.createReader(path)
     if not r then log("  could not open the backup to check it: %s", q(rerr)) return end
     local entries, n = {}, 0
     for e in r:iterate() do
@@ -697,32 +748,36 @@ local function hookDevice()
         Arch.__bp_diag = true
         local orig = Arch.createBackup
         Arch.createBackup = function(options, ...)
-            if not active() then return orig(options, ...) end
-            extend()
-            local comps = {}
-            for k, v in pairs(type(options) == "table" and options.components or {}) do
-                if v then comps[#comps + 1] = k end
-            end
-            table.sort(comps)
-            log("device backup started: %s | logins toggle %s | memory %d KB",
-                table.concat(comps, ", "), logins_on() and "ON" or "off", memKB())
+            if not watching(active) then return orig(options, ...) end
+            watching(function()
+                extend()
+                local comps = {}
+                for k, v in pairs(type(options) == "table" and options.components or {}) do
+                    if v then comps[#comps + 1] = k end
+                end
+                table.sort(comps)
+                log("device backup started: %s | logins toggle %s | memory %d KB",
+                    table.concat(comps, ", "), logins_on() and "ON" or "off", memKB())
+            end)
             local t = now()
-            local r = { pcall(orig, options, ...) }
-            local ok, res = r[2], r[3]
-            log("device backup %s in %d ms, memory %d KB", (r[1] and ok) and "done" or "FAILED", ms(t), memKB())
-            if r[1] and ok then
-                local path = type(res) == "table" and res.archive_path
-                    or (type(options) == "table" and options.archive_path)
-                local ok_i, err = pcall(inspectDeviceBackup, Arch, path)
-                if not ok_i then log("  check failed: %s", q(err)) end
-            elseif not r[1] then
-                log("  error: %s", q(r[2]))
-            else
-                log("  reason: %s", q(res))
-            end
-            extend()
+            local r = pack(pcall(orig, options, ...))
+            watching(function()
+                local ok, res = r[2], r[3]
+                log("device backup %s in %d ms, memory %d KB", (r[1] and ok) and "done" or "FAILED", ms(t), memKB())
+                if r[1] and ok then
+                    local path = type(res) == "table" and res.archive_path
+                        or (type(options) == "table" and options.archive_path)
+                    local ok_i, err = pcall(inspectDeviceBackup, Arch, path)
+                    if not ok_i then log("  check failed: %s", q(err)) end
+                elseif not r[1] then
+                    log("  error: %s", q(r[2]))
+                else
+                    log("  reason: %s", q(res))
+                end
+                extend()
+            end)
             if not r[1] then error(r[2], 0) end
-            return unpack(r, 2, table.maxn(r))
+            return unpack(r, 2, r.n)
         end
         log("watching Device Backup & Restore backups")
     end
@@ -730,14 +785,15 @@ local function hookDevice()
         Rest.__bp_diag = true
         local orig = Rest.executeRestore
         Rest.executeRestore = function(archive_path, options, ...)
-            if not active() then return orig(archive_path, options, ...) end
-            extend()
+            if not watching(active) then return orig(archive_path, options, ...) end
             local undo = type(options) == "table" and options.is_undo
+            local paths_before, tokens_before = {}, {}
+            watching(function()
+            extend()
             log("device %s started: %s | memory %d KB", undo and "undo" or "restore", short(archive_path), memKB())
             -- Baselines for the post-restore checks: per-target icon paths
             -- (HIGH 1: did the remap repoint anything?) and login tokens
             -- (HIGH 2: does the kept-logic put them back?).
-            local paths_before, tokens_before = {}, {}
             if not undo then
                 for _i, tg in ipairs(Backup.targets) do
                     paths_before[tg] = iconPathSet(tg, true)
@@ -754,8 +810,10 @@ local function hookDevice()
                     end
                 end
             end
+            end)
             local t = now()
-            local r = { pcall(orig, archive_path, options, ...) }
+            local r = pack(pcall(orig, archive_path, options, ...))
+            watching(function()
             log("device %s %s in %d ms, memory %d KB", undo and "undo" or "restore",
                 (r[1] and r[2]) and "done" or "FAILED", ms(t), memKB())
             if r[1] and r[2] and not undo then
@@ -792,8 +850,9 @@ local function hookDevice()
                 log("  error: %s", q(r[2]))
             end
             extend()
+            end)
             if not r[1] then error(r[2], 0) end
-            return unpack(r, 2, table.maxn(r))
+            return unpack(r, 2, r.n)
         end
         log("watching Device Backup & Restore restores")
     end
@@ -804,9 +863,9 @@ do
     if ok and type(PluginLoader) == "table" and type(PluginLoader.loadPlugins) == "function" then
         local orig = PluginLoader.loadPlugins
         PluginLoader.loadPlugins = function(self, ...)
-            local r = { orig(self, ...) }
+            local r = pack(orig(self, ...))
             pcall(hookDevice)
-            return unpack(r, 1, table.maxn(r))
+            return unpack(r, 1, r.n)
         end
     end
     pcall(hookDevice)
@@ -817,7 +876,6 @@ end
 -- --------------------------------------------------------------------------
 
 local function startupReport()
-    log("==================== backup-patches diagnostics %s started ====================", DIAG_VERSION)
     log("Patch Backup & Restore %s | Device Backup & Restore %s", q(Backup.version), pluginVersion())
     local ok_v, ver = pcall(function() return require("version"):getCurrentRevision() end)
     log("KOReader %s | data folder %s | working folder %s", ok_v and q(ver) or "?", DATA, CWD)
@@ -894,24 +952,22 @@ local function startupReport()
     log("---- watching for %d minutes ----", math.floor((window_end - os.time()) / 60 + 0.5))
 end
 
-local function endOfWindow()
-    if switched_off then return end
-    if os.time() < window_end then
-        orig_sched(UIManager, window_end - os.time() + 1, endOfWindow)
-        return
-    end
-    log("---- logging stopped ----")
+closeWindow = function()
+    log("==== %d minutes up (window ended %s): logging stopped, every hook passes straight through now ====",
+        math.floor(WINDOW_S / 60), os.date("%I:%M %p", window_end))
     log("taps: %d, slow (>%d ms): %d, slowest %d ms (on: %s)", totals.taps, SLOW_TAP_MS,
         totals.slow_taps, totals.slowest_ms, totals.slowest_what)
     log("Patch Backup & Restore file work while watching: %s", opsText(ops))
     log("memory now: %d KB", memKB())
 end
 
-orig_sched(UIManager, 5, function()
+-- Startup report on the first pass of the main loop (plugins are loaded
+-- by then). One-shot, no timer.
+UIManager:nextTick(function()
+    if not watching(active) then return end
     local ok, err = pcall(startupReport)
     if not ok then log("startup report failed: %s", q(err)) end
 end)
-orig_sched(UIManager, WINDOW_S + 1, endOfWindow)
 
 -- Shared notification contract v1: the "logging" note goes through Network
 -- Tweaks' note first, then ReadMastery's, then the plain KOReader note.
@@ -934,6 +990,7 @@ end
 
 UIManager:nextTick(function()
     pcall(function()
+        if not active() then return end
         if shared_note("Backup diagnostics: logging for 15 min", "Backup diagnostics on", 3) then return end
         orig_show(UIManager, require("ui/widget/notification"):new{
             text = "Backup diagnostics: logging for 15 min",
