@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.10.2 To Be Read side panel is narrower now (42% of screen width, was
+         66%) — reads as a panel instead of a full page.
   2.10.1 To Be Read panel: one flash of just the panel area when it opens
          and closes, so it no longer leaves a ghost.
   2.10.0 To Be Read side panel: swipe in from the right edge of SimpleUI
@@ -133,7 +135,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.10.1"
+local VERSION = "2.10.2"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1632,7 +1634,7 @@ local function openTBRPanel(hs)
     local Size            = require("ui/size")
 
     local sw, sh = Screen:getWidth(), Screen:getHeight()
-    local pw = math.floor(sw * 0.66)
+    local pw = math.floor(sw * 0.42)
     local px = (side == "left") and 0 or (sw - pw)
     local panel_dimen = Geom:new{ x = px, y = 0, w = pw, h = sh }
     local pad = Screen:scaleBySize(14)
