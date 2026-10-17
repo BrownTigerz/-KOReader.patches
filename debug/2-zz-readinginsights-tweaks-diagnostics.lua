@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version: 1.1.5
+Version: 2.0.0
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -16,12 +16,12 @@ What it records:
             when one lands under a modal popup.
   Touch     each tap/hold/swipe, which window got it, and how long until the
             screen actually updated (tap-to-screen latency).
-  Speed     build time of the cover grid, book calendar and suspend handling;
-            cover scaling (count + time); database queries (count + time).
+  Speed     build time of the book calendar and suspend handling; cover
+            scaling (count + time); database queries (count + time).
   Screen    e-ink refreshes by type per session (full/flash refreshes are the
             ones that cost battery and flicker).
-  Sleep     suspend/resume, time asleep, whether the sleep card was up and on
-            top, timers still pending at suspend (anything from Tweaks that
+  Sleep     suspend/resume, time asleep, whether Reading Insights' sleep screen
+            showed, timers still pending at suspend (anything from Tweaks that
             would wake or run around sleep), connections left open.
   Memory    Lua heap + process RSS at the start and end of each session, so a
             leak shows as steady growth.
@@ -30,8 +30,8 @@ What it records:
 How to use:
   1. Put this file in koreader/patches/ next to 2-readinginsights-tweaks.lua
      and restart KOReader.
-  2. Use Reading Insights normally: streak calendar (tap days, page months),
-     Records (tap covers), book calendar, heatmap, Statistics calendar view.
+  2. Open each view the patch changes: Book progress calendar (page a month),
+     heatmap, Records (tap a cover), KOReader's Statistics calendar view.
      Sleep and wake once or twice.
   3. Send diagnostics.log (grep the [readinginsights-tweaks] tag).
   4. Delete this file and restart.
@@ -70,6 +70,11 @@ Changelog
                      all gating unchanged.
   1.1.5  2026-10-12  Shared-log rotation cap raised from 256 KB to 2 MB
                      (TK-approved; identical cap across all diagnostics).
+  2.0.0  2026-10-16  For Tweaks 2.0.0: dropped the streak calendar grid/tap and
+                     sleep card watchers (those features were removed); hook
+                     report lists book_header and stats_calendar only; the
+                     suspend check reads Reading Insights 8's sleep screen
+                     field (_screensaver_widgets, falls back to the old name).
 ]]
 
 local DataStorage = require("datastorage")
@@ -80,7 +85,7 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "1.1.5"
+local DIAG_VERSION = "2.0.0"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file
@@ -342,7 +347,7 @@ end
 local function logCaps(when)
     local H = package.loaded[HOOK_NAME]
     if not H or type(H.caps) ~= "table" then return end
-    local want = { "grid", "tap", "tall", "tall_fit", "book_header", "stats_calendar", "native_day_tap" }
+    local want = { "book_header", "stats_calendar" }
     local parts = {}
     for _i, k in ipairs(want) do parts[#parts + 1] = k .. "=" .. (H.caps[k] and "yes" or "NO") end
     log("hooks (%s): %s", when, table.concat(parts, " "))
@@ -373,7 +378,7 @@ local orig_show = UIManager.show
 UIManager.show = function(self, w, ...)
     local info = debug.getinfo(2, "S")
     local src = info and info.source or ""
-    if type(w) == "table" and (isOurs(src) or w.name == "ri_sleep_card") then touch("popup opened") end
+    if type(w) == "table" and isOurs(src) then touch("popup opened") end
     local r = { orig_show(self, w, ...) }
     if active() and type(w) == "table" then
         local i, n = stackIndex(w)
@@ -464,31 +469,6 @@ end
 
 local H = package.loaded[HOOK_NAME]
 if H then
-    if type(H.wrap) == "function" then
-        local w = H.wrap
-        H.wrap = function(orig)
-            local f = timed("streak calendar grid build", w(orig))
-            return function(...)
-                local grid, meta = f(...)
-                if active() then
-                    log("grid returned day positions: %s", type(meta) == "table" and "yes" or "NO (Reading Insights 6.15+ needs them)")
-                end
-                return grid, meta
-            end
-        end
-    end
-    if type(H.wrapTap) == "function" then
-        local w = H.wrapTap
-        H.wrapTap = function(orig)
-            local f = w(orig)
-            return function(self, arg, ges, ...)
-                log("streak calendar tap | Reading Insights day zones %d | own day cells %d | native tap %s",
-                    #(type(self._day_zones) == "table" and self._day_zones or {}), #(H.day_cells or {}),
-                    q(H.caps and H.caps.native_day_tap))
-                return f(self, arg, ges, ...)
-            end
-        end
-    end
     if type(H.bookCal) == "function" then
         local w = H.bookCal
         H.bookCal = function(r, h)
@@ -561,14 +541,8 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
                 touch("suspend")
                 local t = now()
                 local r = { orig(self, ...) }
-                log("suspend handling took %dms | sleep screen %s | sleep card %s", ms(t),
-                    self._screensaver_widget and "shown" or "not shown",
-                    self._ri_sleep_card and "shown" or "not shown")
-                if self._ri_sleep_card then
-                    local i, n = stackIndex(self._ri_sleep_card)
-                    log("sleep card at stack %s/%s%s", q(i), q(n),
-                        (i and i < n) and "  <-- NOT ON TOP (hidden behind something)" or "")
-                end
+                log("suspend handling took %dms | Reading Insights sleep screen %s", ms(t),
+                    (self._screensaver_widgets or self._screensaver_widget) and "shown" or "not shown")
                 local pend = pendingTasks()
                 log("timers pending at suspend: %s", #pend > 0 and table.concat(pend, ", ") or "none")
                 log("db connections open at suspend: %d%s", open_conns, open_conns > 0 and "  <-- LEFT OPEN" or "")
@@ -581,14 +555,12 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
             local orig = plugin.onResume
             plugin.onResume = function(self, ...)
                 touch("resume")
-                log("resume | asleep %s | sleep card up before close: %s",
-                    suspended_at and ((os.time() - suspended_at) .. "s") or "?",
-                    self._ri_sleep_card and "yes" or "no")
+                log("resume | asleep %s",
+                    suspended_at and ((os.time() - suspended_at) .. "s") or "?")
                 suspended_at = nil
                 local t = now()
                 local r = { orig(self, ...) }
-                log("resume handling took %dms | sleep card closed: %s", ms(t),
-                    self._ri_sleep_card and "NO  <-- STILL UP" or "yes")
+                log("resume handling took %dms", ms(t))
                 return unpack(r)
             end
         end
