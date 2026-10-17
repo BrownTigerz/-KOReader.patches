@@ -1,1 +1,502 @@
-LS1bWwoyLXp6LW5ldHdvcmstdHdlYWtzLWRpYWdub3N0aWNzLmx1YSAtIFRFTVBPUkFSWSB0cm91Ymxlc2hvb3RpbmcgcGF0Y2gKVmVyc2lvbiAxLjIuNAoKQ2hhbmdlbG9nOgogIDEuMi40IC0gU2hhcmVkLWxvZyByb3RhdGlvbiBjYXAgcmFpc2VkIDI1NiBLQiAtPiAyIE1CCiAgICAgICAgICAoU0hBUkVEX01BWF9CWVRFUyA9IDIgKiAxMDI0ICogMTAyNCwgaWRlbnRpY2FsIGFjcm9zcyBhbGwKICAgICAgICAgIGRpYWdub3N0aWNzIHBlciBUSykuCiAgMS4yLjMgLSBBZG9wdGVkIHRoZSBzaGFyZWQgbG9nIGNvbnRyYWN0IHYxOiBsaW5lcyBub3cgZ28gdG8gdGhlIHNoYXJlZAogICAgICAgICAga29yZWFkZXIvZGlhZ25vc3RpY3MubG9nICh0YWcgW25ldHdvcmstdHdlYWtzXSkgaW5zdGVhZCBvZiB0aGUKICAgICAgICAgIGZpbGUncyBvd24gbmV0d29yay10d2Vha3MtZGlhZ25vc3RpY3MubG9nLiBSb3RhdGlvbiAoMiBNQiwKICAgICAgICAgIC5vbGQpIG1vdmVkIHdpdGggaXQuIFBlci1saW5lICtObXMgb2Zmc2V0IGtlcHQgb24gdGhlIGNvbnRlbnQuCiAgMS4yLjIgLSBSZW1vdmVkIHRoZSAwLjI1cyBmcm96ZW4tc2NyZWVuIGhlYXJ0YmVhdCAoYmFubmVkIGJ5IHRoZQogICAgICAgICAgbm8tdGltZXJzIHJ1bGUpOyBzbG93IHJlZHJhd3MgYXJlIHN0aWxsIHRpbWVkIGZyb20gdGhlCiAgICAgICAgICByZXBhaW50IGhvb2suIEZpeGVkIGluc2lkZSgpIG5ldmVyIG1hdGNoaW5nIGZ1bGwtd2lkdGgKICAgICAgICAgICh4PTApIGJhbm5lcnMuIFN1c3BlbmQvd2FrZS9saXN0LW9wZW5lci9OZXR3b3JrTWdyIHdyYXBwZXJzCiAgICAgICAgICBub3cgcGNhbGwgdGhlaXIgb3duIGxvZ2dpbmcsIHNvIGEgZGlhZ25vc3RpYyBlcnJvciBjYW4gbmV2ZXIKICAgICAgICAgIGJyZWFrIHRoZSBvcmlnaW5hbC4gTG9nIGxpbmVzIGNhcnJ5IHRoZSBmdWxsIGRhdGUKICAgICAgICAgICglWS0lbS0lZCAlSTolTTolUyAlcCkuIEZpcnN0IGxpbmUgcGVyIHN0YXJ0IG1hdGNoZXMgdGhlCiAgICAgICAgICBjb250cmFjdCBmb3JtYXQ7IGFmdGVyIGV4cGlyeSBvbmUgbGluZSBpcyB3cml0dGVuIHBlciBzdGFydAogICAgICAgICAgYW5kIG5vIG5vdGUgaXMgc2hvd24uIEV4cGlyeSBzdGFtcCBtb3ZlZCB0bwogICAgICAgICAgbmV0d29yay10d2Vha3MtZGlhZ25vc3RpY3Muc3RhdGUgKHRoZSBvbGQgcmVhZGVyLXNldHRpbmdzCiAgICAgICAgICBrZXkgaXMgZGVsZXRlZCBvbiB1cGdyYWRlKS4gU3RhcnR1cCBub3RlIHVzZXMgdGhlIHNoYXJlZAogICAgICAgICAgTmV0d29yayBUd2Vha3Mgbm90ZSBzdHlsZSB3aGVuIE5ldHdvcmsgVHdlYWtzIGlzIHByZXNlbnQuCiAgICAgICAgICByZWFkQWxsRXZlbnRzIG5vdyBwcmVzZXJ2ZXMgYWxsIG9mIHRoZSBvcmlnaW5hbCdzIHJldHVybgogICAgICAgICAgdmFsdWVzLCBsaWtlIGV2ZXJ5IG90aGVyIHdyYXBwZXIuCiAgMS4yLjEgLSBQcmV2aW91cyB2ZXJzaW9uIChyZXZpZXdlZCAyMDI2LTEwLTExKS4KCldhdGNoZXMgTmV0d29yayBUd2Vha3MgZnJvbSB0aGUgb3V0c2lkZSBhbmQgd3JpdGVzIHdoYXQgaXQgc2VlcywgdGFnZ2VkCltuZXR3b3JrLXR3ZWFrc10sIHRvIHRoZSBzaGFyZWQga29yZWFkZXIvZGlhZ25vc3RpY3MubG9nCihzaGFyZWQgbG9nIGNvbnRyYWN0IHYxOyBLb2JvOiAuYWRkcy9rb3JlYWRlci9kaWFnbm9zdGljcy5sb2cpCgpJdCBjaGFuZ2VzIG5vdGhpbmcsIGl0IG9ubHkgd3JpdGVzIHRoZSBsb2cuIEl0IGRvZXNuJ3QgdG91Y2ggTmV0d29yayBUd2Vha3MKaXRzZWxmLiBUaGUgInp6IiBtYWtlcyBpdCBsb2FkIGFmdGVyIDItbmV0d29yay10d2Vha3MubHVhLgoKU3dpdGNoZXMgaXRzZWxmIG9mZiwgaW4gY2FzZSBpdCdzIGZvcmdvdHRlbjoKICAtIGxvZ3MgZm9yIHRoZSBmaXJzdCA1IG1pbnV0ZXMgYWZ0ZXIgZWFjaCBLT1JlYWRlciBzdGFydCwgdGhlbiBnb2VzIHF1aWV0CiAgICAoZXZlcnkgaG9vayBqdXN0IHBhc3NlcyBzdHJhaWdodCB0aHJvdWdoKQogIC0gMjQgaG91cnMgYWZ0ZXIgaXQgd2FzIGZpcnN0IGluc3RhbGxlZCBpdCBzdG9wcyBob29raW5nIGFueXRoaW5nIGF0IGFsbDoKICAgIG9uZSBsaW5lIGluIHRoZSBsb2cgcGVyIHN0YXJ0LCB0aGVuIG5vdGhpbmcuIENvcHlpbmcgdGhlIGZpbGUgaW4gYWdhaW4KICAgIHN0YXJ0cyBhIGZyZXNoIDI0IGhvdXJzLgoKRmlsZXMgaXQgd3JpdGVzIChLT1JlYWRlciBkYXRhIGRpciwgS29ibzogLmFkZHMva29yZWFkZXIvKToKICAtIGRpYWdub3N0aWNzLmxvZyAgICAgICAgICAgICAgICAodGhlIHNoYXJlZCBsb2csIHRhZ2dlZCBbbmV0d29yay10d2Vha3NdKQogIC0gZGlhZ25vc3RpY3MubG9nLm9sZCAgICAgICAgICAgIChwcmV2aW91cyAyIE1CIG9uIHJvdGF0aW9uKQogIC0gbmV0d29yay10d2Vha3MtZGlhZ25vc3RpY3Muc3RhdGUgKGZpcnN0LXJ1biBzdGFtcCBmb3IgdGhlIDI0aCBleHBpcnkpCgpXaGF0IGl0IGxvZ3MgKDEyLWhvdXIgY2xvY2ssICttcyA9IHRpbWUgc2luY2UgdGhlIGN1cnJlbnQgdGVzdCBiZWdhbik6CiAgLSBOZXR3b3JrIGxpc3Q6IGV2ZXJ5IHN0ZXAgYW5kIGhvdyBsb25nIGl0IHRvb2sgKHJhZGlvIHBvd2VyLXVwLCB0aGUKICAgIHNjYW4sIFdpLUZpIGNsaWVudCBjYWxscywgY29ubmVjdCAvIGRpc2Nvbm5lY3QpLCBwb3B1cHMgYW5kIGJhbm5lcnMKICAgIHNob3duIG9yIGNsb3NlZC4KICAtIFNoZWxsIGNvbW1hbmRzIE5ldHdvcmsgVHdlYWtzIHJ1bnMgKGVuYWJsZS13aWZpLnNoLCB3cGFfY2xpLCBwa2lsbC4uLikuCiAgLSBOZXR3b3JrIGV2ZW50cyAoY29ubmVjdGluZywgY29ubmVjdGVkLCBkaXNjb25uZWN0ZWQsIFNTSC9DYWxpYnJlCiAgICBzdGF0ZSBjaGFuZ2VzKS4KICAtIFNsZWVwIGFuZCB3YWtlOiBob3cgbG9uZyBnb2luZyB0byBzbGVlcCB0b29rLCBTU0ggYW5kIFdpLUZpIHN0YXRlCiAgICBiZWZvcmUgYW5kIGFmdGVyLCBhbmQgYW55IG5vdGUgZHJhd24gb3ZlciB0aGUgc2xlZXAgc2NyZWVuIChzaG91bGRuJ3QKICAgIGhhcHBlbikuCiAgLSBUYXBzIGFuZCBob2xkcywgd2hhdCB3YXMgb24gdG9wLCBhbmQgVEFQIFdFTlQgVEhST1VHSCBpZiBhIHRhcCBvbiBhCiAgICBiYW5uZXIgb3IgY29ybmVyIG5vdGUgYWxzbyByZWFjaGVkIGEgYnV0dG9uIHVuZGVybmVhdGggKGl0IHNob3VsZG4ndCkuCiAgLSBUYXAgaGlnaGxpZ2h0cyAodGhlIGJyaWVmIGludmVydCBvbiB0b3VjaCkgdGhhdCBsYW5kIHVuZGVyIGEgYmFubmVyIG9yCiAgICBub3RlOiB0aGUgc2FtZSBsZWFrLCBzZWVuIGZyb20gdGhlIHNjcmVlbiBzaWRlLgogIC0gU2xvdyBzY3JlZW4gcmVkcmF3cyAob3ZlciAyNTBtcywgdGltZWQgZnJvbSB0aGUgcmVwYWludCBob29rLCBvbmx5CiAgICB3aGlsZSBhIHRlc3QgaXMgcnVubmluZykuCgpIb3cgdG8gdXNlOgogIDEuIFB1dCB0aGlzIGZpbGUgaW4ga29yZWFkZXIvcGF0Y2hlcy8gYW5kIHJlc3RhcnQgS09SZWFkZXIuCiAgMi4gV2l0aGluIDUgbWludXRlczogaG9sZCB0aGUgdG9vbGJhciBXaS1GaSBpY29uIChXaS1GaSBvZmYsIHRoZW4gb24pLAogICAgIGNhbmNlbCBvbmUgc2NhbiwgdGFwIGEgYmFubmVyLCBwdXQgdGhlIGRldmljZSB0byBzbGVlcCBhbmQgd2FrZSBpdC4KICAzLiBTZW5kIGRpYWdub3N0aWNzLmxvZywgdGhlbiBkZWxldGUgdGhpcyBmaWxlIGFuZCByZXN0YXJ0LgpdXQoKbG9jYWwgQUNUSVZFX01JTlVURVMgPSA1ICAgLS0gbG9nZ2luZyB3aW5kb3cgYWZ0ZXIgZWFjaCBLT1JlYWRlciBzdGFydApsb2NhbCBFWFBJUkVTX0hPVVJTID0gMjQgICAtLSBhZnRlciBmaXJzdCBpbnN0YWxsOiBubyBob29rcyBhdCBhbGwKCmxvY2FsIERhdGFTdG9yYWdlID0gcmVxdWlyZSgiZGF0YXN0b3JhZ2UiKQpsb2NhbCBEZXZpY2UgPSByZXF1aXJlKCJkZXZpY2UiKQpsb2NhbCBOZXR3b3JrTWdyID0gcmVxdWlyZSgidWkvbmV0d29yay9tYW5hZ2VyIikKbG9jYWwgVUlNYW5hZ2VyID0gcmVxdWlyZSgidWkvdWltYW5hZ2VyIikKbG9jYWwgbGZzID0gcmVxdWlyZSgibGlicy9saWJrb3JlYWRlci1sZnMiKQpsb2NhbCBva190aW1lLCBrdGltZSA9IHBjYWxsKHJlcXVpcmUsICJ1aS90aW1lIikKCmxvY2FsIFNUQVRFID0gRGF0YVN0b3JhZ2U6Z2V0RGF0YURpcigpIC4uICIvbmV0d29yay10d2Vha3MtZGlhZ25vc3RpY3Muc3RhdGUiCmxvY2FsIFNTSF9QSURfRklMRSA9ICIvdG1wL2Ryb3BiZWFyX2tvcmVhZGVyLnBpZCIKCi0tIFNoYXJlZCBsb2cgY29udHJhY3QgdjE6IGFsbCBkaWFnbm9zdGljcyBhcHBlbmQgdGltZXN0YW1wZWQsIHRhZ2dlZCBsaW5lcwotLSB0byBPTkUgZmlsZSAoa29yZWFkZXIvZGlhZ25vc3RpY3MubG9nKSBzbyBhIGZ1bGwgdGVzdCBydW4gcmVhZHMgYXMgYQotLSBzaW5nbGUgY2hyb25vbG9naWNhbCBsb2cuIFJvdGF0aW9uIGF0IDIgTUIsIG9sZGVyIHBhcnQga2VwdCBhcwotLSBkaWFnbm9zdGljcy5sb2cub2xkLgpsb2NhbCBESUFHX1RBRyA9ICJuZXR3b3JrLXR3ZWFrcyIKbG9jYWwgU0hBUkVEX0xPRyA9IERhdGFTdG9yYWdlOmdldERhdGFEaXIoKSAuLiAiL2RpYWdub3N0aWNzLmxvZyIKbG9jYWwgU0hBUkVEX01BWF9CWVRFUyA9IDIgKiAxMDI0ICogMTAyNApsb2NhbCBmdW5jdGlvbiBzaGFyZWRfbG9nKGZtdCwgLi4uKQogICAgbG9jYWwgb2ssIGxpbmUgPSBwY2FsbChzdHJpbmcuZm9ybWF0LCBmbXQsIC4uLikKICAgIGlmIG5vdCBvayB0aGVuIGxpbmUgPSB0b3N0cmluZyhmbXQpIGVuZAogICAgcGNhbGwoZnVuY3Rpb24oKQogICAgICAgIGlmIChsZnMuYXR0cmlidXRlcyhTSEFSRURfTE9HLCAic2l6ZSIpIG9yIDApID4gU0hBUkVEX01BWF9CWVRFUyB0aGVuCiAgICAgICAgICAgIG9zLnJlbW92ZShTSEFSRURfTE9HIC4uICIub2xkIikKICAgICAgICAgICAgb3MucmVuYW1lKFNIQVJFRF9MT0csIFNIQVJFRF9MT0cgLi4gIi5vbGQiKQogICAgICAgIGVuZAogICAgICAgIGxvY2FsIGYgPSBpby5vcGVuKFNIQVJFRF9MT0csICJhIikKICAgICAgICBpZiBub3QgZiB0aGVuIHJldHVybiBlbmQKICAgICAgICBmOndyaXRlKG9zLmRhdGUoIiVZLSVtLSVkICVJOiVNOiVTICVwICAiKSwgIlsiLCBESUFHX1RBRywgIl0gIiwgbGluZSwgIlxuIikKICAgICAgICBmOmNsb3NlKCkKICAgIGVuZCkKZW5kCgotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQotLSBFeHBpcnkKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KCi0tIEtleWVkIHRvIHRoaXMgZmlsZSdzIHRpbWVzdGFtcDogY29weWluZyBhIGZyZXNoIGNvcHkgaW4gc3RhcnRzIGEgbmV3IDI0aC4KLS0gS2VwdCBpbiBuZXR3b3JrLXR3ZWFrcy1kaWFnbm9zdGljcy5zdGF0ZSAocGVyIHRoZSBkaWFnbm9zdGljcyBjb250cmFjdCkuCmxvY2FsIG1lID0gRGF0YVN0b3JhZ2U6Z2V0RGF0YURpcigpIC4uICIvcGF0Y2hlcy8yLXp6LW5ldHdvcmstdHdlYWtzLWRpYWdub3N0aWNzLmx1YSIKbG9jYWwgbXRpbWUgPSBsZnMuYXR0cmlidXRlcyhtZSwgIm1vZGlmaWNhdGlvbiIpIG9yIDAKLS0gT25lLXRpbWUgY2xlYW51cCBvZiB0aGUgdjEuMi4xIHNldHRpbmdzIGtleS4KcGNhbGwoZnVuY3Rpb24oKSBHX3JlYWRlcl9zZXR0aW5nczpkZWxTZXR0aW5nKCJuZXR3b3JrX3R3ZWFrc19kaWFnbm9zdGljc19maXJzdF9ydW4iKSBlbmQpCmxvY2FsIGZpcnN0CmRvCiAgICBsb2NhbCBmID0gaW8ub3BlbihTVEFURSwgInIiKQogICAgaWYgZiB0aGVuCiAgICAgICAgbG9jYWwgYSwgYiA9IGY6cmVhZCgiKmEiKTptYXRjaCgiXiglZCspICglZCspJCIpCiAgICAgICAgZjpjbG9zZSgpCiAgICAgICAgaWYgYSBhbmQgdG9udW1iZXIoYikgPT0gbXRpbWUgdGhlbiBmaXJzdCA9IHRvbnVtYmVyKGEpIGVuZAogICAgZW5kCiAgICBpZiBub3QgZmlyc3QgdGhlbgogICAgICAgIGZpcnN0ID0gb3MudGltZSgpCiAgICAgICAgbG9jYWwgdyA9IGlvLm9wZW4oU1RBVEUsICJ3IikKICAgICAgICBpZiB3IHRoZW4gdzp3cml0ZShzdHJpbmcuZm9ybWF0KCIlZCAlZCIsIGZpcnN0LCBtdGltZSkpIHc6Y2xvc2UoKSBlbmQKICAgIGVuZAplbmQKaWYgb3MudGltZSgpIC0gZmlyc3QgPiBFWFBJUkVTX0hPVVJTICogMzYwMCB0aGVuCiAgICAtLSBDb250cmFjdDogb25lIGxpbmUgaW4gdGhlIGxvZyBwZXIgc3RhcnQsIHRoZW4gbm8gaG9va3MgYXQgYWxsLgogICAgLS0gc2hhcmVkX2xvZyBpcyBmdWxseSBzZWxmLWNvbnRhaW5lZCAocGNhbGwtd3JhcHBlZCksIHNvIHRoaXMgZWFybHkKICAgIC0tIHBhdGggbmVlZHMgbm90aGluZyBlbHNlIGZyb20gdGhlIGZpbGUuCiAgICBzaGFyZWRfbG9nKCJuZXR3b3JrLXR3ZWFrcyBkaWFnbm9zdGljcyBleHBpcmVkOiBkZWxldGUgMi16ei1uZXR3b3JrLXR3ZWFrcy1kaWFnbm9zdGljcy5sdWEiKQogICAgcmV0dXJuIC0tIG5vIGhvb2tzIGF0IGFsbAplbmQKCmxvY2FsIHN0b3BfYXQgPSBvcy50aW1lKCkgKyBBQ1RJVkVfTUlOVVRFUyAqIDYwCmxvY2FsIGZ1bmN0aW9uIG9uKCkgcmV0dXJuIG9zLnRpbWUoKSA8PSBzdG9wX2F0IGVuZAoKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KLS0gTG9nCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCgpsb2NhbCB0MCAtLSBzdGFydCBvZiB0aGUgY3VycmVudCB0ZXN0IChsaXN0IG9wZW5lZCwgc2xlZXAsIGV0Yy4pCmxvY2FsIHRlc3RfdW50aWwgPSAwIC0tIHNsb3ctcmVkcmF3IHRpbWluZyBvbmx5IHJ1bnMgd2hpbGUgYSB0ZXN0IGlzIHJlY2VudAoKbG9jYWwgZnVuY3Rpb24gbm93KCkgcmV0dXJuIG9rX3RpbWUgYW5kIGt0aW1lLm5vdygpIG9yIG5pbCBlbmQKCmxvY2FsIGZ1bmN0aW9uIG1zKHNpbmNlKQogICAgaWYgbm90IChva190aW1lIGFuZCBzaW5jZSkgdGhlbiByZXR1cm4gLTEgZW5kCiAgICBsb2NhbCBvaywgdiA9IHBjYWxsKGZ1bmN0aW9uKCkgcmV0dXJuIGt0aW1lLnRvX21zKGt0aW1lLnNpbmNlKHNpbmNlKSkgZW5kKQogICAgcmV0dXJuIG9rIGFuZCB2IG9yIC0xCmVuZAoKbG9jYWwgZnVuY3Rpb24gbG9nKGZtdCwgLi4uKQogICAgLS0gc2hhcmVkX2xvZyBhZGRzIHRoZSBkYXRlLCAxMi1ob3VyIHRpbWUgYW5kIFtuZXR3b3JrLXR3ZWFrc10gdGFnOwogICAgLS0gdGhlICtObXMgb2Zmc2V0ICh0aW1lIHNpbmNlIHRoZSBjdXJyZW50IHRlc3QgYmVnYW4pIHN0YXlzIG9uIHRoZQogICAgLS0gbGluZSBjb250ZW50IGFzIGJlZm9yZS4KICAgIGxvY2FsIG9rLCBsaW5lID0gcGNhbGwoc3RyaW5nLmZvcm1hdCwgZm10LCAuLi4pCiAgICBpZiBub3Qgb2sgdGhlbiBsaW5lID0gdG9zdHJpbmcoZm10KSBlbmQKICAgIGxvY2FsIGR0ID0gdDAgYW5kIG1zKHQwKSBvciAwCiAgICBpZiBkdCA8IDAgdGhlbiBkdCA9IDAgZW5kCiAgICBzaGFyZWRfbG9nKCIrJTZkbXMgICVzIiwgZHQsIGxpbmUpCmVuZAoKbG9jYWwgZnVuY3Rpb24gcSh2KSByZXR1cm4gdiA9PSBuaWwgYW5kICIobmlsKSIgb3IgdG9zdHJpbmcodikgZW5kCgpsb2NhbCBmdW5jdGlvbiBzc2hPbigpIHJldHVybiBsZnMuYXR0cmlidXRlcyhTU0hfUElEX0ZJTEUsICJtb2RlIikgPT0gImZpbGUiIGVuZAoKLS0gT25lIG5vdGUgcGVyIHN0YXJ0LCBvbmx5IHdoaWxlIGxvZ2dpbmcsIGluIHRoZSBzaGFyZWQgTmV0d29yayBUd2Vha3MKLS0gbm90ZSBzdHlsZSB3aGVuIE5ldHdvcmsgVHdlYWtzIGlzIHByZXNlbnQgKHBsYWluIG5vdGlmaWNhdGlvbiBvdGhlcndpc2UpLgpsb2NhbCBmdW5jdGlvbiBub3RlKHRleHQpCiAgICBsb2NhbCBudF9ub3RlID0gTmV0d29ya01nci5fX25ldHdvcmtfdHdlYWtzX25vdGUKICAgIGlmIHR5cGUobnRfbm90ZSkgPT0gImZ1bmN0aW9uIiB0aGVuCiAgICAgICAgcGNhbGwobnRfbm90ZSwgdGV4dCwgdGV4dCwgMikKICAgIGVsc2UKICAgICAgICBwY2FsbChmdW5jdGlvbigpIHJlcXVpcmUoInVpL3dpZGdldC9ub3RpZmljYXRpb24iKTpub3RpZnkodGV4dCkgZW5kKQogICAgZW5kCmVuZAoKbG9jYWwgZnVuY3Rpb24gZGVzY3JpYmUodykKICAgIGlmIHR5cGUodykgfj0gInRhYmxlIiB0aGVuIHJldHVybiBxKHcpIGVuZAogICAgbG9jYWwgdGV4dCA9IHcudGV4dCBvciB3LnRpdGxlIG9yIHcubmFtZSBvciAiIgogICAgdGV4dCA9IHRvc3RyaW5nKHRleHQpOmdzdWIoIlxuIiwgIiAiKTpzdWIoMSwgNjApCiAgICBsb2NhbCBraW5kID0gdy50b2FzdCBhbmQgIm5vdGUvYmFubmVyIiBvciAody5idXR0b25zIGFuZCAiZGlhbG9nIiBvciAody5uYW1lIG9yICJ3aWRnZXQiKSkKICAgIHJldHVybiBzdHJpbmcuZm9ybWF0KCIlcyBcIiVzXCIiLCBraW5kLCB0ZXh0KQplbmQKCmxvY2FsIGZ1bmN0aW9uIHRvcFdpZGdldCgpCiAgICBsb2NhbCBzdCA9IFVJTWFuYWdlci5fd2luZG93X3N0YWNrCiAgICByZXR1cm4gc3QgYW5kIHN0WyNzdF0gYW5kIHN0WyNzdF0ud2lkZ2V0CmVuZAoKLS0gQXJlYSBvZiB0aGUgdG9hc3Qgb24gdG9wIChiYW5uZXIgLyBjb3JuZXIgbm90ZSksIGlmIGFueS4KbG9jYWwgZnVuY3Rpb24gdG9hc3RBcmVhKCkKICAgIGxvY2FsIHcgPSB0b3BXaWRnZXQoKQogICAgaWYgbm90ICh3IGFuZCB3LnRvYXN0KSB0aGVuIHJldHVybiBuaWwgZW5kCiAgICByZXR1cm4gKHcuZnJhbWUgYW5kIHcuZnJhbWUuZGltZW4pIG9yIHcuZGltZW4sIHcKZW5kCgpsb2NhbCBmdW5jdGlvbiBpbnNpZGUocG9zLCBkKQogICAgaWYgdHlwZShwb3MpIH49ICJ0YWJsZSIgb3IgdHlwZShkKSB+PSAidGFibGUiIHRoZW4gcmV0dXJuIGZhbHNlIGVuZAogICAgbG9jYWwgcHgsIHB5LCBkeCwgZHksIGR3LCBkaCA9IHBvcy54LCBwb3MueSwgZC54LCBkLnksIGQudywgZC5oCiAgICAtLSBFeHBsaWNpdCBuaWwgY2hlY2tzOiAwIGlzIGZhbHN5IGluIEx1YSwgYW5kIGZ1bGwtd2lkdGggYmFubmVycwogICAgLS0gc2l0IGF0IHg9MCDigJQgYSB0cnV0aGluZXNzIGNoYWluIHdvdWxkIG5ldmVyIG1hdGNoIHRoZW0uCiAgICBpZiBweCA9PSBuaWwgb3IgcHkgPT0gbmlsIG9yIGR4ID09IG5pbCBvciBkeSA9PSBuaWwgb3IgZHcgPT0gbmlsIG9yIGRoID09IG5pbCB0aGVuCiAgICAgICAgcmV0dXJuIGZhbHNlCiAgICBlbmQKICAgIHJldHVybiBweCA+PSBkeCBhbmQgcHggPCBkeCArIGR3IGFuZCBweSA+PSBkeSBhbmQgcHkgPCBkeSArIGRoCmVuZAoKbG9jYWwgZnVuY3Rpb24gc3RhcnRUZXN0KHdoYXQpCiAgICB0MCA9IG5vdygpCiAgICB0ZXN0X3VudGlsID0gb3MudGltZSgpICsgOTAKICAgIGxvZygiPT09PT09PT09PT09PT09PT09PT0gJXMgPT09PT09PT09PT09PT09PT09PT0iLCB3aGF0KQogICAgbG9jYWwgb2tfYywgY29ubmVjdGVkID0gcGNhbGwoTmV0d29ya01nci5pc0Nvbm5lY3RlZCwgTmV0d29ya01ncikKICAgIGxvY2FsIG50ID0gR19yZWFkZXJfc2V0dGluZ3M6cmVhZFNldHRpbmcoIm5ldHdvcmtfdHdlYWtzIikgb3Ige30KICAgIGxvZygiV2ktRmkgcmFkaW8gJXMgfCBjb25uZWN0ZWQgJXMgfCBjb25uZWN0aW5nICVzIHwgU1NIICVzIHwgc3R5bGUgJXMiLAogICAgICAgIE5ldHdvcmtNZ3I6aXNXaWZpT24oKSBhbmQgIm9uIiBvciAib2ZmIiwgb2tfYyBhbmQgcShjb25uZWN0ZWQpIG9yICI/IiwKICAgICAgICBxKE5ldHdvcmtNZ3IucGVuZGluZ19jb25uZWN0aW9uKSwgc3NoT24oKSBhbmQgIm9uIiBvciAib2ZmIiwKICAgICAgICBxKG50LmNvbm5lY3Rfc3R5bGUgb3IgImJhbm5lciAoZGVmYXVsdCkiKSkKZW5kCgpsb2coIj09PT09PT09PT09PT09PT09PT09IG5ldHdvcmstdHdlYWtzIGRpYWdub3N0aWNzIDEuMi4zIHN0YXJ0ZWQgPT09PT09PT09PT09PT09PT09PT0iKQpsb2coImxvZ2dpbmcgZm9yICVkIG1pbiAodW50aWwgJXMpIHwgZXhwaXJlcyAlcyB8IGxvZyAlcyIsCiAgICBBQ1RJVkVfTUlOVVRFUywgb3MuZGF0ZSgiJUk6JU0gJXAiLCBzdG9wX2F0KSwKICAgIG9zLmRhdGUoIiViICVkICVJOiVNICVwIiwgZmlyc3QgKyBFWFBJUkVTX0hPVVJTICogMzYwMCksIFNIQVJFRF9MT0cpCgotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQotLSBOZXR3b3JrIGxpc3Qgb3BlbmVyICh0b29sYmFyIGhvbGQgbG9va3MgaXQgdXAgYXQgY2FsbCB0aW1lKQotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQoKbG9jYWwgb3JpZ19jaG9vc2UgPSBOZXR3b3JrTWdyLl9fbmV0d29ya190d2Vha3NfY2hvb3NlX25ldHdvcmsKaWYgdHlwZShvcmlnX2Nob29zZSkgPT0gImZ1bmN0aW9uIiB0aGVuCiAgICBOZXR3b3JrTWdyLl9fbmV0d29ya190d2Vha3NfY2hvb3NlX25ldHdvcmsgPSBmdW5jdGlvbiguLi4pCiAgICAgICAgaWYgbm90IG9uKCkgdGhlbiByZXR1cm4gb3JpZ19jaG9vc2UoLi4uKSBlbmQKICAgICAgICBwY2FsbChzdGFydFRlc3QsICJuZXR3b3JrIGxpc3Qgb3BlbmVkIikKICAgICAgICBsb2NhbCB0ID0gbm93KCkKICAgICAgICBsb2NhbCByZXMgPSB7IHBjYWxsKG9yaWdfY2hvb3NlLCAuLi4pIH0KICAgICAgICBwY2FsbChsb2csICJvcGVuZXIgcmV0dXJuZWQgYWZ0ZXIgJWRtcyVzIiwgbXModCksIHJlc1sxXSBhbmQgIiIgb3IgKCIgIEVSUk9SOiAiIC4uIHEocmVzWzJdKSkpCiAgICAgICAgaWYgbm90IHJlc1sxXSB0aGVuIGVycm9yKHJlc1syXSwgMCkgZW5kCiAgICAgICAgcmV0dXJuIHVucGFjayhyZXMsIDIpCiAgICBlbmQKZWxzZQogICAgcGNhbGwobG9nLCAiTmV0d29yayBUd2Vha3MgMS42LjArIG5vdCBmb3VuZDogbm8gbmV0d29yayBsaXN0IHRvIHdhdGNoIikKZW5kCgotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQotLSBTaGVsbCBjb21tYW5kcwotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQoKbG9jYWwgTkVUX0NNRCA9IHsgIndpZmkiLCAid3BhIiwgImRoY3AiLCAib2J0YWluIiwgInJlbGVhc2UlLWlwIiwgInBraWxsIiwgImRyb3BiZWFyIiwgImlwdGFibGVzIiB9CmxvY2FsIG9yaWdfZXhlYyA9IG9zLmV4ZWN1dGUKb3MuZXhlY3V0ZSA9IGZ1bmN0aW9uKGNtZCwgLi4uKQogICAgaWYgbm90IG9uKCkgb3IgdHlwZShjbWQpIH49ICJzdHJpbmciIHRoZW4gcmV0dXJuIG9yaWdfZXhlYyhjbWQsIC4uLikgZW5kCiAgICBsb2NhbCByZWxldmFudCA9IGZhbHNlCiAgICBmb3IgX2ksIHAgaW4gaXBhaXJzKE5FVF9DTUQpIGRvIGlmIGNtZDpmaW5kKHApIHRoZW4gcmVsZXZhbnQgPSB0cnVlIGJyZWFrIGVuZCBlbmQKICAgIGlmIG5vdCByZWxldmFudCB0aGVuIHJldHVybiBvcmlnX2V4ZWMoY21kLCAuLi4pIGVuZAogICAgbG9jYWwgdCA9IG5vdygpCiAgICBsb2NhbCByMSwgcjIsIHIzID0gb3JpZ19leGVjKGNtZCwgLi4uKQogICAgcGNhbGwobG9nLCAic2hlbGw6ICVzICAtPiAlcyAoJWRtcykiLCBjbWQsIHEocjEpLCBtcyh0KSkKICAgIHJldHVybiByMSwgcjIsIHIzCmVuZAoKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KLS0gV2ktRmkgY2xpZW50ICh3cGFfc3VwcGxpY2FudCkgY2FsbHMKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KCmxvY2FsIG9rX3csIFdwYUNsaWVudCA9IHBjYWxsKHJlcXVpcmUsICJsai13cGFjbGllbnQvd3BhY2xpZW50IikKaWYgb2tfdyBhbmQgdHlwZShXcGFDbGllbnQpID09ICJ0YWJsZSIgYW5kIHR5cGUoV3BhQ2xpZW50Ll9faW5kZXgpID09ICJ0YWJsZSIgdGhlbgogICAgbG9jYWwgTSA9IFdwYUNsaWVudC5fX2luZGV4CiAgICBsb2NhbCBvcmlnX25ldyA9IFdwYUNsaWVudC5uZXcKICAgIFdwYUNsaWVudC5uZXcgPSBmdW5jdGlvbihjdHJsLCAuLi4pCiAgICAgICAgbG9jYWwgdCA9IG5vdygpCiAgICAgICAgbG9jYWwgYywgZXJyID0gb3JpZ19uZXcoY3RybCwgLi4uKQogICAgICAgIGlmIG9uKCkgdGhlbiBwY2FsbChsb2csICJ3cGE6IG9wZW4gJXMgLT4gJXMgJXMgKCVkbXMpIiwgcShjdHJsKSwgYyBhbmQgIm9rIiBvciAiRkFJTEVEIiwgcShlcnIpLCBtcyh0KSkgZW5kCiAgICAgICAgcmV0dXJuIGMsIGVycgogICAgZW5kCiAgICBsb2NhbCBmdW5jdGlvbiB0aW1lZChuYW1lLCBmbXQpCiAgICAgICAgbG9jYWwgb3JpZyA9IE1bbmFtZV0KICAgICAgICBpZiB0eXBlKG9yaWcpIH49ICJmdW5jdGlvbiIgdGhlbiByZXR1cm4gZW5kCiAgICAgICAgTVtuYW1lXSA9IGZ1bmN0aW9uKHNlbGYsIC4uLikKICAgICAgICAgICAgaWYgbm90IG9uKCkgdGhlbiByZXR1cm4gb3JpZyhzZWxmLCAuLi4pIGVuZAogICAgICAgICAgICBsb2NhbCB0ID0gbm93KCkKICAgICAgICAgICAgbG9jYWwgciA9IHsgb3JpZyhzZWxmLCAuLi4pIH0KICAgICAgICAgICAgcGNhbGwoZnVuY3Rpb24oKQogICAgICAgICAgICAgICAgbG9nKCJ3cGE6ICVzIC0+ICVzICglZG1zKSIsIG5hbWUsIGZtdCBhbmQgZm10KHIpIG9yIChxKHJbMV0pIC4uICIgIiAuLiBxKHJbMl0pKSwgbXModCkpCiAgICAgICAgICAgIGVuZCkKICAgICAgICAgICAgcmV0dXJuIHVucGFjayhyKQogICAgICAgIGVuZAogICAgZW5kCiAgICAtLSBOYW1lcyB0aGF0IHdvdWxkIHNob3cgYmxhbmsgb3IgYnJva2VuOiBlbXB0eSwgXHgwMC9jb250cm9sIGJ5dGVzCiAgICAtLSAoaGlkZGVuIG5ldHdvcmtzIHBhZCB3aXRoIHplcm9zKSwgb3Igbm90IHZhbGlkIFVURi04IG9uY2UgZGVjb2RlZC4KICAgIC0tIExvZ2dlZCByYXcsIGFzIHdwYV9zdXBwbGljYW50IHNlbmRzIHRoZW0uCiAgICBsb2NhbCBva191LCB1dGlsID0gcGNhbGwocmVxdWlyZSwgInV0aWwiKQogICAgbG9jYWwgZnVuY3Rpb24gb2RkTmFtZXMobGlzdCkKICAgICAgICBsb2NhbCBvZGQgPSB7fQogICAgICAgIGZvciBfaSwgYXAgaW4gaXBhaXJzKGxpc3QpIGRvCiAgICAgICAgICAgIGxvY2FsIG4gPSB0b3N0cmluZyhhcC5zc2lkIG9yICIiKQogICAgICAgICAgICBsb2NhbCBiYWQgPSBuID09ICIiIG9yIG46ZmluZCgiXFx4WzAxXSV4Iikgfj0gbmlsIG9yIG46ZmluZCgiWyV6XDEtXDMxXSIpIH49IG5pbAogICAgICAgICAgICBpZiBub3QgYmFkIGFuZCBuOmZpbmQoIlxceCV4JXgiKSBhbmQgb2tfdSB0aGVuCiAgICAgICAgICAgICAgICBsb2NhbCBkZWMgPSBuOmdzdWIoIlxceCgleCV4KSIsIGZ1bmN0aW9uKGgpIHJldHVybiBzdHJpbmcuY2hhcih0b251bWJlcihoLCAxNikpIGVuZCkKICAgICAgICAgICAgICAgIGJhZCA9IHV0aWwuZml4VXRmOChkZWMsICI/Iikgfj0gZGVjCiAgICAgICAgICAgIGVuZAogICAgICAgICAgICBpZiBiYWQgdGhlbiBvZGRbI29kZCArIDFdID0gc3RyaW5nLmZvcm1hdCgiWyVzXSAlcSIsIHRvc3RyaW5nKGFwLmJzc2lkKSwgbikgZW5kCiAgICAgICAgZW5kCiAgICAgICAgcmV0dXJuIG9kZAogICAgZW5kCiAgICBsb2NhbCBmdW5jdGlvbiBjb3VudChyKQogICAgICAgIGlmIHR5cGUoclsxXSkgfj0gInRhYmxlIiB0aGVuIHJldHVybiAibm90aGluZzogIiAuLiBxKHJbMl0pIGVuZAogICAgICAgIGxvY2FsIG9kZCA9IG9kZE5hbWVzKHJbMV0pCiAgICAgICAgbG9jYWwgcyA9ICNyWzFdIC4uICIgYWNjZXNzIHBvaW50cyIKICAgICAgICBpZiAjb2RkID4gMCB0aGVuIHMgPSBzIC4uICIgfCBvZGQgbmFtZXM6ICIgLi4gdGFibGUuY29uY2F0KG9kZCwgIiwgIikgZW5kCiAgICAgICAgcmV0dXJuIHMKICAgIGVuZAogICAgbG9jYWwgZnVuY3Rpb24gc3NpZChyKSByZXR1cm4gdHlwZShyWzFdKSA9PSAidGFibGUiIGFuZCBxKHJbMV0uc3NpZCkgb3IgIm5vbmUiIGVuZAogICAgdGltZWQoImF0dGFjaCIpOyB0aW1lZCgiZGV0YWNoIik7IHRpbWVkKCJkb1NjYW4iKQogICAgdGltZWQoImdldFNjYW5SZXN1bHRzIiwgY291bnQpOyB0aW1lZCgic2NhblRoZW5HZXRSZXN1bHRzIiwgY291bnQpCiAgICB0aW1lZCgiZ2V0Q29ubmVjdGVkTmV0d29yayIsIHNzaWQpOyB0aW1lZCgiZ2V0Q3VycmVudE5ldHdvcmsiLCBzc2lkKQogICAgLS0gT25seSB0aGUgZXZlbnRzIHRoYXQgbWF0dGVyIChhIHNjYW4gYWxzbyBzZW5kcyBvbmUgQlNTLUFEREVEIHBlciBBUCkuCiAgICBsb2NhbCBvcmlnX3JlYWQgPSBNLnJlYWRBbGxFdmVudHMKICAgIGlmIHR5cGUob3JpZ19yZWFkKSA9PSAiZnVuY3Rpb24iIHRoZW4KICAgICAgICBNLnJlYWRBbGxFdmVudHMgPSBmdW5jdGlvbihzZWxmLCBldnMsIC4uLikKICAgICAgICAgICAgbG9jYWwgciA9IHsgb3JpZ19yZWFkKHNlbGYsIGV2cywgLi4uKSB9CiAgICAgICAgICAgIGlmIG9uKCkgYW5kIHR5cGUoZXZzKSA9PSAidGFibGUiIHRoZW4KICAgICAgICAgICAgICAgIGxvY2FsIGFkZGVkID0gMAogICAgICAgICAgICAgICAgZm9yIF9pLCBldiBpbiBpcGFpcnMoZXZzKSBkbwogICAgICAgICAgICAgICAgICAgIGxvY2FsIG0gPSB0b3N0cmluZyhldi5tc2cpCiAgICAgICAgICAgICAgICAgICAgaWYgbTpmaW5kKCJCU1MlLUFEREVEIikgb3IgbTpmaW5kKCJCU1MlLVJFTU9WRUQiKSB0aGVuIGFkZGVkID0gYWRkZWQgKyAxCiAgICAgICAgICAgICAgICAgICAgZWxzZSBwY2FsbChsb2csICJ3cGE6IGV2ZW50ICVzIiwgbSkgZW5kCiAgICAgICAgICAgICAgICBlbmQKICAgICAgICAgICAgICAgIGlmIGFkZGVkID4gMCB0aGVuIHBjYWxsKGxvZywgIndwYTogJWQgYWNjZXNzIHBvaW50IGFkZC9yZW1vdmUgZXZlbnRzIiwgYWRkZWQpIGVuZAogICAgICAgICAgICBlbmQKICAgICAgICAgICAgcmV0dXJuIHVucGFjayhyKQogICAgICAgIGVuZAogICAgZW5kCmVuZAoKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KLS0gTmV0d29ya01nciBzdGVwcwotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQoKZm9yIF9pLCBuYW1lIGluIGlwYWlycyh7CiAgICAiZ2V0TmV0d29ya0xpc3QiLCAiYXV0aGVudGljYXRlTmV0d29yayIsICJvYnRhaW5JUCIsICJyZWxlYXNlSVAiLAogICAgImRpc2Nvbm5lY3ROZXR3b3JrIiwgImRpc2FibGVXaWZpIiwgInRvZ2dsZVdpZmlPbiIsICJ0b2dnbGVXaWZpT2ZmIiwKICAgICJ0dXJuT25XaWZpIiwgInR1cm5PZmZXaWZpIiwgInJlY29ubmVjdE9yU2hvd05ldHdvcmtNZW51IiwgInJlc3RvcmVXaWZpQXN5bmMiLAogICAgIl9hYm9ydFdpZmlDb25uZWN0aW9uIiwgInNjaGVkdWxlQ29ubmVjdGl2aXR5Q2hlY2siLCAidW5zY2hlZHVsZUNvbm5lY3Rpdml0eUNoZWNrIiwKfSkgZG8KICAgIGxvY2FsIG9yaWcgPSBOZXR3b3JrTWdyW25hbWVdCiAgICBpZiB0eXBlKG9yaWcpID09ICJmdW5jdGlvbiIgdGhlbgogICAgICAgIE5ldHdvcmtNZ3JbbmFtZV0gPSBmdW5jdGlvbihzZWxmLCAuLi4pCiAgICAgICAgICAgIGlmIG5vdCBvbigpIHRoZW4gcmV0dXJuIG9yaWcoc2VsZiwgLi4uKSBlbmQKICAgICAgICAgICAgbG9jYWwgdCA9IG5vdygpCiAgICAgICAgICAgIHBjYWxsKGxvZywgIk5ldHdvcmtNZ3I6JXMgc3RhcnRlZCIsIG5hbWUpCiAgICAgICAgICAgIGlmIG5hbWUgPT0gIl9hYm9ydFdpZmlDb25uZWN0aW9uIiB0aGVuCiAgICAgICAgICAgICAgICAtLSBXaG8gZ2F2ZSB1cCBvbiB0aGUgY29ubmVjdGlvbiAoaXQgdHVybnMgV2ktRmkgb2ZmKS4KICAgICAgICAgICAgICAgIHBjYWxsKGxvZywgIiAgY2FsbGVkIGZyb206JXMiLCBkZWJ1Zy50cmFjZWJhY2soIiIsIDIpOmdzdWIoIlxuJXMqIiwgIlxuICAgICAgIikpCiAgICAgICAgICAgIGVuZAogICAgICAgICAgICBsb2NhbCByID0geyBvcmlnKHNlbGYsIC4uLikgfQogICAgICAgICAgICBwY2FsbChsb2csICJOZXR3b3JrTWdyOiVzIGRvbmUgKCVkbXMpIC0+ICVzIiwgbmFtZSwgbXModCksIHEoclsxXSkpCiAgICAgICAgICAgIHJldHVybiB1bnBhY2socikKICAgICAgICBlbmQKICAgIGVuZAplbmQKCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCi0tIFNsZWVwIC8gd2FrZSBhbmQgbmV0d29yayBldmVudHMKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KCmxvY2FsIE5FVF9FVkVOVFMgPSB7CiAgICBvbk5ldHdvcmtDb25uZWN0aW5nID0gdHJ1ZSwgb25OZXR3b3JrQ29ubmVjdGVkID0gdHJ1ZSwgb25OZXR3b3JrRGlzY29ubmVjdGVkID0gdHJ1ZSwKICAgIG9uTmV0d29ya1R3ZWFrc1N0YXRlQ2hhbmdlZCA9IHRydWUsCn0KbG9jYWwgb3JpZ19iYyA9IFVJTWFuYWdlci5icm9hZGNhc3RFdmVudApVSU1hbmFnZXIuYnJvYWRjYXN0RXZlbnQgPSBmdW5jdGlvbihzZWxmLCBldiwgLi4uKQogICAgbG9jYWwgaCA9IG9uKCkgYW5kIHR5cGUoZXYpID09ICJ0YWJsZSIgYW5kIGV2LmhhbmRsZXIKICAgIGlmIGggPT0gIm9uU3VzcGVuZCIgdGhlbgogICAgICAgIC0tIFRoZSBkaWFnbm9zdGljJ3Mgb3duIGxvZ2dpbmcgbXVzdCBuZXZlciBicmVhayB0aGUgb3JpZ2luYWwsCiAgICAgICAgLS0gbGVhc3Qgb2YgYWxsIG9uIHRoZSBzdXNwZW5kIHBhdGg6IG9yaWdpbmFsIGFsd2F5cyBydW5zLgogICAgICAgIHBjYWxsKHN0YXJ0VGVzdCwgImdvaW5nIHRvIHNsZWVwIikKICAgICAgICBsb2NhbCB0ID0gbm93KCkKICAgICAgICBsb2NhbCByID0gb3JpZ19iYyhzZWxmLCBldiwgLi4uKQogICAgICAgIHBjYWxsKGZ1bmN0aW9uKCkKICAgICAgICAgICAgbG9nKCJzbGVlcCBoYW5kbGVkIGluICVkbXMgfCBXaS1GaSByYWRpbyAlcyB8IFNTSCAlcyVzIiwgbXModCksCiAgICAgICAgICAgICAgICBOZXR3b3JrTWdyOmlzV2lmaU9uKCkgYW5kICJvbiAoISkiIG9yICJvZmYiLCBzc2hPbigpIGFuZCAiU1RJTEwgT04iIG9yICJvZmYiLAogICAgICAgICAgICAgICAgTmV0d29ya01nci5wZW5kaW5nX2Nvbm5lY3Rpb24gYW5kICIgfCBhIGNvbm5lY3Qgd2FzIHN0aWxsIHBlbmRpbmcgKCEpIiBvciAiIikKICAgICAgICBlbmQpCiAgICAgICAgcmV0dXJuIHIKICAgIGVsc2VpZiBoID09ICJvblJlc3VtZSIgdGhlbgogICAgICAgIHBjYWxsKHN0YXJ0VGVzdCwgIndva2UgdXAiKQogICAgICAgIGxvY2FsIHIgPSBvcmlnX2JjKHNlbGYsIGV2LCAuLi4pCiAgICAgICAgcGNhbGwoZnVuY3Rpb24oKQogICAgICAgICAgICBsb2coIndha2UgaGFuZGxlZCB8IFdpLUZpIHJhZGlvICVzIHwgU1NIICVzIChleHBlY3RlZCBvZmYgYWZ0ZXIgc2xlZXApIiwKICAgICAgICAgICAgICAgIE5ldHdvcmtNZ3I6aXNXaWZpT24oKSBhbmQgIm9uIiBvciAib2ZmIiwgc3NoT24oKSBhbmQgIk9OICghKSIgb3IgIm9mZiIpCiAgICAgICAgZW5kKQogICAgICAgIHJldHVybiByCiAgICBlbHNlaWYgaCBhbmQgTkVUX0VWRU5UU1toXSB0aGVuCiAgICAgICAgcGNhbGwoZnVuY3Rpb24oKQogICAgICAgICAgICBsb2coImV2ZW50OiAlcyB8IFdpLUZpIHJhZGlvICVzIHwgU1NIICVzIiwgaDpzdWIoMyksIE5ldHdvcmtNZ3I6aXNXaWZpT24oKSBhbmQgIm9uIiBvciAib2ZmIiwKICAgICAgICAgICAgICAgIHNzaE9uKCkgYW5kICJvbiIgb3IgIm9mZiIpCiAgICAgICAgZW5kKQogICAgZW5kCiAgICByZXR1cm4gb3JpZ19iYyhzZWxmLCBldiwgLi4uKQplbmQKCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCi0tIFNjcmVlbjogcG9wdXBzLCB0YXBzLCB0YXAtdGhyb3VnaCwgaGlnaGxpZ2h0cywgc2xvdyByZWRyYXdzCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCgpsb2NhbCBvcmlnX3Nob3cgPSBVSU1hbmFnZXIuc2hvdwpVSU1hbmFnZXIuc2hvdyA9IGZ1bmN0aW9uKHNlbGYsIHcsIC4uLikKICAgIGlmIG9uKCkgYW5kIHR5cGUodykgPT0gInRhYmxlIiBhbmQgKHcudGV4dCBvciB3LnRpdGxlKSB0aGVuCiAgICAgICAgcGNhbGwoZnVuY3Rpb24oKQogICAgICAgICAgICBsb2coInNob3cgJXMlcyIsIGRlc2NyaWJlKHcpLCBEZXZpY2Uuc2NyZWVuX3NhdmVyX21vZGUgYW5kICIgIDwtLSBPVkVSIFRIRSBTTEVFUCBTQ1JFRU4gKCEpIiBvciAiIikKICAgICAgICBlbmQpCiAgICBlbmQKICAgIHJldHVybiBvcmlnX3Nob3coc2VsZiwgdywgLi4uKQplbmQKCmxvY2FsIG9yaWdfY2xvc2UgPSBVSU1hbmFnZXIuY2xvc2UKVUlNYW5hZ2VyLmNsb3NlID0gZnVuY3Rpb24oc2VsZiwgdywgLi4uKQogICAgaWYgb24oKSBhbmQgdHlwZSh3KSA9PSAidGFibGUiIGFuZCAody50ZXh0IG9yIHcudGl0bGUpIHRoZW4gcGNhbGwobG9nLCAiY2xvc2UgJXMiLCBkZXNjcmliZSh3KSkgZW5kCiAgICByZXR1cm4gb3JpZ19jbG9zZShzZWxmLCB3LCAuLi4pCmVuZAoKLS0gVGhlIGxhc3QgdGFwLCBhbmQgd2hldGhlciBpdCBsYW5kZWQgb24gYSBiYW5uZXIgLyBub3RlIG9uIHRvcC4KbG9jYWwgbGFzdF90YXAgPSB7IGF0ID0gMCB9CmxvY2FsIG9yaWdfc2VuZCA9IFVJTWFuYWdlci5zZW5kRXZlbnQKVUlNYW5hZ2VyLnNlbmRFdmVudCA9IGZ1bmN0aW9uKHNlbGYsIGV2LCAuLi4pCiAgICBpZiBvbigpIGFuZCB0eXBlKGV2KSA9PSAidGFibGUiIGFuZCBldi5oYW5kbGVyID09ICJvbkdlc3R1cmUiIHRoZW4KICAgICAgICBsb2NhbCBnID0gZXYuYXJncyBhbmQgZXYuYXJnc1sxXQogICAgICAgIGlmIHR5cGUoZykgPT0gInRhYmxlIiBhbmQgKGcuZ2VzID09ICJ0YXAiIG9yIGcuZ2VzID09ICJob2xkIikgdGhlbgogICAgICAgICAgICBsb2NhbCBhcmVhLCB0b2FzdCA9IHRvYXN0QXJlYSgpCiAgICAgICAgICAgIGxvY2FsIG9uX3RvYXN0ID0gaW5zaWRlKGcucG9zLCBhcmVhKQogICAgICAgICAgICBsYXN0X3RhcCA9IHsgYXQgPSBvcy50aW1lKCksIG9uX3RvYXN0ID0gb25fdG9hc3QsIHRvYXN0ID0gdG9hc3QgfQogICAgICAgICAgICBwY2FsbChmdW5jdGlvbigpCiAgICAgICAgICAgICAgICBsb2coIiVzIGF0ICVzLCVzIChvbiB0b3A6ICVzJXMpIiwgZy5nZXMsIHEoZy5wb3MgYW5kIGcucG9zLngpLCBxKGcucG9zIGFuZCBnLnBvcy55KSwKICAgICAgICAgICAgICAgICAgICBkZXNjcmliZSh0b3BXaWRnZXQoKSksIG9uX3RvYXN0IGFuZCAiLCB0YXAgaXMgT04gaXQiIG9yICIiKQogICAgICAgICAgICBlbmQpCiAgICAgICAgZW5kCiAgICBlbmQKICAgIHJldHVybiBvcmlnX3NlbmQoc2VsZiwgZXYsIC4uLikKZW5kCgotLSBBIGJ1dHRvbiB0aGF0IGZpcmVzIHJpZ2h0IGFmdGVyIGEgdGFwIG9uIGEgYmFubmVyID0gdGhlIHRhcCBsZWFrZWQgdGhyb3VnaC4KbG9jYWwgZnVuY3Rpb24gbGVha0NoZWNrKGtpbmQsIGxhYmVsKQogICAgaWYgb24oKSBhbmQgbGFzdF90YXAub25fdG9hc3QgYW5kIG9zLnRpbWUoKSAtIGxhc3RfdGFwLmF0IDw9IDEgdGhlbgogICAgICAgIHBjYWxsKGxvZywgIlRBUCBXRU5UIFRIUk9VR0ggJXMgdG8gJXMgXCIlc1wiIHVuZGVybmVhdGggKCEpIiwgZGVzY3JpYmUobGFzdF90YXAudG9hc3QpLCBraW5kLCBxKGxhYmVsKSkKICAgIGVuZAplbmQKbG9jYWwgb2tfYiwgQnV0dG9uID0gcGNhbGwocmVxdWlyZSwgInVpL3dpZGdldC9idXR0b24iKQppZiBva19iIGFuZCB0eXBlKEJ1dHRvbikgPT0gInRhYmxlIiBhbmQgQnV0dG9uLm9uVGFwU2VsZWN0QnV0dG9uIHRoZW4KICAgIGxvY2FsIG9yaWcgPSBCdXR0b24ub25UYXBTZWxlY3RCdXR0b24KICAgIEJ1dHRvbi5vblRhcFNlbGVjdEJ1dHRvbiA9IGZ1bmN0aW9uKHNlbGYsIC4uLikKICAgICAgICBsZWFrQ2hlY2soImJ1dHRvbiIsIHNlbGYudGV4dCBvciBzZWxmLmljb24pCiAgICAgICAgcmV0dXJuIG9yaWcoc2VsZiwgLi4uKQogICAgZW5kCmVuZApsb2NhbCBva19pLCBJY29uQnV0dG9uID0gcGNhbGwocmVxdWlyZSwgInVpL3dpZGdldC9pY29uYnV0dG9uIikKaWYgb2tfaSBhbmQgdHlwZShJY29uQnV0dG9uKSA9PSAidGFibGUiIGFuZCBJY29uQnV0dG9uLm9uVGFwSWNvbkJ1dHRvbiB0aGVuCiAgICBsb2NhbCBvcmlnID0gSWNvbkJ1dHRvbi5vblRhcEljb25CdXR0b24KICAgIEljb25CdXR0b24ub25UYXBJY29uQnV0dG9uID0gZnVuY3Rpb24oc2VsZiwgLi4uKQogICAgICAgIGxlYWtDaGVjaygiaWNvbiIsIHNlbGYuaWNvbikKICAgICAgICByZXR1cm4gb3JpZyhzZWxmLCAuLi4pCiAgICBlbmQKZW5kCgotLSBUb3VjaCBoaWdobGlnaHQgKGludmVydCkgZHJhd24gdW5kZXIgYSBiYW5uZXIgLyBub3RlLgpsb2NhbCBvcmlnX2ludmVydCA9IFVJTWFuYWdlci53aWRnZXRJbnZlcnQKaWYgdHlwZShvcmlnX2ludmVydCkgPT0gImZ1bmN0aW9uIiB0aGVuCiAgICBVSU1hbmFnZXIud2lkZ2V0SW52ZXJ0ID0gZnVuY3Rpb24oc2VsZiwgdywgeCwgeSwgd2QsIGh0LCAuLi4pCiAgICAgICAgaWYgb24oKSB0aGVuCiAgICAgICAgICAgIGxvY2FsIGFyZWEsIHRvYXN0ID0gdG9hc3RBcmVhKCkKICAgICAgICAgICAgbG9jYWwgZCA9IHsgeCA9IHggb3IgKHcgYW5kIHcuZGltZW4gYW5kIHcuZGltZW4ueCksIHkgPSB5IG9yICh3IGFuZCB3LmRpbWVuIGFuZCB3LmRpbWVuLnkpIH0KICAgICAgICAgICAgaWYgYXJlYSBhbmQgaW5zaWRlKGQsIGFyZWEpIGFuZCB3IH49IHRvYXN0IHRoZW4KICAgICAgICAgICAgICAgIHBjYWxsKGxvZywgIlRPVUNIIEhJR0hMSUdIVCB1bmRlciAlcyAoYSB0YXAgcmVhY2hlZCB0aGUgc2NyZWVuIGJlaGluZCBpdCkgKCEpIiwgZGVzY3JpYmUodG9hc3QpKQogICAgICAgICAgICBlbmQKICAgICAgICBlbmQKICAgICAgICByZXR1cm4gb3JpZ19pbnZlcnQoc2VsZiwgdywgeCwgeSwgd2QsIGh0LCAuLi4pCiAgICBlbmQKZW5kCgotLSBTbG93IHJlZHJhd3MsIHRpbWVkIGZyb20gdGhlIHJlcGFpbnQgaG9vayAobm8gdGltZXJzKTogb25seSByZXBvcnRlZAotLSB3aGlsZSBhIHRlc3QgaXMgcmVjZW50Lgpsb2NhbCBvcmlnX3JlcGFpbnQgPSBVSU1hbmFnZXIuX3JlcGFpbnQKaWYgdHlwZShvcmlnX3JlcGFpbnQpID09ICJmdW5jdGlvbiIgdGhlbgogICAgVUlNYW5hZ2VyLl9yZXBhaW50ID0gZnVuY3Rpb24oc2VsZiwgLi4uKQogICAgICAgIGlmIG5vdCBvbigpIG9yIG9zLnRpbWUoKSA+IHRlc3RfdW50aWwgdGhlbiByZXR1cm4gb3JpZ19yZXBhaW50KHNlbGYsIC4uLikgZW5kCiAgICAgICAgbG9jYWwgdCA9IG5vdygpCiAgICAgICAgbG9jYWwgciA9IG9yaWdfcmVwYWludChzZWxmLCAuLi4pCiAgICAgICAgbG9jYWwgZCA9IG1zKHQpCiAgICAgICAgaWYgZCA+IDI1MCB0aGVuIHBjYWxsKGxvZywgInNsb3cgcmVkcmF3OiAlZG1zIChvbiB0b3A6ICVzKSIsIGQsIGRlc2NyaWJlKHRvcFdpZGdldCgpKSkgZW5kCiAgICAgICAgcmV0dXJuIHIKICAgIGVuZAplbmQKCi0tIE9uZSBub3RpY2Ugc28geW91IGtub3cgaXQncyBvbiAob25seSB3aGlsZSBsb2dnaW5nKS4KVUlNYW5hZ2VyOm5leHRUaWNrKGZ1bmN0aW9uKCkKICAgIG5vdGUoc3RyaW5nLmZvcm1hdCgiTmV0d29yayBUd2Vha3MgZGlhZ25vc3RpY3M6IGxvZ2dpbmcgZm9yICVkIG1pbiIsIEFDVElWRV9NSU5VVEVTKSkKZW5kKQo=
+--[[
+2-zz-network-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
+Version 1.2.4
+
+Changelog:
+  1.2.4 - Shared-log rotation cap raised 256 KB -> 2 MB
+          (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical across all
+          diagnostics per TK).
+  1.2.3 - Adopted the shared log contract v1: lines now go to the shared
+          koreader/diagnostics.log (tag [network-tweaks]) instead of the
+          file's own network-tweaks-diagnostics.log. Rotation (2 MB,
+          .old) moved with it. Per-line +Nms offset kept on the content.
+  1.2.2 - Removed the 0.25s frozen-screen heartbeat (banned by the
+          no-timers rule); slow redraws are still timed from the
+          repaint hook. Fixed inside() never matching full-width
+          (x=0) banners. Suspend/wake/list-opener/NetworkMgr wrappers
+          now pcall their own logging, so a diagnostic error can never
+          break the original. Log lines carry the full date
+          (%Y-%m-%d %I:%M:%S %p). First line per start matches the
+          contract format; after expiry one line is written per start
+          and no note is shown. Expiry stamp moved to
+          network-tweaks-diagnostics.state (the old reader-settings
+          key is deleted on upgrade). Startup note uses the shared
+          Network Tweaks note style when Network Tweaks is present.
+          readAllEvents now preserves all of the original's return
+          values, like every other wrapper.
+  1.2.1 - Previous version (reviewed 2026-10-11).
+
+Watches Network Tweaks from the outside and writes what it sees, tagged
+[network-tweaks], to the shared koreader/diagnostics.log
+(shared log contract v1; Kobo: .adds/koreader/diagnostics.log)
+
+It changes nothing, it only writes the log. It doesn't touch Network Tweaks
+itself. The "zz" makes it load after 2-network-tweaks.lua.
+
+Switches itself off, in case it's forgotten:
+  - logs for the first 5 minutes after each KOReader start, then goes quiet
+    (every hook just passes straight through)
+  - 24 hours after it was first installed it stops hooking anything at all:
+    one line in the log per start, then nothing. Copying the file in again
+    starts a fresh 24 hours.
+
+Files it writes (KOReader data dir, Kobo: .adds/koreader/):
+  - diagnostics.log                (the shared log, tagged [network-tweaks])
+  - diagnostics.log.old            (previous 2 MB on rotation)
+  - network-tweaks-diagnostics.state (first-run stamp for the 24h expiry)
+
+What it logs (12-hour clock, +ms = time since the current test began):
+  - Network list: every step and how long it took (radio power-up, the
+    scan, Wi-Fi client calls, connect / disconnect), popups and banners
+    shown or closed.
+  - Shell commands Network Tweaks runs (enable-wifi.sh, wpa_cli, pkill...).
+  - Network events (connecting, connected, disconnected, SSH/Calibre
+    state changes).
+  - Sleep and wake: how long going to sleep took, SSH and Wi-Fi state
+    before and after, and any note drawn over the sleep screen (shouldn't
+    happen).
+  - Taps and holds, what was on top, and TAP WENT THROUGH if a tap on a
+    banner or corner note also reached a button underneath (it shouldn't).
+  - Tap highlights (the brief invert on touch) that land under a banner or
+    note: the same leak, seen from the screen side.
+  - Slow screen redraws (over 250ms, timed from the repaint hook, only
+    while a test is running).
+
+How to use:
+  1. Put this file in koreader/patches/ and restart KOReader.
+  2. Within 5 minutes: hold the toolbar Wi-Fi icon (Wi-Fi off, then on),
+     cancel one scan, tap a banner, put the device to sleep and wake it.
+  3. Send diagnostics.log, then delete this file and restart.
+]]
+
+local ACTIVE_MINUTES = 5   -- logging window after each KOReader start
+local EXPIRES_HOURS = 24   -- after first install: no hooks at all
+
+local DataStorage = require("datastorage")
+local Device = require("device")
+local NetworkMgr = require("ui/network/manager")
+local UIManager = require("ui/uimanager")
+local lfs = require("libs/libkoreader-lfs")
+local ok_time, ktime = pcall(require, "ui/time")
+
+local STATE = DataStorage:getDataDir() .. "/network-tweaks-diagnostics.state"
+local SSH_PID_FILE = "/tmp/dropbear_koreader.pid"
+
+-- Shared log contract v1: all diagnostics append timestamped, tagged lines
+-- to ONE file (koreader/diagnostics.log) so a full test run reads as a
+-- single chronological log. Rotation at 2 MB, older part kept as
+-- diagnostics.log.old.
+local DIAG_TAG = "network-tweaks"
+local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
+local SHARED_MAX_BYTES = 2 * 1024 * 1024
+local function shared_log(fmt, ...)
+    local ok, line = pcall(string.format, fmt, ...)
+    if not ok then line = tostring(fmt) end
+    pcall(function()
+        if (lfs.attributes(SHARED_LOG, "size") or 0) > SHARED_MAX_BYTES then
+            os.remove(SHARED_LOG .. ".old")
+            os.rename(SHARED_LOG, SHARED_LOG .. ".old")
+        end
+        local f = io.open(SHARED_LOG, "a")
+        if not f then return end
+        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
+        f:close()
+    end)
+end
+
+-- --------------------------------------------------------------------------
+-- Expiry
+-- --------------------------------------------------------------------------
+
+-- Keyed to this file's timestamp: copying a fresh copy in starts a new 24h.
+-- Kept in network-tweaks-diagnostics.state (per the diagnostics contract).
+local me = DataStorage:getDataDir() .. "/patches/2-zz-network-tweaks-diagnostics.lua"
+local mtime = lfs.attributes(me, "modification") or 0
+-- One-time cleanup of the v1.2.1 settings key.
+pcall(function() G_reader_settings:delSetting("network_tweaks_diagnostics_first_run") end)
+local first
+do
+    local f = io.open(STATE, "r")
+    if f then
+        local a, b = f:read("*a"):match("^(%d+) (%d+)$")
+        f:close()
+        if a and tonumber(b) == mtime then first = tonumber(a) end
+    end
+    if not first then
+        first = os.time()
+        local w = io.open(STATE, "w")
+        if w then w:write(string.format("%d %d", first, mtime)) w:close() end
+    end
+end
+if os.time() - first > EXPIRES_HOURS * 3600 then
+    -- Contract: one line in the log per start, then no hooks at all.
+    -- shared_log is fully self-contained (pcall-wrapped), so this early
+    -- path needs nothing else from the file.
+    shared_log("network-tweaks diagnostics expired: delete 2-zz-network-tweaks-diagnostics.lua")
+    return -- no hooks at all
+end
+
+local stop_at = os.time() + ACTIVE_MINUTES * 60
+local function on() return os.time() <= stop_at end
+
+-- --------------------------------------------------------------------------
+-- Log
+-- --------------------------------------------------------------------------
+
+local t0 -- start of the current test (list opened, sleep, etc.)
+local test_until = 0 -- slow-redraw timing only runs while a test is recent
+
+local function now() return ok_time and ktime.now() or nil end
+
+local function ms(since)
+    if not (ok_time and since) then return -1 end
+    local ok, v = pcall(function() return ktime.to_ms(ktime.since(since)) end)
+    return ok and v or -1
+end
+
+local function log(fmt, ...)
+    -- shared_log adds the date, 12-hour time and [network-tweaks] tag;
+    -- the +Nms offset (time since the current test began) stays on the
+    -- line content as before.
+    local ok, line = pcall(string.format, fmt, ...)
+    if not ok then line = tostring(fmt) end
+    local dt = t0 and ms(t0) or 0
+    if dt < 0 then dt = 0 end
+    shared_log("+%6dms  %s", dt, line)
+end
+
+local function q(v) return v == nil and "(nil)" or tostring(v) end
+
+local function sshOn() return lfs.attributes(SSH_PID_FILE, "mode") == "file" end
+
+-- One note per start, only while logging, in the shared Network Tweaks
+-- note style when Network Tweaks is present (plain notification otherwise).
+local function note(text)
+    local nt_note = NetworkMgr.__network_tweaks_note
+    if type(nt_note) == "function" then
+        pcall(nt_note, text, text, 2)
+    else
+        pcall(function() require("ui/widget/notification"):notify(text) end)
+    end
+end
+
+local function describe(w)
+    if type(w) ~= "table" then return q(w) end
+    local text = w.text or w.title or w.name or ""
+    text = tostring(text):gsub("\n", " "):sub(1, 60)
+    local kind = w.toast and "note/banner" or (w.buttons and "dialog" or (w.name or "widget"))
+    return string.format("%s \"%s\"", kind, text)
+end
+
+local function topWidget()
+    local st = UIManager._window_stack
+    return st and st[#st] and st[#st].widget
+end
+
+-- Area of the toast on top (banner / corner note), if any.
+local function toastArea()
+    local w = topWidget()
+    if not (w and w.toast) then return nil end
+    return (w.frame and w.frame.dimen) or w.dimen, w
+end
+
+local function inside(pos, d)
+    if type(pos) ~= "table" or type(d) ~= "table" then return false end
+    local px, py, dx, dy, dw, dh = pos.x, pos.y, d.x, d.y, d.w, d.h
+    -- Explicit nil checks: 0 is falsy in Lua, and full-width banners
+    -- sit at x=0 — a truthiness chain would never match them.
+    if px == nil or py == nil or dx == nil or dy == nil or dw == nil or dh == nil then
+        return false
+    end
+    return px >= dx and px < dx + dw and py >= dy and py < dy + dh
+end
+
+local function startTest(what)
+    t0 = now()
+    test_until = os.time() + 90
+    log("==================== %s ====================", what)
+    local ok_c, connected = pcall(NetworkMgr.isConnected, NetworkMgr)
+    local nt = G_reader_settings:readSetting("network_tweaks") or {}
+    log("Wi-Fi radio %s | connected %s | connecting %s | SSH %s | style %s",
+        NetworkMgr:isWifiOn() and "on" or "off", ok_c and q(connected) or "?",
+        q(NetworkMgr.pending_connection), sshOn() and "on" or "off",
+        q(nt.connect_style or "banner (default)"))
+end
+
+log("==================== network-tweaks diagnostics 1.2.3 started ====================")
+log("logging for %d min (until %s) | expires %s | log %s",
+    ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
+    os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), SHARED_LOG)
+
+-- --------------------------------------------------------------------------
+-- Network list opener (toolbar hold looks it up at call time)
+-- --------------------------------------------------------------------------
+
+local orig_choose = NetworkMgr.__network_tweaks_choose_network
+if type(orig_choose) == "function" then
+    NetworkMgr.__network_tweaks_choose_network = function(...)
+        if not on() then return orig_choose(...) end
+        pcall(startTest, "network list opened")
+        local t = now()
+        local res = { pcall(orig_choose, ...) }
+        pcall(log, "opener returned after %dms%s", ms(t), res[1] and "" or ("  ERROR: " .. q(res[2])))
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2)
+    end
+else
+    pcall(log, "Network Tweaks 1.6.0+ not found: no network list to watch")
+end
+
+-- --------------------------------------------------------------------------
+-- Shell commands
+-- --------------------------------------------------------------------------
+
+local NET_CMD = { "wifi", "wpa", "dhcp", "obtain", "release%-ip", "pkill", "dropbear", "iptables" }
+local orig_exec = os.execute
+os.execute = function(cmd, ...)
+    if not on() or type(cmd) ~= "string" then return orig_exec(cmd, ...) end
+    local relevant = false
+    for _i, p in ipairs(NET_CMD) do if cmd:find(p) then relevant = true break end end
+    if not relevant then return orig_exec(cmd, ...) end
+    local t = now()
+    local r1, r2, r3 = orig_exec(cmd, ...)
+    pcall(log, "shell: %s  -> %s (%dms)", cmd, q(r1), ms(t))
+    return r1, r2, r3
+end
+
+-- --------------------------------------------------------------------------
+-- Wi-Fi client (wpa_supplicant) calls
+-- --------------------------------------------------------------------------
+
+local ok_w, WpaClient = pcall(require, "lj-wpaclient/wpaclient")
+if ok_w and type(WpaClient) == "table" and type(WpaClient.__index) == "table" then
+    local M = WpaClient.__index
+    local orig_new = WpaClient.new
+    WpaClient.new = function(ctrl, ...)
+        local t = now()
+        local c, err = orig_new(ctrl, ...)
+        if on() then pcall(log, "wpa: open %s -> %s %s (%dms)", q(ctrl), c and "ok" or "FAILED", q(err), ms(t)) end
+        return c, err
+    end
+    local function timed(name, fmt)
+        local orig = M[name]
+        if type(orig) ~= "function" then return end
+        M[name] = function(self, ...)
+            if not on() then return orig(self, ...) end
+            local t = now()
+            local r = { orig(self, ...) }
+            pcall(function()
+                log("wpa: %s -> %s (%dms)", name, fmt and fmt(r) or (q(r[1]) .. " " .. q(r[2])), ms(t))
+            end)
+            return unpack(r)
+        end
+    end
+    -- Names that would show blank or broken: empty, \x00/control bytes
+    -- (hidden networks pad with zeros), or not valid UTF-8 once decoded.
+    -- Logged raw, as wpa_supplicant sends them.
+    local ok_u, util = pcall(require, "util")
+    local function oddNames(list)
+        local odd = {}
+        for _i, ap in ipairs(list) do
+            local n = tostring(ap.ssid or "")
+            local bad = n == "" or n:find("\\x[01]%x") ~= nil or n:find("[%z\1-\31]") ~= nil
+            if not bad and n:find("\\x%x%x") and ok_u then
+                local dec = n:gsub("\\x(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+                bad = util.fixUtf8(dec, "?") ~= dec
+            end
+            if bad then odd[#odd + 1] = string.format("[%s] %q", tostring(ap.bssid), n) end
+        end
+        return odd
+    end
+    local function count(r)
+        if type(r[1]) ~= "table" then return "nothing: " .. q(r[2]) end
+        local odd = oddNames(r[1])
+        local s = #r[1] .. " access points"
+        if #odd > 0 then s = s .. " | odd names: " .. table.concat(odd, ", ") end
+        return s
+    end
+    local function ssid(r) return type(r[1]) == "table" and q(r[1].ssid) or "none" end
+    timed("attach"); timed("detach"); timed("doScan")
+    timed("getScanResults", count); timed("scanThenGetResults", count)
+    timed("getConnectedNetwork", ssid); timed("getCurrentNetwork", ssid)
+    -- Only the events that matter (a scan also sends one BSS-ADDED per AP).
+    local orig_read = M.readAllEvents
+    if type(orig_read) == "function" then
+        M.readAllEvents = function(self, evs, ...)
+            local r = { orig_read(self, evs, ...) }
+            if on() and type(evs) == "table" then
+                local added = 0
+                for _i, ev in ipairs(evs) do
+                    local m = tostring(ev.msg)
+                    if m:find("BSS%-ADDED") or m:find("BSS%-REMOVED") then added = added + 1
+                    else pcall(log, "wpa: event %s", m) end
+                end
+                if added > 0 then pcall(log, "wpa: %d access point add/remove events", added) end
+            end
+            return unpack(r)
+        end
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- NetworkMgr steps
+-- --------------------------------------------------------------------------
+
+for _i, name in ipairs({
+    "getNetworkList", "authenticateNetwork", "obtainIP", "releaseIP",
+    "disconnectNetwork", "disableWifi", "toggleWifiOn", "toggleWifiOff",
+    "turnOnWifi", "turnOffWifi", "reconnectOrShowNetworkMenu", "restoreWifiAsync",
+    "_abortWifiConnection", "scheduleConnectivityCheck", "unscheduleConnectivityCheck",
+}) do
+    local orig = NetworkMgr[name]
+    if type(orig) == "function" then
+        NetworkMgr[name] = function(self, ...)
+            if not on() then return orig(self, ...) end
+            local t = now()
+            pcall(log, "NetworkMgr:%s started", name)
+            if name == "_abortWifiConnection" then
+                -- Who gave up on the connection (it turns Wi-Fi off).
+                pcall(log, "  called from:%s", debug.traceback("", 2):gsub("\n%s*", "\n      "))
+            end
+            local r = { orig(self, ...) }
+            pcall(log, "NetworkMgr:%s done (%dms) -> %s", name, ms(t), q(r[1]))
+            return unpack(r)
+        end
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- Sleep / wake and network events
+-- --------------------------------------------------------------------------
+
+local NET_EVENTS = {
+    onNetworkConnecting = true, onNetworkConnected = true, onNetworkDisconnected = true,
+    onNetworkTweaksStateChanged = true,
+}
+local orig_bc = UIManager.broadcastEvent
+UIManager.broadcastEvent = function(self, ev, ...)
+    local h = on() and type(ev) == "table" and ev.handler
+    if h == "onSuspend" then
+        -- The diagnostic's own logging must never break the original,
+        -- least of all on the suspend path: original always runs.
+        pcall(startTest, "going to sleep")
+        local t = now()
+        local r = orig_bc(self, ev, ...)
+        pcall(function()
+            log("sleep handled in %dms | Wi-Fi radio %s | SSH %s%s", ms(t),
+                NetworkMgr:isWifiOn() and "on (!)" or "off", sshOn() and "STILL ON" or "off",
+                NetworkMgr.pending_connection and " | a connect was still pending (!)" or "")
+        end)
+        return r
+    elseif h == "onResume" then
+        pcall(startTest, "woke up")
+        local r = orig_bc(self, ev, ...)
+        pcall(function()
+            log("wake handled | Wi-Fi radio %s | SSH %s (expected off after sleep)",
+                NetworkMgr:isWifiOn() and "on" or "off", sshOn() and "ON (!)" or "off")
+        end)
+        return r
+    elseif h and NET_EVENTS[h] then
+        pcall(function()
+            log("event: %s | Wi-Fi radio %s | SSH %s", h:sub(3), NetworkMgr:isWifiOn() and "on" or "off",
+                sshOn() and "on" or "off")
+        end)
+    end
+    return orig_bc(self, ev, ...)
+end
+
+-- --------------------------------------------------------------------------
+-- Screen: popups, taps, tap-through, highlights, slow redraws
+-- --------------------------------------------------------------------------
+
+local orig_show = UIManager.show
+UIManager.show = function(self, w, ...)
+    if on() and type(w) == "table" and (w.text or w.title) then
+        pcall(function()
+            log("show %s%s", describe(w), Device.screen_saver_mode and "  <-- OVER THE SLEEP SCREEN (!)" or "")
+        end)
+    end
+    return orig_show(self, w, ...)
+end
+
+local orig_close = UIManager.close
+UIManager.close = function(self, w, ...)
+    if on() and type(w) == "table" and (w.text or w.title) then pcall(log, "close %s", describe(w)) end
+    return orig_close(self, w, ...)
+end
+
+-- The last tap, and whether it landed on a banner / note on top.
+local last_tap = { at = 0 }
+local orig_send = UIManager.sendEvent
+UIManager.sendEvent = function(self, ev, ...)
+    if on() and type(ev) == "table" and ev.handler == "onGesture" then
+        local g = ev.args and ev.args[1]
+        if type(g) == "table" and (g.ges == "tap" or g.ges == "hold") then
+            local area, toast = toastArea()
+            local on_toast = inside(g.pos, area)
+            last_tap = { at = os.time(), on_toast = on_toast, toast = toast }
+            pcall(function()
+                log("%s at %s,%s (on top: %s%s)", g.ges, q(g.pos and g.pos.x), q(g.pos and g.pos.y),
+                    describe(topWidget()), on_toast and ", tap is ON it" or "")
+            end)
+        end
+    end
+    return orig_send(self, ev, ...)
+end
+
+-- A button that fires right after a tap on a banner = the tap leaked through.
+local function leakCheck(kind, label)
+    if on() and last_tap.on_toast and os.time() - last_tap.at <= 1 then
+        pcall(log, "TAP WENT THROUGH %s to %s \"%s\" underneath (!)", describe(last_tap.toast), kind, q(label))
+    end
+end
+local ok_b, Button = pcall(require, "ui/widget/button")
+if ok_b and type(Button) == "table" and Button.onTapSelectButton then
+    local orig = Button.onTapSelectButton
+    Button.onTapSelectButton = function(self, ...)
+        leakCheck("button", self.text or self.icon)
+        return orig(self, ...)
+    end
+end
+local ok_i, IconButton = pcall(require, "ui/widget/iconbutton")
+if ok_i and type(IconButton) == "table" and IconButton.onTapIconButton then
+    local orig = IconButton.onTapIconButton
+    IconButton.onTapIconButton = function(self, ...)
+        leakCheck("icon", self.icon)
+        return orig(self, ...)
+    end
+end
+
+-- Touch highlight (invert) drawn under a banner / note.
+local orig_invert = UIManager.widgetInvert
+if type(orig_invert) == "function" then
+    UIManager.widgetInvert = function(self, w, x, y, wd, ht, ...)
+        if on() then
+            local area, toast = toastArea()
+            local d = { x = x or (w and w.dimen and w.dimen.x), y = y or (w and w.dimen and w.dimen.y) }
+            if area and inside(d, area) and w ~= toast then
+                pcall(log, "TOUCH HIGHLIGHT under %s (a tap reached the screen behind it) (!)", describe(toast))
+            end
+        end
+        return orig_invert(self, w, x, y, wd, ht, ...)
+    end
+end
+
+-- Slow redraws, timed from the repaint hook (no timers): only reported
+-- while a test is recent.
+local orig_repaint = UIManager._repaint
+if type(orig_repaint) == "function" then
+    UIManager._repaint = function(self, ...)
+        if not on() or os.time() > test_until then return orig_repaint(self, ...) end
+        local t = now()
+        local r = orig_repaint(self, ...)
+        local d = ms(t)
+        if d > 250 then pcall(log, "slow redraw: %dms (on top: %s)", d, describe(topWidget())) end
+        return r
+    end
+end
+
+-- One notice so you know it's on (only while logging).
+UIManager:nextTick(function()
+    note(string.format("Network Tweaks diagnostics: logging for %d min", ACTIVE_MINUTES))
+end)
