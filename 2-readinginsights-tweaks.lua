@@ -1,36 +1,33 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 1.1.5
+    Version: 2.0.0
     KOReader user patch: visual toggles for Reading Insights
-    (peterboda236/readinginsights.koplugin). Each one is on its own toggle.
+    (peterboda236/readinginsights.koplugin) and KOReader's Statistics calendar.
+    Each one is on its own toggle.
 
-      1. Streak calendar covers   each read day shows that day's top book cover,
-                                  a time badge shaded by your daily goal (black =
-                                  goal met), a second cover stacked behind for
-                                  2+ books (+N for 3+).
-      2. Taller cover cells       2:3 cells so covers fill them; the popup shrinks
-                                  to fit the screen (Reading Insights' own
-                                  landscape fit, also run in portrait).
-      3. Tap a day                in the streak calendar: that day's books, time
-                                  and pages; tap a book to open it.
-      4. Book calendar header     cover, title and author under the month title
+      1. Book calendar header     cover, title and author under the month title
                                   of the Book progress calendar.
-      5. Heatmap goal shading     calendar heatmap shaded against your daily goal
+      2. Heatmap goal shading     calendar heatmap shaded against your daily goal
                                   (darkest = goal met) instead of your busiest day.
-      6. Record covers            the books behind your records (most time in a
-                                  day, most pages in a day, best streak).
-      7. Sleep screen card        "Now reading" card (cover, progress, today vs
-                                  goal) over Reading Insights' sleep screen.
-      8. Statistics calendar      KOReader's built-in Statistics calendar view:
-                                  covers instead of title bars, same time badge.
-                                  Tap a day still opens its day view.
+      3. Record covers            the books behind your records (most time in a
+                                  day, most pages in a day, best streak); tap one
+                                  for details or to open the book.
+      4. Statistics calendar      KOReader's built-in Statistics calendar view:
+                                  covers instead of title bars, time badge shaded
+                                  by your daily goal. Tap a day still opens its
+                                  day view.
+
+    Streak calendar covers, tap-a-day and the sleep card were removed in 2.0.0:
+    Reading Insights 8.1+ does all three itself (streak calendar covers with
+    stacking and tap-a-day; sleep screen with a cover background or Book progress).
 
     How: Reading Insights loads its files through the global loadfile. This
-    patch wraps loadfile for four of its view files. Two get small additions to
-    their source (routing one function through here); the other two are patched
-    on the module table they return. The sleep card hooks the plugin's
-    suspend/resume. Toggles are checked every time something is drawn, so turning
-    one off gives you the stock view right away.
+    patch wraps loadfile for three of its view files. The book calendar gets a
+    small addition to its source (routing one function through here); the
+    heatmap and records views are patched on the module table they return. The
+    Statistics calendar is patched when KOReader's Statistics plugin loads.
+    Toggles are checked every time something is drawn, so turning one off gives
+    you the stock view right away.
 
     Update-safe: every addition looks for exact lines first. If a Reading Insights
     update changes them, that feature is skipped (logged as "RI tweaks:") and the
@@ -46,11 +43,11 @@
     Install: koreader/patches/ (Kobo: .adds/koreader/patches/), then restart once.
     Replaces 2-readinginsights-covers.lua / 2-cover-calendar.lua (delete those).
 
-    Cost: nothing runs in the background. Work happens only when you open one of
-    these views (a few small read-only queries + covers already cached by
-    CoverBrowser), and once at suspend for the sleep card. Scaled covers are kept
-    for the session (max 150). The only timer is a one-shot 30s retry window
-    after a missing cover was sent for extraction.
+    Cost: nothing runs in the background and nothing runs at sleep. Work happens
+    only when you open one of these views (a few small read-only queries + covers
+    already cached by CoverBrowser). Scaled covers are kept for the session (max
+    150). The only timer is a one-shot 30s retry window after a missing cover was
+    sent for extraction.
 
     Versioning
       1.0.x  fixes, e.g. adapting to a Reading Insights or KOReader change
@@ -86,10 +83,17 @@
                          the sleep-card setting is actually on.
       1.1.5  2026-10-11  Title case for all menu item texts (TK convention):
                          first letter of every word capitalized.
+      2.0.0  2026-10-16  For Reading Insights 8.1+, which now has its own streak
+                         calendar covers, tap-a-day and a cover/Book progress sleep
+                         screen. Removed this patch's streak calendar covers,
+                         taller cells, tap-a-day and sleep card, with their four
+                         toggles; their saved settings are cleared once on first
+                         start. Nothing hooks suspend/resume any more. Kept: book
+                         calendar header, heatmap goal shading, record covers,
+                         Statistics calendar covers, daily goal.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
-local BottomContainer = require("ui/widget/container/bottomcontainer")
 local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local DataStorage = require("datastorage")
@@ -100,7 +104,6 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
-local InfoMessage = require("ui/widget/infomessage")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -112,7 +115,6 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
-local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local util = require("util")
@@ -120,7 +122,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.1.5" -- the only number to change when updating
+local PATCH_VERSION = "2.0.0" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -128,16 +130,28 @@ local HOOK_NAME = "ri_tweaks_hook"
 -- ---- Settings ------------------------------------------------------------------------------
 local SETTINGS_KEY = "ri_cover_calendar"
 local DEFAULTS = {
-    enabled = true,       -- 1. streak calendar covers
-    tall = true,          -- 2. taller cover cells
-    day_tap = true,       -- 3. tap a day
-    book_header = true,   -- 4. book calendar header
-    heatmap_goal = true,  -- 5. heatmap goal shading
-    records = true,       -- 6. record covers
-    sleep_card = true,    -- 7. sleep screen card
-    stats_calendar = true, -- 8. built-in Statistics calendar covers
+    book_header = true,    -- 1. book calendar header
+    heatmap_goal = true,   -- 2. heatmap goal shading
+    records = true,        -- 3. record covers
+    stats_calendar = true, -- 4. built-in Statistics calendar covers
     goal_min = 30,
 }
+
+-- 2.0.0: clear the settings of the toggles that were removed (streak calendar
+-- covers, taller cells, tap-a-day, sleep card). One write, only if any are there.
+do
+    local saved = G_reader_settings:readSetting(SETTINGS_KEY)
+    if type(saved) == "table" then
+        local changed = false
+        for _i, k in ipairs({ "enabled", "tall", "day_tap", "sleep_card" }) do
+            if saved[k] ~= nil then
+                saved[k] = nil
+                changed = true
+            end
+        end
+        if changed then G_reader_settings:saveSetting(SETTINGS_KEY, saved) end
+    end
+end
 
 local function getSetting(key)
     local s = G_reader_settings:readSetting(SETTINGS_KEY) or {}
@@ -155,7 +169,6 @@ end
 local C_WHITE = Blitbuffer.COLOR_WHITE
 local C_BLACK = Blitbuffer.COLOR_BLACK
 local C_CARD  = Blitbuffer.Color8(0xEE)
-local C_READ  = Blitbuffer.Color8(0xCC)
 local C_MUTED = Blitbuffer.Color8(0x66)
 local C_FAINT = Blitbuffer.Color8(0xAA)
 -- goal levels: 1 none, 2 <1/3, 3 <2/3, 4 <goal, 5 goal met
@@ -163,8 +176,6 @@ local LEVEL_BG = {
     Blitbuffer.Color8(0xFF), Blitbuffer.Color8(0xDD), Blitbuffer.Color8(0xAA),
     Blitbuffer.Color8(0x66), Blitbuffer.Color8(0x11),
 }
-local WEEKDAY_SHORT = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
-local TALL_RATIO = 1.45
 
 local function S(n) return Screen:scaleBySize(n) end
 
@@ -280,13 +291,6 @@ local function bookById(id)
     local res = dbQuery("SELECT title, authors, md5 FROM book WHERE id = " .. id)
     if nrows(res) == 0 then return nil end
     return { id = id, title = res[1][1], authors = res[2][1], md5 = res[3][1] }
-end
-
-local function todaySecs()
-    local t = os.date("*t")
-    local t0 = os.time{ year = t.year, month = t.month, day = t.day, hour = 0 }
-    local res = dbQuery("SELECT SUM(duration) FROM page_stat_data WHERE start_time >= " .. t0)
-    return nrows(res) > 0 and (tonumber(res[1][1]) or 0) or 0
 end
 
 -- ---- Stats md5 -> file path (exact, via ReadHistory, cached for the session) ---------------
@@ -406,7 +410,7 @@ local function flushExtraction()
 end
 
 -- returns bb, owned_by_widget
-local function getScaledCover(path, bw, bh, no_queue)
+local function getScaledCover(path, bw, bh)
     local key = path .. "|" .. bw .. "x" .. bh
     local cached = bb_cache[key]
     if cached ~= nil then return cached or nil, false end
@@ -417,7 +421,7 @@ local function getScaledCover(path, bw, bh, no_queue)
     if not bi or bi.cover_fetched ~= "Y" then
         -- queued[path] counts attempts: a failed extraction is retried once
         -- on a later draw, then left alone for the session
-        if not no_queue and (queued[path] or 0) < 2 and not queued_now[path]
+        if (queued[path] or 0) < 2 and not queued_now[path]
            and lfs.attributes(path, "mode") == "file" then
             queued[path] = (queued[path] or 0) + 1
             queued_now[path] = true
@@ -446,18 +450,11 @@ local function getScaledCover(path, bw, bh, no_queue)
     return scaled, true
 end
 
-local function bookInfo(path)
-    local BIM = getBIM()
-    if not BIM or not path then return nil end
-    local ok, bi = pcall(BIM.getBookInfo, BIM, path, false)
-    return ok and bi or nil
-end
-
 -- A cover fitting in bw x bh, or a title placeholder of exactly that size.
-local function coverWidget(book, bw, bh, border, no_queue)
+local function coverWidget(book, bw, bh, border)
     border = border or Size.border.thin
     if book and book.path then
-        local bb, owned = getScaledCover(book.path, bw - 2 * border, bh - 2 * border, no_queue)
+        local bb, owned = getScaledCover(book.path, bw - 2 * border, bh - 2 * border)
         if bb then
             return FrameContainer:new{
                 bordersize = border, color = C_BLACK, padding = 0, margin = 0,
@@ -543,9 +540,9 @@ local function openBook(path)
 end
 
 -- =============================================================================================
--- 1-3. Streak calendar
+-- Shared: hook table (read by the source edit and the diagnostics patch) and the cover cell
 -- =============================================================================================
-local Hook = { caps = {}, day_cells = {}, version = PATCH_VERSION }
+local Hook = { caps = {}, version = PATCH_VERSION }
 package.loaded[HOOK_NAME] = Hook
 
 local function coverCell(info, books, cw, ch, is_today, no_bg)
@@ -599,166 +596,8 @@ local function coverCell(info, books, cw, ch, is_today, no_bg)
     return group
 end
 
-local function numberCell(text, cw, ch, fill, fg, bold)
-    return OverlapGroup:new{
-        dimen = Geom:new{ w = cw, h = ch },
-        LineWidget:new{ dimen = Geom:new{ w = cw, h = ch }, background = fill },
-        CenterContainer:new{
-            dimen = Geom:new{ w = cw, h = ch },
-            TextWidget:new{ text = text, face = Font:getFace("cfont", 14), fgcolor = fg, bold = bold },
-        },
-    }
-end
-
--- Same shape as Reading Insights' grid: weekday header, then a fixed six-week grid.
-local function buildCoverGrid(year, month, read_set, fonts, cell, week_start_wd)
-    local days, books = loadMonth(year, month)
-    resolvePaths(books)
-    read_set = read_set or {}
-    local ch = (Hook.caps.tall and getSetting("tall")) and math.floor(cell * TALL_RATIO) or cell
-    local today_str = os.date("%Y-%m-%d")
-    local grid_w = 7 * cell
-    local small = (type(fonts) == "table" and fonts.small) or Font:getFace("cfont", 12)
-    local grid = VerticalGroup:new{ align = "center" }
-    local cells = {}
-    local row_gap = S(6)
-    -- Same shape as Reading Insights' own day_meta (6.15+): it builds one tap zone
-    -- per day cell from this. Older versions ignore the second return value.
-    local meta = { cell = cell, cell_h = ch, grid_w = grid_w, week_prefix_w = 0,
-        row_pitch = ch + row_gap, dates = {} }
-
-    local header = HorizontalGroup:new{}
-    for i = 0, 6 do
-        local wd = ((week_start_wd + i) % 7) + 1
-        local tw = TextWidget:new{ text = _(WEEKDAY_SHORT[wd]), face = small, fgcolor = C_MUTED }
-        table.insert(header, CenterContainer:new{ dimen = Geom:new{ w = cell, h = tw:getSize().h }, tw })
-    end
-    table.insert(grid, header)
-    table.insert(grid, whiteBar(grid_w, Size.padding.small))
-    meta.top = header:getSize().h + Size.padding.small
-
-    local first_wd = tonumber(os.date("%w", os.time{ year = year, month = month, day = 1, hour = 12 }))
-    local lead = (first_wd - week_start_wd + 7) % 7
-    local dim = tonumber(os.date("%d", os.time{ year = year, month = month + 1, day = 0, hour = 12 }))
-    for r = 0, 5 do
-        if r > 0 then table.insert(grid, whiteBar(grid_w, row_gap)) end
-        local row = HorizontalGroup:new{}
-        meta.dates[r + 1] = {}
-        for col = 0, 6 do
-            local cd = 1 - lead + r * 7 + col
-            local t = os.time{ year = year, month = month, day = cd, hour = 12 }
-            local day_str = os.date("%Y-%m-%d", t)
-            meta.dates[r + 1][col + 1] = day_str
-            local num = tostring(tonumber(day_str:sub(9, 10)))
-            local is_today = day_str == today_str
-            local w
-            if cd >= 1 and cd <= dim then
-                if days[cd] then
-                    w = coverCell(days[cd], books, cell, ch, is_today)
-                elseif read_set[day_str] then
-                    w = numberCell(num, cell, ch, C_READ, C_BLACK, is_today)
-                else
-                    w = numberCell(num, cell, ch, C_WHITE, day_str > today_str and C_FAINT or C_BLACK, is_today)
-                end
-                local frame = FrameContainer:new{ bordersize = 0, padding = 0, margin = 0, w }
-                table.insert(cells, { frame = frame, t = t, info = days[cd], books = books })
-                w = frame
-            else
-                w = numberCell(num, cell, ch, read_set[day_str] and C_CARD or C_WHITE, C_FAINT, false)
-            end
-            table.insert(row, w)
-        end
-        table.insert(grid, row)
-    end
-    Hook.day_cells = cells
-    Hook.cell_h = ch
-    flushExtraction()
-    return grid, meta
-end
-
-function Hook.wrap(orig)
-    return function(year, month, read_set, fonts, cell, week_start_wd, show_week, ...)
-        Hook.day_cells, Hook.cell_h = {}, nil
-        if getSetting("enabled") and not show_week and type(cell) == "number" then
-            local ok, grid, meta = pcall(buildCoverGrid, year, month, read_set, fonts, cell, week_start_wd or 1)
-            if ok and grid then return grid, meta end
-            logger.warn(TAG, "cover grid failed, using stock grid:", grid)
-        end
-        return orig(year, month, read_set, fonts, cell, week_start_wd, show_week, ...)
-    end
-end
-
--- Row height as a multiple of the cell width, for the fit-to-screen math.
-function Hook.rowRatio()
-    return (getSetting("enabled") and getSetting("tall") and Hook.caps.tall) and TALL_RATIO or 1
-end
-
--- Used by the portrait-fit edit: only shrink when our tall cells are on screen.
-function Hook.tall()
-    return getSetting("enabled") and getSetting("tall") and true or false
-end
-
-local function showDayDialog(cell)
-    local date_str = os.date("%A, %B ", cell.t) .. tonumber(os.date("%d", cell.t))
-    local info = cell.info
-    if not info then
-        UIManager:show(InfoMessage:new{ text = date_str .. "\n" .. _("No reading this day."), timeout = 2, modal = true })
-        return
-    end
-    local dlg
-    local buttons = {}
-    for _i, e in ipairs(info.list) do
-        local b = cell.books[e.id] or {}
-        local path = b.path
-        table.insert(buttons, { {
-            text = (b.title or "?") .. " · " .. fmtDuration(e.dur) .. " · " .. e.pages .. "p",
-            enabled = path ~= nil,
-            callback = function()
-                UIManager:close(dlg)
-                openBook(path)
-            end,
-        } })
-    end
-    table.insert(buttons, { { text = _("Close"), callback = function() UIManager:close(dlg) end } })
-    local goal_note = goalLevel(info.dur) == 5 and (" · " .. _("goal met")) or ""
-    dlg = ButtonDialog:new{
-        modal = true, -- Reading Insights' popups are modal; non-modal would open behind them
-        title = date_str .. "\n" .. fmtDuration(info.dur) .. " · " .. info.pages .. " " .. _("pages") .. goal_note,
-        title_align = "center",
-        buttons = buttons,
-    }
-    UIManager:show(dlg)
-end
-
-function Hook.wrapTap(orig)
-    return function(self, arg, ges_ev, ...)
-        if Hook.caps.native_day_tap then
-            -- Reading Insights handles day taps itself; its zones are square
-            -- (cell x cell), so stretch them to the full height of tall cover cells.
-            if Hook.cell_h and type(self._day_zones) == "table" then
-                for _i, z in ipairs(self._day_zones) do
-                    if z.dimen then z.dimen.h = Hook.cell_h end
-                end
-            end
-            return orig(self, arg, ges_ev, ...)
-        end
-        if ges_ev and ges_ev.pos and getSetting("enabled") and getSetting("day_tap") then
-            local x, y = ges_ev.pos.x, ges_ev.pos.y
-            for _i, c in ipairs(Hook.day_cells or {}) do
-                local d = c.frame.dimen
-                if d and d.x and x >= d.x and x <= d.x + d.w and y >= d.y and y <= d.y + d.h then
-                    local ok, err = pcall(showDayDialog, c)
-                    if not ok then logger.warn(TAG, "day dialog failed", err) end
-                    return true
-                end
-            end
-        end
-        return orig(self, arg, ges_ev, ...)
-    end
-end
-
 -- =============================================================================================
--- 4. Book progress calendar header
+-- 1. Book progress calendar header
 -- =============================================================================================
 local function buildBookRow(book, width)
     local cover_h = S(78)
@@ -815,7 +654,7 @@ function Hook.bookCal(orig_rebuild, orig_header)
 end
 
 -- =============================================================================================
--- 5. Heatmap goal shading (module table patch)
+-- 2. Heatmap goal shading (module table patch)
 -- =============================================================================================
 local function patchHeatmap(M, deps)
     if type(M) ~= "table" or type(M.heatmapLevelColor) ~= "function"
@@ -864,7 +703,7 @@ local function patchHeatmap(M, deps)
 end
 
 -- =============================================================================================
--- 6. Record covers (module table patch)
+-- 3. Record covers (module table patch)
 -- =============================================================================================
 local function recordTiles(d, width)
     local tiles = {}
@@ -996,7 +835,7 @@ end
 
 
 -- =============================================================================================
--- 8. KOReader's built-in Statistics calendar view (module table patch)
+-- 4. KOReader's built-in Statistics calendar view (module table patch)
 -- =============================================================================================
 local function booksByIds(ids)
     local list = {}
@@ -1121,38 +960,6 @@ local HK = 'package.loaded["' .. HOOK_NAME .. '"]'
 -- Source edits. Each is optional and independent; `cap` records which applied.
 -- Insertions go on the anchor's own line so Reading Insights' line numbers don't shift.
 local EDITS = {
-    ["streak_calendar_view.lua"] = {
-        {
-            cap = "grid",
-            requires = "local function buildStreakMonthGrid(",
-            before = "\nlocal function streakMonthList(",
-            insert = "do local H = " .. HK .. "; if H and H.wrap then " ..
-                "buildStreakMonthGrid = H.wrap(buildStreakMonthGrid) end end ",
-        },
-        {
-            cap = "tap",
-            requires = "local StreakDatePopup = InputContainer:extend{",
-            before = "\nlocal function showStreaksPopup(",
-            insert = "do local H = " .. HK .. "; if H and H.wrapTap and StreakDatePopup.onTap then " ..
-                "StreakDatePopup.onTap = H.wrapTap(StreakDatePopup.onTap) end end ",
-        },
-        {
-            cap = "native_day_tap", -- Reading Insights 6.15+: its own tap-a-day book list
-            detect = "self._day_zones",
-        },
-        {
-            cap = "tall_fit", -- shrink math: rows are TALL_RATIO x cell tall, not 1 x cell
-            replace = "local delta_cell = math.ceil((measured_h - target_h) / 6) + 2",
-            with = "local delta_cell = math.ceil((measured_h - target_h) / (6 * ((" .. HK .. " and " .. HK ..
-                ".rowRatio()) or 1))) + 2",
-        },
-        {
-            cap = "tall",
-            replace = "    if UI.isLandscapeScreen() then\n        local target_h = math.floor(screen_h * 0.94)",
-            with = "    if UI.isLandscapeScreen() or (" .. HK .. " and " .. HK .. ".tall()) then\n" ..
-                "        local target_h = math.floor(screen_h * 0.94)",
-        },
-    },
     ["book_calendar_view.lua"] = {
         {
             cap = "book_header",
@@ -1245,153 +1052,15 @@ _G.loadfile = function(path, ...)
     return orig_loadfile(path, ...)
 end
 
--- =============================================================================================
--- 7. Sleep screen card (plugin suspend/resume)
--- =============================================================================================
-local function currentBook(plugin)
-    local ui = plugin and plugin.ui
-    local path
-    if ui and ui.document and ui.document.file then path = ui.document.file end
-    if not path then path = G_reader_settings:readSetting("lastfile") end
-    if not path or lfs.attributes(path, "mode") ~= "file" then return nil end
-    local bi = bookInfo(path) or {}
-    local title = bi.title
-    if not title or title == "" then title = path:match("([^/]+)%.[^.]+$") or path end
-    local percent
-    if ui and ui.doc_settings and ui.document and ui.document.file == path then
-        percent = ui.doc_settings:readSetting("percent_finished")
-    else
-        local ok, DocSettings = pcall(require, "docsettings")
-        if ok and DocSettings.hasSidecarFile and DocSettings:hasSidecarFile(path) then
-            local ok2, ds = pcall(DocSettings.open, DocSettings, path)
-            if ok2 and ds then percent = ds:readSetting("percent_finished") end
-        end
-    end
-    return { path = path, title = title, authors = bi.authors, percent = percent }
-end
-
-local function buildSleepCard(plugin)
-    local book = currentBook(plugin)
-    if not book then return nil end
-    local sw = Screen:getWidth()
-    local card_w = math.floor(sw * 0.9)
-    local pad = S(14)
-    local cover_h = S(120)
-    local cover_w = math.floor(cover_h * 2 / 3)
-    local cover = coverWidget(book, cover_w, cover_h, nil, true)
-    local text_w = card_w - 2 * pad - 2 * Size.border.window - cover:getSize().w - S(14)
-
-    local secs = todaySecs()
-    local goal = goalSecs()
-    local lines = VerticalGroup:new{ align = "left" }
-    table.insert(lines, TextWidget:new{ text = _("Now reading"), face = Font:getFace("cfont", 12), fgcolor = C_MUTED })
-    table.insert(lines, TextBoxWidget:new{
-        text = book.title, face = Font:getFace("tfont", 18), width = text_w,
-        height = S(52), height_adjust = true, height_overflow_show_ellipsis = true,
-    })
-    if book.authors and book.authors ~= "" then
-        table.insert(lines, TextWidget:new{ text = book.authors, face = Font:getFace("cfont", 13),
-            fgcolor = C_MUTED, max_width = text_w })
-    end
-    table.insert(lines, VerticalSpan:new{ width = S(8) })
-
-    -- progress bar + today vs goal
-    local bar_h = S(6)
-    local pct = tonumber(book.percent)
-    if pct then
-        local fill = math.max(0, math.min(text_w, math.floor(text_w * pct)))
-        table.insert(lines, OverlapGroup:new{
-            dimen = Geom:new{ w = text_w, h = bar_h },
-            LineWidget:new{ dimen = Geom:new{ w = text_w, h = bar_h }, background = C_CARD },
-            LineWidget:new{ dimen = Geom:new{ w = math.max(1, fill), h = bar_h }, background = C_BLACK },
-        })
-        table.insert(lines, VerticalSpan:new{ width = S(4) })
-    end
-    local status = (pct and (math.floor(pct * 100 + 0.5) .. "% · ") or "")
-        .. T(_("Today %1 of %2"), fmtDuration(secs), fmtDuration(goal))
-        .. (secs >= goal and (" · " .. _("goal met")) or "")
-    table.insert(lines, TextWidget:new{ text = status, face = Font:getFace("cfont", 13),
-        bold = secs >= goal, max_width = text_w })
-
-    return FrameContainer:new{
-        width = card_w, background = C_WHITE, bordersize = Size.border.window,
-        radius = Size.radius.window, padding = pad, margin = 0,
-        HorizontalGroup:new{ align = "center", cover, HorizontalSpan:new{ width = S(14) }, lines },
-    }
-end
-
-local SleepCard = WidgetContainer:extend{
-    name = "ri_sleep_card",
-    modal = true, -- Reading Insights' sleep screen is a modal popup; stay above it
-}
-
-function SleepCard:init()
-    self.dimen = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
-    self[1] = BottomContainer:new{
-        dimen = Geom:new{ w = self.dimen.w, h = self.dimen.h - S(28) },
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.dimen.w, h = self.card:getSize().h },
-            self.card,
-        },
-    }
-end
-
--- KOReader's PluginLoader wraps every plugin on* handler in a HandlerSandbox
--- (a callable table, not a function) before userpatch callbacks run, so a bare
--- type() == "function" check silently misses them. Accept any callable.
-local function isCallable(v)
-    if type(v) == "function" then return true end
-    if type(v) == "table" then
-        local mt = getmetatable(v)
-        return type(mt) == "table" and type(mt.__call) == "function"
-    end
-    return false
-end
-
 local ok_up, userpatch = pcall(require, "userpatch")
 if not ok_up or type(userpatch) ~= "table" or type(userpatch.registerPatchPluginFunc) ~= "function" then
-    logger.warn(TAG, "userpatch unavailable; sleep card skipped")
+    logger.warn(TAG, "userpatch unavailable; Statistics calendar covers skipped")
 else
-userpatch.registerPatchPluginFunc("statistics", function(plugin)
+-- Statistics calendar: patched when KOReader's Statistics plugin loads.
+userpatch.registerPatchPluginFunc("statistics", function()
     -- plugin folders are on package.path by now
     local ok, CalendarView = pcall(require, "calendarview")
     if ok then patchStatsCalendar(CalendarView) else logger.warn(TAG, "calendarview not found") end
-end)
-userpatch.registerPatchPluginFunc("readinginsights", function(plugin)
-    if plugin._ri_tweaks_patched then return end -- runs on every plugin instance creation
-    if not isCallable(plugin.onSuspend) or not isCallable(plugin.onResume) then
-        if getSetting("sleep_card") then
-            logger.warn(TAG, "plugin changed; sleep card skipped")
-        end
-        return
-    end
-    plugin._ri_tweaks_patched = true
-    local orig_suspend, orig_resume = plugin.onSuspend, plugin.onResume
-    plugin.onSuspend = function(self, ...)
-        -- flush the open book's pending stats so today's time is current
-        if getSetting("sleep_card") and self.ui and self.ui.statistics
-           and type(self.ui.statistics.insertDB) == "function" then
-            pcall(self.ui.statistics.insertDB, self.ui.statistics)
-        end
-        local r = orig_suspend(self, ...)
-        if getSetting("sleep_card") and self._screensaver_widget and not self._ri_sleep_card then
-            local ok, card = pcall(buildSleepCard, self)
-            if ok and card then
-                self._ri_sleep_card = SleepCard:new{ card = card }
-                UIManager:show(self._ri_sleep_card)
-            elseif not ok then
-                logger.warn(TAG, "sleep card failed:", card)
-            end
-        end
-        return r
-    end
-    plugin.onResume = function(self, ...)
-        if self._ri_sleep_card then
-            UIManager:close(self._ri_sleep_card)
-            self._ri_sleep_card = nil
-        end
-        return orig_resume(self, ...)
-    end
 end)
 end
 
@@ -1409,15 +1078,12 @@ local function toggle(text, key, depends)
 end
 
 local function menuItem()
-    local item = {
+    return {
         text = _("Reading Insights Tweaks"),
         sub_item_table = {
-            toggle(_("Streak Calendar: Book Covers"), "enabled"),
-            toggle(_("Streak Calendar: Taller Cover Cells"), "tall", "enabled"),
             toggle(_("Book Calendar: Cover Header"), "book_header"),
             toggle(_("Heatmap: Shade By Daily Goal"), "heatmap_goal"),
             toggle(_("Records: Book Covers"), "records"),
-            toggle(_("Sleep Screen: Now Reading Card"), "sleep_card"),
             toggle(_("Statistics Calendar: Book Covers"), "stats_calendar"),
             {
                 text_func = function() return T(_("Daily Goal: %1"), fmtDuration(goalSecs())) end,
@@ -1437,13 +1103,6 @@ local function menuItem()
             },
         },
     }
-    -- Reading Insights 6.15+ has its own tap-a-day book list; this toggle is only
-    -- for older versions (shown once Reading Insights has loaded its calendar view).
-    if not Hook.caps.native_day_tap then
-        table.insert(item.sub_item_table, 3,
-            toggle(_("Streak Calendar: Tap A Day For Details"), "day_tap", "enabled"))
-    end
-    return item
 end
 
 -- Tweaks & Mods (2-tweaks-menu.lua) registry
