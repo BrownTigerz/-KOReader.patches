@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.9.10
+Version 2.10.1
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,14 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.10.1 To Be Read panel: one flash of just the panel area when it opens
+         and closes, so it no longer leaves a ghost.
+  2.10.0 To Be Read side panel: swipe in from the right edge of SimpleUI
+         home (or the left, or off: Modules > To Be Read Side Panel). It
+         lists the To Be Read collection (Bookshelf's "To Be Read" and
+         SimpleUI's TBR), 5 books one per line with cover, title and
+         author, "Show all (N)" when there are more. Tap opens a book,
+         hold removes it from the list. Tap outside or swipe back to close.
   2.9.10 Currently Reading: days read and time left now show for the books
          you swipe to too, not just the current one (their stats id is read
          once from the book's sidecar; SimpleUI only had it for the
@@ -125,7 +133,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.9.10"
+local VERSION = "2.10.1"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -162,6 +170,7 @@ local DEFAULTS = {
     module_colors    = {},          -- per-module text: [module id] = { text, night }
     currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
     currently_books  = 4,           --   how many (current book included), 2-6
+    tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
 }
 
 local userpatch  = require("userpatch")
@@ -1497,6 +1506,8 @@ do
     end
 end
 
+local hookHomeEdgeSwipe   -- To Be Read side panel: hooks SimpleUI home's swipes (defined below)
+
 -- ---- Keep SimpleUI home under windows opened from the menu ---------------------------
 -- SimpleUI closes its home whenever a full-screen window opens, and brings it
 -- back when that window closes, unless a dialog is still open. KOReader's
@@ -1530,6 +1541,10 @@ do
     local orig_show = UIManager.show
     if type(orig_show) == "function" and not ours[orig_show] then
         UIManager.show = mine(function(self, w, ...)
+            if type(w) == "table" and w.name == "homescreen" then
+                local ok, err = pcall(hookHomeEdgeSwipe, w)
+                if not ok then logger.warn(TAG, "edge swipe hook:", err) end
+            end
             if type(w) == "table" and w.covers_fullscreen and w.name ~= "homescreen"
                     and w.name ~= "ReaderUI" and not w._sui_keep_homescreen then
                 local ok, yes = pcall(homeUnderOpenMenu)
@@ -1537,6 +1552,261 @@ do
             end
             return orig_show(self, w, ...)
         end)
+    end
+end
+
+-- ---- To Be Read side panel --------------------------------------------------------
+-- Swipe in from the right (or left) edge of SimpleUI home: a panel slides in
+-- with the To Be Read list, the KOReader collection Bookshelf's "Add to To Be
+-- Read" and SimpleUI's TBR module both use. 5 books, one per line (cover,
+-- title, author); "Show all (N)" when there are more. Tap a book to open it,
+-- hold it to remove it from the list. Tap outside or swipe it back to close.
+-- SimpleUI hands horizontal swipes that start at a screen edge on to
+-- KOReader's gestures (they never turn its pages); we take only the one from
+-- the chosen edge, on the home screen. Built only when opened.
+local TBR_COLL = "To Be Read"
+local TBR_ROWS = 5
+local EDGE_RATIO = 1 / 8   -- same width as KOReader's edge gesture zones
+
+local function tbrList()
+    local okm, TBR = pcall(require, "modules/module_tbr")
+    if okm and type(TBR) == "table" and type(TBR.getTBRList) == "function" then
+        local ok, list = pcall(TBR.getTBRList)
+        if ok and type(list) == "table" then return list end
+    end
+    -- without SimpleUI's module: read the collection directly
+    local okr, RC = pcall(require, "readcollection")
+    local coll = okr and type(RC) == "table" and RC.coll and RC.coll[TBR_COLL]
+    if type(coll) ~= "table" then return {} end
+    local lfs = require("libs/libkoreader-lfs")
+    local items = {}
+    for _k, it in pairs(coll) do
+        if type(it) == "table" and it.file and lfs.attributes(it.file, "mode") == "file" then items[#items + 1] = it end
+    end
+    table.sort(items, function(a, b) return (a.order or 0) < (b.order or 0) end)
+    local fps = {}
+    for i, it in ipairs(items) do fps[i] = it.file end
+    return fps
+end
+
+local function tbrRemove(fp)
+    local okm, TBR = pcall(require, "modules/module_tbr")
+    if okm and type(TBR) == "table" and type(TBR.removeTBR) == "function" then
+        return pcall(TBR.removeTBR, fp)
+    end
+    local okr, RC = pcall(require, "readcollection")
+    if okr and type(RC) == "table" and type(RC.removeItem) == "function" then
+        return pcall(RC.removeItem, RC, fp, TBR_COLL)
+    end
+end
+
+local function bookMeta(fp)
+    local okb, SH = pcall(require, "modules/module_books_shared")
+    local bd = okb and type(SH) == "table" and type(SH.getBookData) == "function"
+        and select(2, pcall(SH.getBookData, fp))
+    local title = type(bd) == "table" and bd.title or nil
+    if not title or title == "" then
+        title = (fp:match("([^/]+)$") or fp):gsub("%.[^.]+$", "")
+    end
+    return title, type(bd) == "table" and bd.authors or "", okb and SH or nil
+end
+
+local tbr_panel_open = false
+
+local function openTBRPanel(hs)
+    if tbr_panel_open then return end
+    local side = cfg.tbr_panel
+    local UIManager       = require("ui/uimanager")
+    local InputContainer  = require("ui/widget/container/inputcontainer")
+    local FrameContainer  = require("ui/widget/container/framecontainer")
+    local VerticalGroup   = require("ui/widget/verticalgroup")
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local VerticalSpan    = require("ui/widget/verticalspan")
+    local HorizontalSpan  = require("ui/widget/horizontalspan")
+    local LineWidget      = require("ui/widget/linewidget")
+    local TextWidget      = require("ui/widget/textwidget")
+    local TextBoxWidget   = require("ui/widget/textboxwidget")
+    local Font            = require("ui/font")
+    local Geom            = require("ui/geometry")
+    local GestureRange    = require("ui/gesturerange")
+    local Size            = require("ui/size")
+
+    local sw, sh = Screen:getWidth(), Screen:getHeight()
+    local pw = math.floor(sw * 0.66)
+    local px = (side == "left") and 0 or (sw - pw)
+    local panel_dimen = Geom:new{ x = px, y = 0, w = pw, h = sh }
+    local pad = Screen:scaleBySize(14)
+    local cover_h = Screen:scaleBySize(96)
+    local cover_w = math.floor(cover_h * 2 / 3)
+    local text_w = pw - pad * 3 - cover_w
+    local list = tbrList()
+    local changed = false
+
+    local root = InputContainer:new{
+        dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
+        modal = true,
+        name = "sui_tbr_panel",
+    }
+    local function close()
+        tbr_panel_open = false
+        UIManager:close(root, "full", panel_dimen)
+        if changed and hs and type(hs._refreshImmediate) == "function" then
+            pcall(hs._refreshImmediate, hs, false)   -- the home's TBR module catches up
+        end
+    end
+    local function openBook(fp)
+        close()
+        local open_fn = hs and hs._ctx_cache and hs._ctx_cache.open_fn
+        if type(open_fn) == "function" then
+            open_fn(fp)
+        else
+            require("apps/reader/readerui"):showReader(fp)
+        end
+    end
+    local function showAll()
+        close()
+        local FM = package.loaded["apps/filemanager/filemanager"]
+        local fm = type(FM) == "table" and FM.instance
+        if not (fm and fm.collections and type(fm.collections.onShowColl) == "function") then return end
+        if hs then hs._navbar_closing_intentionally = true end   -- SimpleUI: keep the home's state
+        pcall(fm.collections.onShowColl, fm.collections, TBR_COLL)
+        if hs then hs._navbar_closing_intentionally = nil end
+        local bm = fm.collections.booklist_menu
+        if type(bm) == "table" and type(bm.close_callback) == "function" then
+            bm.onReturn = function()   -- back goes home, not to the collections list
+                bm.close_callback()
+                pcall(showSimpleUIHome)
+            end
+        end
+    end
+
+    local title_face = Font:getFace("smalltfont")
+    local author_face = Font:getFace("cfont", 16)
+    local head_face = Font:getFace("tfont", 22)
+    local group = VerticalGroup:new{ align = "left" }
+    group[#group + 1] = TextWidget:new{
+        text = (#list > 0) and string.format("%s (%d)", _("To Be Read"), #list) or _("To Be Read"),
+        face = head_face, bold = true, max_width = pw - pad * 2,
+    }
+    group[#group + 1] = VerticalSpan:new{ width = pad }
+    if #list == 0 then
+        group[#group + 1] = TextBoxWidget:new{
+            text = _("Nothing here yet. Hold a book in Bookshelf and choose To Be Read to add it."),
+            face = author_face, width = pw - pad * 2,
+        }
+    end
+    local SH
+    for i = 1, math.min(TBR_ROWS, #list) do
+        local fp = list[i]
+        local title, authors, sh_mod = bookMeta(fp)
+        SH = SH or sh_mod
+        local cover = SH and SH.getBookCover and SH.getBookCover(fp, cover_w, cover_h)
+        if not cover and SH and SH.coverPlaceholder then cover = SH.coverPlaceholder(title, authors, cover_w, cover_h) end
+        cover = cover or FrameContainer:new{ bordersize = Size.border.thin, padding = 0,
+            dimen = Geom:new{ w = cover_w, h = cover_h }, VerticalSpan:new{ width = cover_h - 2 } }
+        local meta = VerticalGroup:new{ align = "left",
+            TextBoxWidget:new{ text = title, face = title_face, bold = true, width = text_w,
+                               height = title_face.size * 3, height_adjust = true, height_overflow_show_ellipsis = true },
+        }
+        if authors ~= "" then
+            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
+            meta[#meta + 1] = TextWidget:new{ text = authors, face = author_face, max_width = text_w }
+        end
+        local row = InputContainer:new{
+            dimen = Geom:new{ w = pw - pad * 2, h = cover_h },
+            HorizontalGroup:new{ align = "center", cover, HorizontalSpan:new{ width = pad }, meta },
+        }
+        row.ges_events = {
+            TapRow  = { GestureRange:new{ ges = "tap",  range = function() return row.dimen end } },
+            HoldRow = { GestureRange:new{ ges = "hold", range = function() return row.dimen end } },
+        }
+        function row:onTapRow() openBook(fp) return true end
+        function row:onHoldRow()
+            local ButtonDialog = require("ui/widget/buttondialog")
+            local dlg
+            dlg = ButtonDialog:new{
+                title = title, title_align = "center",
+                buttons = {
+                    {{ text = _("Remove from To Be Read"), callback = function()
+                        UIManager:close(dlg)
+                        tbrRemove(fp)
+                        changed = true
+                        close()
+                        UIManager:nextTick(function() openTBRPanel(hs) end)   -- reopen with the new list
+                    end }},
+                    {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
+                },
+            }
+            UIManager:show(dlg)
+            return true
+        end
+        group[#group + 1] = row
+        group[#group + 1] = VerticalSpan:new{ width = pad }
+        group[#group + 1] = LineWidget:new{ dimen = Geom:new{ w = pw - pad * 2, h = Size.line.thin } }
+        group[#group + 1] = VerticalSpan:new{ width = pad }
+    end
+    if #list > TBR_ROWS then
+        local more = InputContainer:new{
+            dimen = Geom:new{ w = pw - pad * 2, h = Screen:scaleBySize(40) },
+            TextWidget:new{ text = string.format(_("Show all (%d)"), #list) .. "  \226\128\186",
+                            face = title_face, bold = true },
+        }
+        more.ges_events = { TapMore = { GestureRange:new{ ges = "tap", range = function() return more.dimen end } } }
+        function more:onTapMore() showAll() return true end
+        group[#group + 1] = more
+    end
+
+    local frame = FrameContainer:new{
+        width = pw, height = sh,
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = 0, padding = pad, margin = 0,
+        group,
+    }
+    local edge = LineWidget:new{ dimen = Geom:new{ w = Size.border.thick, h = sh } }
+    root[1] = FrameContainer:new{ bordersize = 0, padding = 0, margin = 0, frame }
+    -- paint just the panel (and its edge line) at its side; the home stays visible beside it
+    root.paintTo = function(self, bb, x, y)
+        frame:paintTo(bb, x + px, y)
+        edge:paintTo(bb, (side == "left") and (x + pw - Size.border.thick) or (x + px), y)
+    end
+    root.ges_events = {
+        TapOutside = { GestureRange:new{ ges = "tap", range = root.dimen } },
+        SwipeClose = { GestureRange:new{ ges = "swipe", range = root.dimen } },
+    }
+    function root:onTapOutside(_, ges)
+        if ges and ges.pos and not panel_dimen:contains(ges.pos) then close() end
+        return true
+    end
+    function root:onSwipeClose(_, ges)
+        local dir = ges and ges.direction
+        if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then close() end
+        return true
+    end
+    tbr_panel_open = true
+    -- "full" (one flash of just the panel area) on open and close: a plain
+    -- "ui" refresh left ghosts of the covers/home behind. "full" also isn't
+    -- downgraded by "Avoid mandatory black flashes in UI".
+    UIManager:show(root, "full", panel_dimen)
+end
+
+hookHomeEdgeSwipe = function(hs)
+    if rawget(hs, "_sui_tbr_hooked") or type(hs.onScreenSwipe) ~= "function" then return end
+    rawset(hs, "_sui_tbr_hooked", true)
+    local orig = hs.onScreenSwipe
+    hs.onScreenSwipe = function(self, args, ges, ...)
+        local side = cfg.tbr_panel
+        if side ~= "off" and type(ges) == "table" and ges.pos then
+            local sw = Screen:getWidth()
+            local dir = ges.direction
+            local edge = math.floor(sw * EDGE_RATIO)
+            if (side == "left" and dir == "east" and ges.pos.x <= edge)
+                    or (side ~= "left" and dir == "west" and ges.pos.x >= sw - edge) then
+                local ok, err = pcall(openTBRPanel, self)
+                if not ok then tbr_panel_open = false logger.warn(TAG, "To Be Read panel:", err) end
+                return true
+            end
+        end
+        return orig(self, args, ges, ...)
     end
 end
 
@@ -2172,7 +2442,24 @@ local function buildMenu()
                                   callback = function() setHome("currently_books", k) end }
                           end
                           return items
-                      end },
+                      end,
+                      separator = true },
+                    { text_func = function()
+                          local names = { right = _("Right Edge"), left = _("Left Edge"), off = _("Off") }
+                          return string.format(_("To Be Read Side Panel: %s"), names[cfg.tbr_panel] or cfg.tbr_panel)
+                      end,
+                      help_text = _("Swipe in from this edge of the home screen to open your To Be Read list (Bookshelf's \"To Be Read\" and SimpleUI's TBR). Tap a book to open it, hold it to remove it from the list."),
+                      sub_item_table = {
+                          { text = _("Right Edge"), radio = true,
+                            checked_func = function() return cfg.tbr_panel == "right" end,
+                            callback = function() cfg.tbr_panel = "right" saveConfig() end },
+                          { text = _("Left Edge"), radio = true,
+                            checked_func = function() return cfg.tbr_panel == "left" end,
+                            callback = function() cfg.tbr_panel = "left" saveConfig() end },
+                          { text = _("Off"), radio = true,
+                            checked_func = function() return cfg.tbr_panel == "off" end,
+                            callback = function() cfg.tbr_panel = "off" saveConfig() end },
+                      } },
                 },
             },
             {
