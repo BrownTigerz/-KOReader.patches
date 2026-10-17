@@ -31,7 +31,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.2 |
 | [X-Ray Entity Footnotes](#x-ray-entity-footnotes) | `2-xray-entity-footnotes.lua` | xray.koplugin | 1.0.1 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.5 |
-| [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 1.1.5 |
+| [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.0.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.3 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
@@ -300,29 +300,24 @@ For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the to
 
 ## Reading Insights Tweaks
 
-Enhances Reading Insights and the built-in Statistics calendar with cover art, goal-shaded badges, interactive day views and sleep screen overlays. Each feature has its own toggle, and toggles apply without a restart.
+Enhances Reading Insights and the built-in Statistics calendar with cover art and goal-shaded views. Each feature has its own toggle, and toggles apply without a restart. Built for Reading Insights 8.1+, which now has its own streak calendar covers, tap-a-day and sleep screen — this patch keeps the extras it doesn't do.
 
-1. **Streak calendar covers:** each read day shows that day's top book cover, a time badge shaded by daily goal progress (black = goal met), and a second cover stacked behind for 2+ books (+N for 3+).
-2. **Taller cover cells:** 2:3 cells so covers fill them; the popup shrinks to fit the screen.
-3. **Tap a day:** in the streak calendar, shows that day's books, time and pages; tap a book to open it.
-4. **Book calendar header:** cover, title and author under the month title of the Book progress calendar.
-5. **Heatmap goal shading:** heatmap shaded against your daily goal (darkest = goal met) instead of your busiest day.
-6. **Record covers:** cover art for your records (most time in a day, most pages in a day, best streak). Tap one for book details or to open the book.
-7. **Sleep screen card:** "Now reading" overlay (cover, progress, today vs goal) over Reading Insights' sleep screen.
-8. **Statistics calendar:** KOReader's built-in Statistics calendar gets covers instead of title bars and the same time badge. Tapping a day still opens its day view.
+1. **Book calendar header:** cover, title and author under the month title of the Book progress calendar.
+2. **Heatmap goal shading:** heatmap shaded against your daily goal (darkest = goal met) instead of your busiest day.
+3. **Record covers:** cover art for your records (most time in a day, most pages in a day, best streak). Tap one for book details or to open the book.
+4. **Statistics calendar:** KOReader's built-in Statistics calendar gets covers instead of title bars and a time badge shaded by your daily goal. Tapping a day still opens its day view.
+
+**2.0.0 removed** the streak calendar covers, taller cover cells, tap-a-day and the sleep screen card (all native in Reading Insights 8.1+ now); their saved settings are cleared once on first start.
 
 **Install:** copy `2-readinginsights-tweaks.lua` into `koreader/patches/` and restart once. Replaces `2-readinginsights-covers.lua` and `2-cover-calendar.lua` if you have them (delete those).
 
-**Requirements:** Reading Insights plugin ([peterboda236/readinginsights.koplugin](https://github.com/peterboda236/readinginsights.koplugin)) installed, and CoverBrowser enabled. Covers come from CoverBrowser's cache; an uncached cover shows its title and appears the next time the view is drawn.
+**Requirements:** Reading Insights plugin ([peterboda236/readinginsights.koplugin](https://github.com/peterboda236/readinginsights.koplugin)) 8.1 or newer installed, and CoverBrowser enabled. Covers come from CoverBrowser's cache; an uncached cover shows its title and appears the next time the view is drawn.
 
 **Configuration:** Tools → Add-ons → Reading Insights Tweaks (with the Add-ons menu installed), otherwise Tools → Reading Insights Tweaks. Daily Reading Goal is adjustable in the same menu.
 
-**How it works:** Reading Insights loads its files through the global `loadfile`. This patch wraps that for four of its view files: two get small source additions routing a function through here, the other two are patched on the module table they return. The sleep card hooks the plugin's suspend/resume. Update-safe: every addition looks for exact source lines first, and if a Reading Insights update changes them, that feature is skipped (logged as `RI tweaks:`) and the stock view is used. Any error while drawing falls back to stock too.
+**How it works:** Reading Insights loads its files through the global `loadfile`. This patch wraps that for three of its view files: the book calendar gets a small source addition routing one function through here, while the heatmap and records views are patched on the module table they return. The Statistics calendar is patched when KOReader's Statistics plugin loads. Update-safe: every addition looks for exact source lines first, and if a Reading Insights update changes them, that feature is skipped (logged as `RI tweaks:`) and the stock view is used. Any error while drawing falls back to stock too.
 
-**Cost:** nothing runs in the background. Work happens only when you open one of these views, plus once at suspend for the sleep card. Scaled covers are kept for the session (max 150), and the only timer is a one-shot 30s retry window after a missing cover was sent for extraction.
-
----
-
+**Cost:** nothing runs in the background. Work happens only when you open one of these views. Scaled covers are kept for the session (max 150), and the only timer is a one-shot 30s retry window after a missing cover was sent for extraction.
 ## QuickMenu Toggle State
 
 When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a checkbox prefix — "✓" when on, "▢" when off (the same glyphs KOReader's own menus use, rendered as text so they always display). The marker goes first on purpose: the popup truncates long labels from the end.
