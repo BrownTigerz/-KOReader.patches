@@ -1,7 +1,11 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.11
+-- Version 1.11.12
 -- Changelog:
+--   1.11.12  Upstream ShelfSync LibraryThing provider: update-all skips
+--            tracks_progress == false engines (no more spurious "Failed"
+--            warning + wasted retry for LibraryThing-linked books);
+--            Hide Providers gains a LibraryThing toggle.
 --   1.11.11  Title case for all menu/item/button texts (menu entries,
 --            submenu titles, toggle rows, dialog titles and button labels).
 --            Notification/toast strings and upstream wording matchers
@@ -36,7 +40,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.11"
+local PATCH_VERSION = "1.11.12"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -797,6 +801,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         Hardcover = "hide_hardcover",
         Fable = "hide_fable",
         Pagebound = "hide_pagebound",
+        LibraryThing = "hide_librarything",
     }
 
     -- Hidden providers: never active, and left out of the Providers menu
@@ -950,6 +955,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                             _("Remove Pagebound from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                         toggle(_("StoryGraph"), "hide_storygraph",
                             _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                        toggle(_("LibraryThing"), "hide_librarything",
+                            _("Remove LibraryThing from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
                     },
                 },
             }
@@ -1065,10 +1072,17 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             return app.ui and app.ui.document and app.ui.document.file == file
         end
         local linked, unlinked, unlinked_entries = {}, {}, {}
+        local has_linked_provider = false
         for _i, entry in ipairs(activeEngines(app)) do
             local ok, is_linked = pcall(entry.engine.settings.bookLinked, entry.engine.settings)
             if ok and is_linked then
-                linked[#linked + 1] = entry
+                has_linked_provider = true
+                -- Providers with no reading progress (LibraryThing) have
+                -- nothing to sync: skip, mirroring upstream's own update-all.
+                local prov = entry.engine.provider
+                if not prov or prov.tracks_progress ~= false then
+                    linked[#linked + 1] = entry
+                end
             else
                 unlinked[#unlinked + 1] = entry.label
                 unlinked_entries[#unlinked_entries + 1] = entry
@@ -1092,6 +1106,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         end
 
         if #linked == 0 then
+            -- Linked, but only to providers with no reading progress
+            -- (LibraryThing): nothing to sync, quietly done -- like
+            -- upstream's own update-all.
+            if has_linked_provider and #unlinked == 0 then return done() end
             if #unlinked == 0 then
                 styledNote(_("No enabled providers"), _("No providers"), { warn = true })
             else
