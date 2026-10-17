@@ -28,7 +28,7 @@ return {
     ["2-readinginsights-tweaks.lua"] = "2.0.0",
     ["2-shelfsync-tweaks.lua"] = "1.11.12",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.12.2",
-    ["2-simpleui-tweaks.lua"] = "2.11.8",
+    ["2-simpleui-tweaks.lua"] = "2.11.9",
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.4",
     ["2-xray-direct-lookup.lua"] = "1.1.10",
