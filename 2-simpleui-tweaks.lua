@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.10.2
+Version 2.11.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.0 To Be Read panel: swipe sideways to switch between To Be Read and
+         Newly Added. History icon (top-right) shows your reading history.
   2.10.2 To Be Read side panel is narrower now (42% of screen width, was
          66%) — reads as a panel instead of a full page.
   2.10.1 To Be Read panel: one flash of just the panel area when it opens
@@ -135,7 +137,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.10.2"
+local VERSION = "2.11.0"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1602,6 +1604,36 @@ local function tbrRemove(fp)
     end
 end
 
+local function newBooksList()
+    -- Newly added books via SimpleUI's new_books source (by file date)
+    local oks, Sources = pcall(require, "engines/sui_book_sources")
+    if oks and type(Sources) == "table" and type(Sources.bind) == "function" then
+        local okb, src = pcall(Sources.bind, "new_books")
+        if okb and type(src) == "table" and type(src.getFileList) == "function" then
+            local ok, list = pcall(src.getFileList)
+            if ok and type(list) == "table" then return list end
+        end
+    end
+    return {}
+end
+
+local function historyList()
+    -- Recently opened books from KOReader's reading history
+    local okh, RH = pcall(require, "readhistory")
+    local hist = okh and type(RH) == "table" and RH.hist
+    if type(hist) ~= "table" then return {} end
+    local lfs = require("libs/libkoreader-lfs")
+    local fps, seen = {}, {}
+    for i = 1, math.min(#hist, 30) do
+        local fp = hist[i] and hist[i].file
+        if type(fp) == "string" and not seen[fp] and lfs.attributes(fp, "mode") == "file" then
+            seen[fp] = true
+            fps[#fps + 1] = fp
+        end
+    end
+    return fps
+end
+
 local function bookMeta(fp)
     local okb, SH = pcall(require, "modules/module_books_shared")
     local bd = okb and type(SH) == "table" and type(SH.getBookData) == "function"
@@ -1614,9 +1646,11 @@ local function bookMeta(fp)
 end
 
 local tbr_panel_open = false
+local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
 
-local function openTBRPanel(hs)
+local function openTBRPanel(hs, view)
     if tbr_panel_open then return end
+    tbr_panel_view = view or tbr_panel_view or "tbr"
     local side = cfg.tbr_panel
     local UIManager       = require("ui/uimanager")
     local InputContainer  = require("ui/widget/container/inputcontainer")
@@ -1641,7 +1675,19 @@ local function openTBRPanel(hs)
     local cover_h = Screen:scaleBySize(96)
     local cover_w = math.floor(cover_h * 2 / 3)
     local text_w = pw - pad * 3 - cover_w
-    local list = tbrList()
+    -- View: "tbr" (To Be Read), "new" (Newly Added), "history" (Recent History)
+    local view = tbr_panel_view
+    local list, view_title
+    if view == "new" then
+        list = newBooksList()
+        view_title = _("Newly Added")
+    elseif view == "history" then
+        list = historyList()
+        view_title = _("History")
+    else
+        list = tbrList()
+        view_title = _("To Be Read")
+    end
     local changed = false
 
     local root = InputContainer:new{
@@ -1686,14 +1732,43 @@ local function openTBRPanel(hs)
     local author_face = Font:getFace("cfont", 16)
     local head_face = Font:getFace("tfont", 22)
     local group = VerticalGroup:new{ align = "left" }
-    group[#group + 1] = TextWidget:new{
-        text = (#list > 0) and string.format("%s (%d)", _("To Be Read"), #list) or _("To Be Read"),
-        face = head_face, bold = true, max_width = pw - pad * 2,
+    -- Header: title on the left, history icon on the right (top-right)
+    local title_text = (#list > 0) and string.format("%s (%d)", view_title, #list) or view_title
+    local title_widget = TextWidget:new{
+        text = title_text,
+        face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
     }
+    local hist_icon = InputContainer:new{
+        dimen = Geom:new{ w = Screen:scaleBySize(32), h = Screen:scaleBySize(32) },
+        TextWidget:new{ text = "\226\149\178", face = Font:getFace("tfont", 22) },  -- ↲ history/return arrow
+    }
+    hist_icon.ges_events = {
+        TapHist = { GestureRange:new{ ges = "tap", range = function() return hist_icon.dimen end } },
+    }
+    function hist_icon:onTapHist()
+        local v = tbr_panel_view
+        close()
+        tbr_panel_view = (v == "history") and "tbr" or "history"
+        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)
+        return true
+    end
+    local header = HorizontalGroup:new{ align = "center" }
+    header[#header + 1] = title_widget
+    header[#header + 1] = HorizontalSpan:new{ width = pad }
+    header[#header + 1] = hist_icon
+    group[#group + 1] = header
     group[#group + 1] = VerticalSpan:new{ width = pad }
     if #list == 0 then
+        local empty_text
+        if view == "new" then
+            empty_text = _("No new books. Add books to your library and they'll show up here.")
+        elseif view == "history" then
+            empty_text = _("No reading history yet. Open a book and it'll show up here.")
+        else
+            empty_text = _("Nothing here yet. Hold a book in Bookshelf and choose To Be Read to add it.")
+        end
         group[#group + 1] = TextBoxWidget:new{
-            text = _("Nothing here yet. Hold a book in Bookshelf and choose To Be Read to add it."),
+            text = empty_text,
             face = author_face, width = pw - pad * 2,
         }
     end
@@ -1724,6 +1799,7 @@ local function openTBRPanel(hs)
         }
         function row:onTapRow() openBook(fp) return true end
         function row:onHoldRow()
+            if view ~= "tbr" then return false end   -- remove only applies to To Be Read
             local ButtonDialog = require("ui/widget/buttondialog")
             local dlg
             dlg = ButtonDialog:new{
@@ -1734,7 +1810,7 @@ local function openTBRPanel(hs)
                         tbrRemove(fp)
                         changed = true
                         close()
-                        UIManager:nextTick(function() openTBRPanel(hs) end)   -- reopen with the new list
+                        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view) end)   -- reopen with the new list
                     end }},
                     {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
                 },
@@ -1747,7 +1823,7 @@ local function openTBRPanel(hs)
         group[#group + 1] = LineWidget:new{ dimen = Geom:new{ w = pw - pad * 2, h = Size.line.thin } }
         group[#group + 1] = VerticalSpan:new{ width = pad }
     end
-    if #list > TBR_ROWS then
+    if view == "tbr" and #list > TBR_ROWS then
         local more = InputContainer:new{
             dimen = Geom:new{ w = pw - pad * 2, h = Screen:scaleBySize(40) },
             TextWidget:new{ text = string.format(_("Show all (%d)"), #list) .. "  \226\128\186",
@@ -1781,7 +1857,22 @@ local function openTBRPanel(hs)
     end
     function root:onSwipeClose(_, ges)
         local dir = ges and ges.direction
-        if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then close() end
+        -- Swipe towards the edge it came from: close the panel.
+        -- Swipe away from the edge: switch between To Be Read and Newly Added.
+        if (side == "left" and dir == "west") or (side ~= "left" and dir == "east") then
+            close()
+        elseif (side == "left" and dir == "east") or (side ~= "left" and dir == "west") then
+            local v = tbr_panel_view
+            if v == "tbr" or v == "history" then
+                close()
+                tbr_panel_view = "new"
+                UIManager:nextTick(function() openTBRPanel(hs, "new") end)
+            elseif v == "new" then
+                close()
+                tbr_panel_view = "tbr"
+                UIManager:nextTick(function() openTBRPanel(hs, "tbr") end)
+            end
+        end
         return true
     end
     tbr_panel_open = true
