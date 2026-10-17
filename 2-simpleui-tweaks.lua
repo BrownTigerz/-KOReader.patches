@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.8
+Version 2.11.9
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.9 TBR panel: "Panel Opens To" now applies on every open (was only
+         the first); added 4th option "Last View" to reopen wherever
+         you left off.
   2.11.8 TBR panel: fixed tap-to-go-back in History view (custom paintTo
          was breaking gestures); back icon is now simple "<" text.
          New setting: Panel Opens To (To Be Read / Newly Added / History).
@@ -161,7 +164,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.8"
+local VERSION = "2.11.9"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -199,7 +202,7 @@ local DEFAULTS = {
     currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
     currently_books  = 4,           --   how many (current book included), 2-6
     tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
-    tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "new" / "history"
+    tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "new" / "history" / "last"
 }
 
 local userpatch  = require("userpatch")
@@ -1675,17 +1678,20 @@ end
 local tbr_panel_open = false
 local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
 local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
-local tbr_panel_view_initialized = false
 
 local function openTBRPanel(hs, view)
     if tbr_panel_open then return end
-    -- First open: use the configured default view
-    if not tbr_panel_view_initialized then
-        local dv = cfg.tbr_panel_view
-        if dv == "new" or dv == "history" then tbr_panel_view = dv else tbr_panel_view = "tbr" end
-        tbr_panel_prev_view = tbr_panel_view
-        tbr_panel_view_initialized = true
+    -- Apply the configured default view on every open, unless set to "last"
+    -- (which keeps wherever you left off).
+    local dv = cfg.tbr_panel_view
+    if dv == "last" then
+        -- keep tbr_panel_view as-is (where you left off)
+    elseif dv == "new" or dv == "history" then
+        tbr_panel_view = dv
+    else
+        tbr_panel_view = "tbr"
     end
+    tbr_panel_prev_view = tbr_panel_view
     tbr_panel_view = view or tbr_panel_view or "tbr"
     local side = cfg.tbr_panel
     local UIManager       = require("ui/uimanager")
@@ -2683,23 +2689,23 @@ local function buildMenu()
                             callback = function() cfg.tbr_panel = "off" saveConfig() end },
                       } },
                     { text_func = function()
-                          local names = { tbr = _("To Be Read"), new = _("Newly Added"), history = _("History") }
+                          local names = { tbr = _("To Be Read"), new = _("Newly Added"), history = _("History"), last = _("Last View") }
                           return string.format(_("Panel Opens To: %s"), names[cfg.tbr_panel_view] or cfg.tbr_panel_view)
                       end,
-                      help_text = _("Which view the To Be Read side panel opens to."),
+                      help_text = _("Which view the To Be Read side panel opens to. Last View reopens wherever you left off."),
                       sub_item_table = {
                           { text = _("To Be Read"), radio = true,
                             checked_func = function() return cfg.tbr_panel_view == "tbr" end,
-                            callback = function() cfg.tbr_panel_view = "tbr" saveConfig()
-                                tbr_panel_view_initialized = false end },
+                            callback = function() cfg.tbr_panel_view = "tbr" saveConfig() end },
                           { text = _("Newly Added"), radio = true,
                             checked_func = function() return cfg.tbr_panel_view == "new" end,
-                            callback = function() cfg.tbr_panel_view = "new" saveConfig()
-                                tbr_panel_view_initialized = false end },
+                            callback = function() cfg.tbr_panel_view = "new" saveConfig() end },
                           { text = _("History"), radio = true,
                             checked_func = function() return cfg.tbr_panel_view == "history" end,
-                            callback = function() cfg.tbr_panel_view = "history" saveConfig()
-                                tbr_panel_view_initialized = false end },
+                            callback = function() cfg.tbr_panel_view = "history" saveConfig() end },
+                          { text = _("Last View"), radio = true,
+                            checked_func = function() return cfg.tbr_panel_view == "last" end,
+                            callback = function() cfg.tbr_panel_view = "last" saveConfig() end },
                       } },
                 },
             },
