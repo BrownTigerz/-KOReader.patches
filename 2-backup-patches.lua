@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.11 (2026-10-18)
+2-backup-patches.lua                                     2.2.12 (2026-10-18)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.12  2026-10-18
+    - Updater Wi-Fi connect: the "Connecting to Wi-Fi…" status now goes
+      through the shared notification contract (styledNote) instead of
+      bypassing it.
   2.2.11  2026-10-18
     - Updater install: verify the write (f:write/f:close results and
       on-disk size vs download size) before renaming over the old patch,
@@ -178,7 +182,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.11"
+local VERSION = "2.2.12"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1366,6 +1370,11 @@ local function ensureWifi()
     local we_turned_on = not NetworkMgr:isWifiOn()
     updaterTrace("wifi", we_turned_on and "off at check start: turning on automatically"
         or "on but not connected: waiting for connection")
+    if we_turned_on then
+        -- Wi-Fi status goes through the shared notification contract like
+        -- every other user-facing note in this patch.
+        styledNote(_("Connecting to Wi-Fi…"), _("Connecting…"), 4)
+    end
     NetworkMgr:requestToTurnOnWifi(function()
         NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
     end, false)
