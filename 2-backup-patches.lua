@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.10 (2026-10-16)
+2-backup-patches.lua                                     2.2.11 (2026-10-18)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.2.11  2026-10-18
+    - Updater install: verify the write (f:write/f:close results and
+      on-disk size vs download size) before renaming over the old patch,
+      so a short write on a nearly full disk can't silently replace a
+      working patch with a truncated file.
   2.2.10  2026-10-16
     - Login stripping now also covers backup.koplugin's new cloud
       credential files (settings/backup_cloud_creds.lua and
@@ -173,7 +178,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.10"
+local VERSION = "2.2.11"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1405,9 +1410,13 @@ local function updatePatches(targets)
                 local tmp = t.dest .. ".new"
                 local f = io.open(tmp, "w")
                 if f then
-                    f:write(body)
-                    f:close()
-                    if os.rename(tmp, t.dest) then
+                    -- A short write (nearly full disk) must never replace a
+                    -- working patch with a truncated file: verify the write
+                    -- and the size on disk before the rename.
+                    local wok = f:write(body)
+                    local cok = f:close()
+                    local ondisk = lfs.attributes(tmp, "size")
+                    if wok and cok and ondisk == #body and os.rename(tmp, t.dest) then
                         if t.stale then os.remove(t.stale) end
                         succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
                     else
