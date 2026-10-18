@@ -37,7 +37,7 @@ return {
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.7",
     ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.2.4",
     ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.0.0",
-    ["debug/2-zz-readmastery-diagnostics.lua"] = "1.0.7",
+    ["debug/2-zz-readmastery-diagnostics.lua"] = "1.0.8",
     ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.0.6",
     ["debug/2-zz-shortcutstoolbar-diagnostics.lua"] = "1.0.6",
     ["debug/2-zz-simpleui-diagnostics.lua"] = "2.7.7",
