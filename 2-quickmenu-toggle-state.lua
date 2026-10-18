@@ -1,6 +1,6 @@
 --[[
     Gesture QuickMenu toggle-state patch
-    Version: 1.0.3 (2026-10-10) - See CHANGELOG below.
+    Version: 1.0.4 (2026-10-18) - See CHANGELOG below.
 
     Versioning (for future updates to this file):
       1.0.x - fixes (e.g. adapting to a Dispatcher internal rename)
@@ -50,6 +50,12 @@
     ===================================================================
     CHANGELOG
     ===================================================================
+    1.0.4 (2026-10-18)
+      - Fixed _stripStateMark: the old "^[✓▢] " pattern was a Lua
+        byte-class and never stripped the checkbox marks (✓/▢ are 3-byte
+        UTF-8, so the class matched one byte and then required a space
+        that wasn't there), letting marks stack on rebuild. Now strips
+        "✓ " and "▢ " literally. Legacy "(On) "/"(Off) " strips unchanged.
     1.0.3 (2026-10-10)
       - State marker is now a real checkbox: "✓" when on, "▢" when off,
         prepended to the label. These are the exact glyphs KOReader's own
@@ -76,7 +82,7 @@
     1.0.0 (2026-10-10) - First release.
 --]]
 
-local PATCH_VERSION = "1.0.3"
+local PATCH_VERSION = "1.0.4"
 
 local Dispatcher = require("dispatcher")
 local logger = require("logger")
@@ -131,8 +137,12 @@ end
 -- Remove a previously applied state marker so labels never stack.
 -- Strips the current checkbox marks and the legacy 1.0.x "(On) "/"(Off) "
 -- text marks (never persisted, but cheap to be safe).
+-- NOTE: do NOT use a character class like [✓▢] here — Lua classes match
+-- single bytes and these glyphs are 3-byte UTF-8, so the class never
+-- matches. Each glyph is stripped literally instead.
 local function _stripStateMark(text)
-    text = text:gsub("^[✓▢] ", "")
+    text = text:gsub("^✓ ", "")
+    text = text:gsub("^▢ ", "")
     text = text:gsub("^%(On%) ", "")
     text = text:gsub("^%(Off%) ", "")
     return text
