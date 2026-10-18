@@ -21,18 +21,18 @@ All patches work independently and together. If one fails to attach (for example
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.11.14 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.4 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.2.10 |
-| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.1 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.3 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.8.2 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.12 |
-| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.3 |
-| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.2 |
+| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.4 |
+| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.3 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.3 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.2 |
-| [X-Ray Entity Footnotes](#x-ray-entity-footnotes) | `2-xray-entity-footnotes.lua` | xray.koplugin | 1.0.1 |
-| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.5 |
+| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.10 |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.0.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.3 |
+| [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -276,19 +276,6 @@ Cost: icons you leave untouched get no hooks. Nothing runs in the background or 
 
 ---
 
-## X-Ray Entity Footnotes
-
-Adds in-text entity footnotes to [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin) (requires the plugin installed and enabled). It underlines the AI-identified characters, historical figures, locations and terms directly in the reading text, and tapping one shows a footnote-style card with the description, the same in-text interaction the plugin already uses for unit conversions.
-
-- **Off by default on every book open.** Turn it on for the session with the "Toggle entity footnote underlines" gesture (bind it in Gesture Manager) or the Enable Entity Footnotes checkbox in the X-Ray menu. No scanning or caching happens while it's off.
-- **Menu:** Entity Footnotes submenu with Enable, Scan/Rescan, Style & Underline Settings and Entity Categories (Characters, Historical Figures, Locations, Terms).
-- **Responsive:** the book is scanned in small chunks across event-loop ticks so page turns stay responsive. Changes are debounced (about 2 seconds) so several in a row cause one scan, and slow chunks are logged.
-- **Cached:** results are cached on disk per book (written atomically), keyed to the entity list and rendering, and deleted once the book is marked complete.
-
-It doesn't modify xray.koplugin; it patches the plugin's class table at runtime. All credit for X-Ray itself goes to ultimatejimmy.
-
----
-
 ## X-Ray Direct Lookup
 
 For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
@@ -325,6 +312,15 @@ When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a 
 - **Style tweaks:** any `style_tweak_*` toggle action (stock tweaks and custom CSS files) reads its live state from the current book. The `style_tweak_set_*` setter actions are left alone.
 - **X-Ray Direct Lookup:** the `xray_direct_lookup_toggle` action reads the toggle's settings mirror.
 - Renamed actions (custom names via "Rename QuickMenu actions") are annotated too. With "keep menu open" on, checkboxes show the state from when the menu opened — reopen the menu to refresh. In the file browser (no book open), style tweak entries show without a checkbox.
+
+---
+
+## List Rating Progress
+
+Adds a star rating and reading progress bar to CoverBrowser's list ("detailed list") view in the File Manager, History, and Collections. Drawn in the bottom-right of each book row, left of the dogear. Nothing is drawn for books that have never been opened.
+
+- **Config:** show/hide stars, progress bar, and percentage; star size, bar height/width, and margins adjustable in the CFG table at the top of the file.
+- Ratings and progress are read from each book's sidecar file. Books marked complete show 100%.
 
 ---
 

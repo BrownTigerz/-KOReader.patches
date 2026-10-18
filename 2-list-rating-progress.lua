@@ -9,6 +9,8 @@ Nothing is drawn for books that have never been opened.
 Drop into: koreader/patches/
 ]]
 
+local VERSION = "1.0.0"
+
 local userpatch = require("userpatch")
 
 -- ---------------------------------------------------------------- config
