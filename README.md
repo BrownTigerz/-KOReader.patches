@@ -29,6 +29,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.3 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.12.2 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.0 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.10 |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.0.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
@@ -273,6 +274,16 @@ Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Work
 - **Hold actions:** hold the built-in Wi-Fi button for the network list (Network Tweaks' picker when installed); hold the built-in Restart or Search button for Restart / Exit KOReader / Reboot / Power off. Tap does what it always did.
 
 Cost: icons you leave untouched get no hooks. Nothing runs in the background or while asleep.
+
+---
+
+## Shortcuts Toolbar Quick Shelf
+
+For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the toolbar's top book row to flip between the book info panel and a Quick Shelf strip of up to 5 books — tap a cover to switch to that book. Two dots show which page you're on; every menu open starts on the book panel.
+
+- **Quick Shelf Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf Shows.
+- Covers come from thumbnails SimpleUI or CoverBrowser already keeps — a book is never opened to pull its cover. A book with no saved thumbnail gets a title tile.
+- **Cost:** nothing until you swipe. The strip builds on the first swipe of a menu open and is reused after that; a swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweaks (loads after it in file order).
 
 ---
 
