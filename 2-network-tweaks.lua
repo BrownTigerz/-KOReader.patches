@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.8.2
+Version: 1.8.3
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -61,6 +61,10 @@ Menu: Settings (gear) → Network → Network Tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog (condensed; full history in the patches repo)
+  1.8.3  turnOnWifiAndWaitForConnection: in Banner/Minimal the stock
+         "Connecting to Wi-Fi…" popup is swapped for one contract
+         notification (no more duplicates next to the caller's own
+         note); Normal unchanged.
   1.8.2  Title case for all menu item texts (TK's cross-patch convention).
   1.8.1  Shared notification contract v1: note() returns whether it handled
          the note — true for banner/corner/sleep-suppressed, false for Normal
@@ -85,7 +89,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.8.2"
+local PATCH_VERSION = "1.8.3"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -897,7 +901,16 @@ NetworkMgr.turnOnWifiAndWaitForConnection = function(self, callback)
     if quiet or (not self:isWifiOn() and canQuiet()) then
         if quietConnect(callback) then return end
     end
-    return orig_wait(self, callback)
+    if connectStyle() == "normal" then return orig_wait(self, callback) end
+    -- Styled mode: swap the stock "Connecting to Wi-Fi…" popup for one
+    -- contract notification. Otherwise the caller's own contract note
+    -- (e.g. the Backup updater's) appears next to the bare stock popup.
+    -- (No note when core started no connect: already connected, or the
+    -- attempt was refused — core shows nothing there either.)
+    local ok, res = withoutPopups(orig_wait, self, callback)
+    if not ok then error(res, 0) end
+    if res then note(_("Connecting to Wi-Fi…"), _("Connecting…")) end
+    return res
 end
 
 -- Toolbar / gesture actions. Toggle again while connecting = cancel.
