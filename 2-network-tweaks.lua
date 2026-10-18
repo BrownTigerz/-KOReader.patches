@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.8.4
+Version: 1.8.5
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -61,6 +61,11 @@ Menu: Settings (gear) → Network → Network Tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog (condensed; full history in the patches repo)
+  1.8.5  requestToTurnOnWifi hooked: in Banner/Minimal with Wi-Fi off,
+         programmatic connects (e.g. the Backup updater) use the
+         background connect — no stock popups, no UI freeze; the
+         caller's "Connecting…" toast is replaced by the cancellable
+         banner. Normal and the network list keep the stock flow.
   1.8.4  reconnectOrShowNetworkMenu hooked too: in Banner/Minimal the
          stock "Scanning for networks…" / "Connected to network X"
          popups (requestToTurnOnWifi path, e.g. the Backup updater)
@@ -93,7 +98,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.8.4"
+local PATCH_VERSION = "1.8.5"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -172,8 +177,14 @@ end
 -- Notes: top banner (Banner style) and small corner note (Minimal style)
 ---------------------------------------------------------------------------
 
+-- Most recent Banner-style toast and when it was shown, so a
+-- background-connect takeover can replace the caller's own "Connecting…"
+-- toast with the cancellable banner (one banner, not two).
+local last_flash, last_flash_at
 local function flash(text, timeout)
-    UIManager:show(Notification:new{ text = text, timeout = timeout or 2 })
+    last_flash = Notification:new{ text = text, timeout = timeout or 2 }
+    last_flash_at = os.time()
+    UIManager:show(last_flash)
 end
 
 -- Small toast in the top-right corner. Toasts never block input; this one
@@ -938,6 +949,34 @@ if orig_reconnect then
             note(ssid and (_("Connected to ") .. ssid) or _("Wi-Fi connected"), _("Wi-Fi connected"))
         end
         return success
+    end
+end
+
+-- requestToTurnOnWifi (the Backup updater & co.): in Banner/Minimal with
+-- Wi-Fi off, programmatic connects go through the background connect
+-- instead of KOReader's stock blocking flow: no stock popups, no UI
+-- freeze, and the caller's callback runs once Wi-Fi connects.
+local orig_request = NetworkMgr.requestToTurnOnWifi
+if orig_request then
+    NetworkMgr.requestToTurnOnWifi = function(self, wifi_cb, interactive)
+        if connectStyle() == "normal" or interactive then
+            return orig_request(self, wifi_cb, interactive)
+        end
+        if not self:isWifiOn() and canQuiet() then
+            if quietConnect(wifi_cb) then
+                -- One banner, not two: if the caller just showed its own
+                -- "Connecting…" toast, replace it with the cancellable
+                -- banner (in Minimal there is no banner to replace with;
+                -- the corner note simply stays).
+                if last_flash and os.difftime(os.time(), last_flash_at or 0) <= 2 then
+                    UIManager:close(last_flash)
+                end
+                last_flash = nil
+                return true
+            end
+            -- A stock connect is already running: fall through to stock.
+        end
+        return orig_request(self, wifi_cb, interactive)
     end
 end
 
