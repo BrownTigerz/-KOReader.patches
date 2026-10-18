@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.8.3
+Version: 1.8.4
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -61,6 +61,10 @@ Menu: Settings (gear) → Network → Network Tweaks
     is also cancelled when the device goes to sleep.
 
 Changelog (condensed; full history in the patches repo)
+  1.8.4  reconnectOrShowNetworkMenu hooked too: in Banner/Minimal the
+         stock "Scanning for networks…" / "Connected to network X"
+         popups (requestToTurnOnWifi path, e.g. the Backup updater)
+         are swapped for contract notes; Normal unchanged.
   1.8.3  turnOnWifiAndWaitForConnection: in Banner/Minimal the stock
          "Connecting to Wi-Fi…" popup is swapped for one contract
          notification (no more duplicates next to the caller's own
@@ -89,7 +93,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.8.3"
+local PATCH_VERSION = "1.8.4"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -911,6 +915,30 @@ NetworkMgr.turnOnWifiAndWaitForConnection = function(self, callback)
     if not ok then error(res, 0) end
     if res then note(_("Connecting to Wi-Fi…"), _("Connecting…")) end
     return res
+end
+
+-- Kobo/Kindle turnOnWifi (requestToTurnOnWifi, enableWifi & co.): the stock
+-- "Scanning for networks…" / "Connected to network X" popups live here and
+-- bypass the turnOnWifiAndWaitForConnection hook above, so they need their
+-- own swap. (This is the path the Backup updater takes.)
+local orig_reconnect = NetworkMgr.reconnectOrShowNetworkMenu
+if orig_reconnect then
+    NetworkMgr.reconnectOrShowNetworkMenu = function(self, complete_callback, interactive)
+        if connectStyle() == "normal" then
+            return orig_reconnect(self, complete_callback, interactive)
+        end
+        -- Styled mode: the caller's "Connecting…" contract note is already
+        -- up; swap the stock scan/connected popups for contract notes.
+        -- Failure UX stays with the caller (e.g. the Backup updater's own
+        -- "Couldn't Connect" popup).
+        local ok, success = withoutPopups(orig_reconnect, self, complete_callback, interactive)
+        if not ok then error(success, 0) end
+        if success then
+            local ssid = currentSSID()
+            note(ssid and (_("Connected to ") .. ssid) or _("Wi-Fi connected"), _("Wi-Fi connected"))
+        end
+        return success
+    end
 end
 
 -- Toolbar / gesture actions. Toggle again while connecting = cancel.
