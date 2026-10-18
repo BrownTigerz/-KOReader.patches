@@ -1,8 +1,25 @@
 --[[
 2-zz-readmastery-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.7
+Version 1.0.8
 
 Changelog:
+  1.0.8 (2026-10-18) - Your own log caught this one too: the page-turn
+    ledger never fired - zero "page turn" lines across a whole session
+    of visibly active reading (addXP source=pages firing repeatedly).
+    Checked against KOReader's own frontend source: onGotoPageRel is
+    paging-only and even ReaderPaging skips it in favor of
+    onScrollPageRel whenever page_scroll is on; ReaderRolling (the
+    default continuous-scroll view most EPUBs open in) has no
+    onGotoPageRel at all. Replaced the hook with onGotoViewRel on BOTH
+    ReaderPaging and ReaderRolling - the one dispatch point every
+    swipe/pan/key turn actually goes through on either controller.
+    onGotoPage (absolute jumps) now hooked on both for the same reason.
+    Second bug the same log caught: the suspend/resume hook targeted
+    ReaderUI, which has no onSuspend/onResume at all (every start hit
+    "not found" for both, then still logged "hooked" anyway - the
+    final log line was unconditional). Those handlers actually live on
+    ReaderDeviceStatus; re-pointed the hook there and made the final
+    "hooked" line conditional on something actually being wrapped.
   1.0.7 (2026-10-12) - Raised the shared-log rotation cap from 256 KB
     to 2 MB (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical value across
     all 12 diagnostics so rotation behavior stays consistent).
@@ -108,7 +125,7 @@ local LuaSettings = require("luasettings")
 local lfs = require("libs/libkoreader-lfs")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local PATCH_VERSION = "1.0.7"
+local PATCH_VERSION = "1.0.8"
 local EXPIRE_AFTER_DAYS = 10
 local WINDOW_DAYS = 5 -- active-logging window per start, in days
 local WINDOW_S = WINDOW_DAYS * 86400
@@ -443,42 +460,59 @@ userpatch.registerPatchPluginFunc("ReadMastery", hookPageUpdateTiming)
 userpatch.registerPatchPluginFunc("readmastery", hookPageUpdateTiming)
 
 -- --------------------------------------------------------------------------
--- Page-turn ledger: every relative page turn with its direction, so a
+-- Page-turn ledger: every relative turn with its direction, so a
 -- back-and-forth re-read can be matched against the addXP lines. A
 -- backward turn that still mints XP is the "extra XP when not needed"
--- signal. Absolute jumps (TOC etc.) are logged too. ReaderPaging is
--- required here the same way ReaderUI is below - pre-requiring the class
--- just caches it; the wrapped methods take effect when it instantiates.
+-- signal. Absolute jumps (TOC etc.) are logged too.
+--
+-- Hooks onGotoViewRel, NOT onGotoPageRel. Checked against KOReader's own
+-- frontend/apps/reader/modules/{readerpaging,readerrolling}.lua: every
+-- swipe, pan and page-turn key dispatches through onGotoViewRel on
+-- whichever document controller is active. ReaderPaging (paged
+-- documents, or EPUB in "page" view) then branches internally -
+-- onGotoPageRel only when page_scroll is OFF, onScrollPageRel when it's
+-- on. ReaderRolling (EPUB/FB2 etc in the default continuous-scroll view)
+-- has NO onGotoPageRel at all - it handles the turn itself inside
+-- onGotoViewRel. A version that only hooked onGotoPageRel (like this
+-- file's 1.0.6) logged zero page-turn lines for a whole session of
+-- visibly active reading (repeated addXP source=pages lines) - the
+-- book was in rolling/scroll view the entire time, so the hooked method
+-- was simply never called. onGotoViewRel is the one dispatch point
+-- common to both controllers regardless of view mode.
 -- --------------------------------------------------------------------------
 
 do
-    local ok_rp, ReaderPaging = pcall(require, "apps/reader/modules/readerpaging")
-    if ok_rp and type(ReaderPaging) == "table" then
-        if type(ReaderPaging.onGotoPageRel) == "function" then
-            local orig_rel = ReaderPaging.onGotoPageRel
-            ReaderPaging.onGotoPageRel = function(self, diff, no_page_turn, ...)
+    local function hookViewRel(mod_path, label)
+        local ok_m, Mod = pcall(require, mod_path)
+        if not (ok_m and type(Mod) == "table") then
+            log("could not hook %s for turn direction", label)
+            return
+        end
+        if type(Mod.onGotoViewRel) == "function" then
+            local orig_rel = Mod.onGotoViewRel
+            Mod.onGotoViewRel = function(self, diff, no_page_turn, ...)
                 if on() then
                     local d = tonumber(diff) or 0
-                    log("page turn %s (diff=%s)%s", d < 0 and "back" or "fwd",
-                        q(diff), no_page_turn and " [no_page_turn]" or "")
+                    log("page turn %s (diff=%s) [%s]%s", d < 0 and "back" or "fwd",
+                        q(diff), label, no_page_turn and " [no_page_turn]" or "")
                 end
                 return orig_rel(self, diff, no_page_turn, ...)
             end
-            log("hooked ReaderPaging.onGotoPageRel for turn direction")
+            log("hooked %s.onGotoViewRel for turn direction", label)
         else
-            log("ReaderPaging.onGotoPageRel not found - turn direction not logged")
+            log("%s.onGotoViewRel not found - turn direction not logged", label)
         end
-        if type(ReaderPaging.onGotoPage) == "function" then
-            local orig_goto = ReaderPaging.onGotoPage
-            ReaderPaging.onGotoPage = function(self, number, pos, ...)
-                if on() then log("page jump to %s", q(number)) end
+        if type(Mod.onGotoPage) == "function" then
+            local orig_goto = Mod.onGotoPage
+            Mod.onGotoPage = function(self, number, pos, ...)
+                if on() then log("page jump to %s [%s]", q(number), label) end
                 return orig_goto(self, number, pos, ...)
             end
-            log("hooked ReaderPaging.onGotoPage for absolute jumps")
+            log("hooked %s.onGotoPage for absolute jumps", label)
         end
-    else
-        log("could not hook ReaderPaging for turn direction")
     end
+    hookViewRel("apps/reader/modules/readerpaging", "paging")
+    hookViewRel("apps/reader/modules/readerrolling", "rolling")
 end
 
 -- --------------------------------------------------------------------------
@@ -506,35 +540,50 @@ end
 -- background work (confirmed by code review), so nothing here SHOULD
 -- fire during suspend/resume. This just confirms that empirically -
 -- logs the gap and flags if anything unexpected ran in between.
+--
+-- Hooks ReaderDeviceStatus, NOT ReaderUI. Checked against KOReader's own
+-- source: ReaderUI itself defines no onSuspend/onResume at all - those
+-- live on submodules (ReaderDeviceStatus, ReaderFooter, ReaderView,
+-- ReaderRolling, ReaderCoptListener each have their own). Every single
+-- start in the log hit "ReaderUI.onSuspend/onResume not found" and then
+-- STILL printed "hooked ReaderUI.onSuspend/onResume" right after -
+-- the unconditional final log line was wrong on top of the wrong class.
+-- ReaderDeviceStatus is the one actually meant for this: its whole job
+-- is reacting to suspend/resume (battery/memory checkers).
 -- --------------------------------------------------------------------------
 
 do
-    local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
-    if ok_rui and type(ReaderUI) == "table" then
+    local ok_rds, ReaderDeviceStatus = pcall(require, "apps/reader/modules/readerdevicestatus")
+    if ok_rds and type(ReaderDeviceStatus) == "table" then
         local suspend_t = nil
-        if type(ReaderUI.onSuspend) == "function" then
-            local orig_suspend = ReaderUI.onSuspend
-            ReaderUI.onSuspend = function(self, ...)
+        local hooked_any = false
+        if type(ReaderDeviceStatus.onSuspend) == "function" then
+            local orig_suspend = ReaderDeviceStatus.onSuspend
+            ReaderDeviceStatus.onSuspend = function(self, ...)
                 suspend_t = now()
                 if on() then log("device suspending") end
                 return orig_suspend(self, ...)
             end
+            hooked_any = true
         else
-            log("ReaderUI.onSuspend not found - suspend timing not hooked")
+            log("ReaderDeviceStatus.onSuspend not found - suspend timing not hooked")
         end
-        if type(ReaderUI.onResume) == "function" then
-            local orig_resume = ReaderUI.onResume
-            ReaderUI.onResume = function(self, ...)
+        if type(ReaderDeviceStatus.onResume) == "function" then
+            local orig_resume = ReaderDeviceStatus.onResume
+            ReaderDeviceStatus.onResume = function(self, ...)
                 if on() then log("device resumed (asleep for %dms)", suspend_t and ms(suspend_t) or -1) end
                 suspend_t = nil
                 return orig_resume(self, ...)
             end
+            hooked_any = true
         else
-            log("ReaderUI.onResume not found - resume timing not hooked")
+            log("ReaderDeviceStatus.onResume not found - resume timing not hooked")
         end
-        log("hooked ReaderUI.onSuspend/onResume")
+        if hooked_any then
+            log("hooked ReaderDeviceStatus.onSuspend/onResume")
+        end
     else
-        log("could not hook ReaderUI for suspend/resume timing")
+        log("could not hook ReaderDeviceStatus for suspend/resume timing")
     end
 end
 
