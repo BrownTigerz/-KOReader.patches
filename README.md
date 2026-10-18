@@ -283,7 +283,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 - **Quick Shelf Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf Shows.
 - Covers come from thumbnails SimpleUI or CoverBrowser already keeps — a book is never opened to pull its cover. A book with no saved thumbnail gets a title tile.
-- **Cost:** nothing until you swipe. The strip builds on the first swipe of a menu open and is reused after that; a swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweaks (loads after it in file order).
+- **Cost:** nothing until you swipe. The strip builds on the first swipe of a menu open and is reused after that; a swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweak.
 
 ---
 
