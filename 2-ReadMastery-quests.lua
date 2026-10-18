@@ -2,7 +2,7 @@
 ReadMastery - Quests & Tag Engine Patch
 ========================================
 
-Version: 1.0.3
+Version: 1.0.4
 
 Drop this alongside 2-ReadMastery-notify.lua in your KOReader
 `patches/` folder and restart. Independent, optional add-on - if
@@ -135,6 +135,11 @@ author (getProps().authors), which is why Author Explorer is safe
 to have already but a series-based quest isn't.
 
 Changelog:
+  1.0.4 (2026-10-18) - Fixed quest progress loss on restart/crash/dead
+    battery: progress was only flushed to disk on quest completion,
+    book end, or reset/toggle. trackReading now marks Quest.dirty when
+    anything changes, and the flag is flushed on document close and on
+    device suspend (a few disk writes a day instead of per-page).
   1.0.3 (2026-10-11) - Title case for all user-facing menu texts, per
     the shared convention: quest titles in the View Quests list and
     Quest Stats (applied at the menu-render layer via a titleCase
@@ -170,7 +175,7 @@ local logger      = require("logger")
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.3"
+local PATCH_VERSION = "1.0.4"
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -203,6 +208,11 @@ local Quest = {
         by_id = {},
     },
 }
+-- Runtime-only: true once quest progress has changed in memory but not
+-- yet been flushed to disk. Flushed on document close and on suspend,
+-- so a restart/crash/dead battery can't lose a day's progress. Never
+-- persisted itself - only guards the flush.
+Quest.dirty = false
 
 -- Migration: an existing saved state from before seasonal/yearly
 -- quests existed won't have these fields - add them rather than
@@ -529,6 +539,7 @@ local function addProgress(period_table, quest, amount, target_override)
         period_table.progress[quest.id] = p
     end
     if p.completed then return nil end
+    Quest.dirty = true -- progress changed in memory; flushed on close/suspend
     p.value = p.value + amount
     if p.value >= target then
         p.completed = true
@@ -549,7 +560,10 @@ local function checkThreshold(period_table, quest, current_value, target_overrid
         period_table.progress[quest.id] = p
     end
     if p.completed then return nil end
-    if current_value > p.value then p.value = current_value end
+    if current_value > p.value then
+        p.value = current_value
+        Quest.dirty = true -- gauge moved; flushed on close/suspend
+    end
     if p.value >= target then
         p.completed = true
         return quest
@@ -1354,7 +1368,31 @@ local function patchReadMastery(plugin)
             local orig_onCloseDocument = plugin.onCloseDocument
             plugin.onCloseDocument = function(instance, ...)
                 local ret = orig_onCloseDocument(instance, ...)
-                if Quest.enabled then trackReading(instance) end
+                if Quest.enabled then
+                    trackReading(instance)
+                    -- Flush anything changed since the last flush - a
+                    -- restart, crash, or dead battery after closing
+                    -- the book would otherwise lose it (this is a
+                    -- separate LuaSettings file KOReader never
+                    -- auto-flushes).
+                    persist(Quest.dirty)
+                    Quest.dirty = false
+                end
+                return ret
+            end
+        end
+
+        -- Same flush before the device sleeps. Chained to ReadMastery's
+        -- own handler; our persist is pcall'd so it can never break
+        -- suspend. A few disk writes a day instead of per-page.
+        if plugin.onSuspend then
+            local orig_onSuspend = plugin.onSuspend
+            plugin.onSuspend = function(instance, ...)
+                local ret = orig_onSuspend(instance, ...)
+                if Quest.enabled then
+                    pcall(persist, Quest.dirty)
+                    Quest.dirty = false
+                end
                 return ret
             end
         end
