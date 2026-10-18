@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.6
+Version 1.1.7
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -58,6 +58,10 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.1.7  Fix: sourceStates() was called inside collect() before its local
+         declaration, hitting a nil global ("attempt to call a nil value")
+         and killing the diagnostics inventory + delete-safety checks.
+         Forward-declared now.
   1.1.6  Log cap 256 KB -> 2 MB (shared-log headroom for all-on runs).
   1.1.5  Orphaned diagnostic .state deletes are legitimate now (menu
          sweeps them) — no longer flagged.
@@ -90,7 +94,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.6"
+local DIAG_VERSION = "1.1.7"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -266,6 +270,10 @@ local function startsWith(name, p)
     return rest == "" or rest:find("^[%.%-]") ~= nil
 end
 
+-- Forward declaration: collect() (above) calls sourceStates(), which is
+-- defined below. Without this, the call would hit a nil global.
+local sourceStates
+
 local function collect()
     local diags, order, hidden, stray = {}, {}, {}, {}
     for _i, dir in ipairs({ PATCHES, OFF_DIR }) do
@@ -322,7 +330,7 @@ end
 
 -- State files keep each diagnostic's time window; the menu finds them
 -- per diagnostic so Delete all logs restarts the windows.
-local function sourceStates(path)
+function sourceStates(path)
     local f = io.open(path, "r")
     if not f then return {} end
     local src = f:read("*a") or ""
