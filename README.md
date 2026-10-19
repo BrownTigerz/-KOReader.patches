@@ -46,11 +46,6 @@ The `debug/` folder holds temporary troubleshooting companions for the main patc
 
 ## SimpleUI Tweaks
 
-![Simpleui Tweaks Panel](images/simpleui-tweaks-panel.jpg)
-![Simpleui Tweaks Toberead](images/simpleui-tweaks-toberead.jpg)
-![Simpleui Tweaks Settings](images/simpleui-tweaks-settings.jpg)
-![Swipe On Currently Reading](images/reading-insights-tweaks.jpg)
-
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
 Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks with the Add-ons menu installed).
@@ -77,8 +72,6 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ## Add-ons menu
 
-![Add Ons Menu Path](images/readmastery-menu.jpg)
-
 One **Tools → Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
 
 - **Auto-collect:** newly installed plugins and patches that add a menu are found automatically. You get a one-time notice and they show up marked "New" under "Other" in "Choose What's In Add-ons".
@@ -90,8 +83,6 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 ---
 
 ## Patch Backup & Restore
-
-![Patch Backup Menu](images/addons-menu.jpg)
 
 Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.9.28.3 (stable, no icons), 26.9.29-beta and 26.9.30-beta; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
@@ -162,8 +153,6 @@ Adds **Add-ons → Debugging** (file browser only): one place to switch diagnost
 
 ## Network Tweaks
 
-![Network Tweaks](images/network-tweaks.jpg)
-
 Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network → Network Tweaks (or Tools → Add-ons with the Add-ons menu installed).
 
 - **Stop SSH Server On Sleep** (on): stops KOReader's SSH server when the device sleeps, like Wi-Fi, and doesn't restart it on wake. Without this, SSH quietly becomes reachable again as soon as Wi-Fi reconnects.
@@ -186,8 +175,6 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 ## ShelfSync Tweaks
 
-![Shelfsync Tweaks](images/shelfsync-tweaks.jpg)
-
 Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Sync messages follow the shared notification style when Network Tweaks or ReadMastery Notify is installed.
 
 - **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
@@ -207,7 +194,6 @@ Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreads
 
 ## ReadMastery Notify
 
-
 A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. Designed to feel rewarding without getting in the way while reading. Doesn't edit any ReadMastery file; settings live in their own file (`settings/ReadMastery_notify.lua`).
 
 Two top-level toggles above the settings menu:
@@ -226,8 +212,6 @@ Level-ups show a cosmetic title badge at certain milestone levels (for example "
 ---
 
 ## ReadMastery Quests
-
-![Readmastery Quests](images/readmastery-quests.jpg)
 
 Drop this alongside ReadMastery Notify and restart. Independent, optional add-on: without Notify, quest-complete popups fall back to a plain default box.
 
@@ -265,8 +249,6 @@ Credits: written with Discord user @sandcastles, with design cues from a patch b
 
 ## Track Reading Location
 
-![Track Reading Location](images/track-reading-location.jpg)
-
 Remembers the furthest page you've actually read. If you page back, or jump ahead through the table of contents, a small floating button takes you back. The button is drawn as an overlay, so it never blocks taps elsewhere.
 
 - **Backward:** paging back more than one page (one at a time or in a single jump) shows a persistent button at the bottom right.
@@ -281,8 +263,6 @@ Menu: Reader menu → Navigation → Reading Location, with "Go To Furthest Read
 ---
 
 ## Shortcuts Toolbar Icon Tweaks
-
-![Shortcutstoolbar Book Panel](images/shortcutstoolbar-book-panel.jpg)
 
 Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Works in the reader menu, file-browser bar/persistent bar and the SimpleUI home-screen module, and doesn't modify any plugin files.
 
@@ -299,8 +279,6 @@ Cost: icons you leave untouched get no hooks. Nothing runs in the background or 
 
 ## Shortcuts Toolbar Quick Shelf
 
-![Shortcutstoolbar Quick Shelf](images/shortcutstoolbar-quick-shelf.jpg)
-
 For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the toolbar's top book row to flip between the book info panel and a Quick Shelf strip of up to 5 books — tap a cover to switch to that book. Two dots show which page you're on; every menu open starts on the book panel.
 
 - **Quick Shelf Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf Shows.
@@ -311,8 +289,6 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## X-Ray Direct Lookup
 
-![Xray Direct Lookup](images/xray-direct-lookup.jpg)
-
 For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
 
 - **Toggle:** bind "Toggle direct X-Ray lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
@@ -321,7 +297,6 @@ For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the to
 ---
 
 ## Reading Insights Tweaks
-
 
 Enhances Reading Insights and the built-in Statistics calendar with cover art and goal-shaded views. Each feature has its own toggle, and toggles apply without a restart. Built for Reading Insights 8.1+, which now has its own streak calendar covers, tap-a-day and sleep screen — this patch keeps the extras it doesn't do.
 
