@@ -46,6 +46,11 @@ The `debug/` folder holds temporary troubleshooting companions for the main patc
 
 ## SimpleUI Tweaks
 
+![Simpleui Currently Reading](images/simpleui-currently-reading.png)
+![Simpleui Currently Reading 2](images/simpleui-currently-reading-2.png)
+![Simpleui Sidebar](images/simpleui-sidebar.png)
+![Simpleui Sidebar 2](images/simpleui-sidebar-2.png)
+
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
 Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks with the Add-ons menu installed).
@@ -72,6 +77,10 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ## Add-ons menu
 
+![Addons Menu](images/addons-menu.png)
+![Addons Menu 2](images/addons-menu-2.png)
+![Readmastery Menu Path](images/readmastery-menu-path.png)
+
 One **Tools → Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
 
 - **Auto-collect:** newly installed plugins and patches that add a menu are found automatically. You get a one-time notice and they show up marked "New" under "Other" in "Choose What's In Add-ons".
@@ -83,6 +92,8 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 ---
 
 ## Patch Backup & Restore
+
+![Patch Backup Menu](images/patch-backup-menu.png)
 
 Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.9.28.3 (stable, no icons), 26.9.29-beta and 26.9.30-beta; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
@@ -141,6 +152,8 @@ Needs a KOReader build with zip support (`ffi/archiver`, 2024+).
 
 ## Debugging Menu
 
+![Debug Menu](images/debug-menu.png)
+
 Adds **Add-ons → Debugging** (file browser only): one place to switch diagnostic patches on and off and tidy their logs. Your diagnostic patches are never edited.
 
 - One master toggle plus a checkbox per diagnostic. Turning one off moves it to `patches/debug/`, so KOReader doesn't load it and it costs nothing. Changes apply after a restart (asked once).
@@ -152,6 +165,8 @@ Adds **Add-ons → Debugging** (file browser only): one place to switch diagnost
 ---
 
 ## Network Tweaks
+
+![Network Tweaks](images/network-tweaks.png)
 
 Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network → Network Tweaks (or Tools → Add-ons with the Add-ons menu installed).
 
@@ -175,6 +190,8 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 ## ShelfSync Tweaks
 
+![Shelfsync Tweaks](images/shelfsync-tweaks.png)
+
 Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Sync messages follow the shared notification style when Network Tweaks or ReadMastery Notify is installed.
 
 - **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
@@ -194,6 +211,8 @@ Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreads
 
 ## ReadMastery Notify
 
+![Readmastery Notify](images/readmastery-notify.png)
+
 A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. Designed to feel rewarding without getting in the way while reading. Doesn't edit any ReadMastery file; settings live in their own file (`settings/ReadMastery_notify.lua`).
 
 Two top-level toggles above the settings menu:
@@ -212,6 +231,8 @@ Level-ups show a cosmetic title badge at certain milestone levels (for example "
 ---
 
 ## ReadMastery Quests
+
+![Readmastery Quests](images/readmastery-quests.png)
 
 Drop this alongside ReadMastery Notify and restart. Independent, optional add-on: without Notify, quest-complete popups fall back to a plain default box.
 
@@ -233,6 +254,8 @@ Turning it OFF just pauses tracking and keeps progress. To reset quest progress,
 
 ## Kobo Style Sleep Screen Banner
 
+![Sleepscreen Banner](images/sleepscreen-banner.jpg)
+
 Redesigns KOReader's banner-type sleep screen message to look like the Kobo lock screen tag, showing a random highlight from the current book.
 
 - **Quote fallback:** books with no highlights show a random quote from a text file. Put `Famous Quotes.txt` at `/mnt/onboard/Famous Quotes.txt`, or change `file_path` at the top of the patch.
@@ -249,6 +272,8 @@ Credits: written with Discord user @sandcastles, with design cues from a patch b
 
 ## Track Reading Location
 
+![Track Reading Location](images/track-reading-location.png)
+
 Remembers the furthest page you've actually read. If you page back, or jump ahead through the table of contents, a small floating button takes you back. The button is drawn as an overlay, so it never blocks taps elsewhere.
 
 - **Backward:** paging back more than one page (one at a time or in a single jump) shows a persistent button at the bottom right.
@@ -263,6 +288,9 @@ Menu: Reader menu → Navigation → Reading Location, with "Go To Furthest Read
 ---
 
 ## Shortcuts Toolbar Icon Tweaks
+
+![Shortcutstoolbar Icon Tweaks](images/shortcutstoolbar-icon-tweaks.png)
+![Shortcutstoolbar Icon Tweaks 2](images/shortcutstoolbar-icon-tweaks-2.png)
 
 Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Works in the reader menu, file-browser bar/persistent bar and the SimpleUI home-screen module, and doesn't modify any plugin files.
 
@@ -279,6 +307,8 @@ Cost: icons you leave untouched get no hooks. Nothing runs in the background or 
 
 ## Shortcuts Toolbar Quick Shelf
 
+![Shortcutstoolbar Quick Shelf](images/shortcutstoolbar-quick-shelf.png)
+
 For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the toolbar's top book row to flip between the book info panel and a Quick Shelf strip of up to 5 books — tap a cover to switch to that book. Two dots show which page you're on; every menu open starts on the book panel.
 
 - **Quick Shelf Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf Shows.
@@ -289,6 +319,8 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## X-Ray Direct Lookup
 
+![Xray Direct Lookup](images/xray-direct-lookup.png)
+
 For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
 
 - **Toggle:** bind "Toggle direct X-Ray lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
@@ -297,6 +329,8 @@ For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the to
 ---
 
 ## Reading Insights Tweaks
+
+![Reading Insights Tweaks](images/reading-insights-tweaks.png)
 
 Enhances Reading Insights and the built-in Statistics calendar with cover art and goal-shaded views. Each feature has its own toggle, and toggles apply without a restart. Built for Reading Insights 8.1+, which now has its own streak calendar covers, tap-a-day and sleep screen — this patch keeps the extras it doesn't do.
 
@@ -318,6 +352,8 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art an
 **Cost:** nothing runs in the background. Work happens only when you open one of these views. Scaled covers are kept for the session (max 150), and the only timer is a one-shot 30s retry window after a missing cover was sent for extraction.
 ## QuickMenu Toggle State
 
+![Quickmenu Toggle](images/quickmenu-toggle.jpg)
+
 When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a checkbox prefix — "✓" when on, "▢" when off (the same glyphs KOReader's own menus use, rendered as text so they always display). The marker goes first on purpose: the popup truncates long labels from the end.
 
 - **Style tweaks:** any `style_tweak_*` toggle action (stock tweaks and custom CSS files) reads its live state from the current book. The `style_tweak_set_*` setter actions are left alone.
@@ -327,6 +363,8 @@ When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a 
 ---
 
 ## List Rating Progress
+
+![List Rating Progress](images/list-rating-progress.png)
 
 Adds a star rating and reading progress bar to CoverBrowser's list ("detailed list") view in the File Manager, History, and Collections. Drawn in the bottom-right of each book row, left of the dogear. Nothing is drawn for books that have never been opened.
 
