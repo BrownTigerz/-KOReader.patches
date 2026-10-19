@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.11.14
+Version 2.11.15
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.11.15 TBR panel: dismisses on device suspend (was staying open over
+         the sleep screen).
   2.11.14 TBR panel: switching views rebuilds the panel in place instead of
          closing and reopening it, so the home screen behind isn't redrawn
          each time (about 60 ms less per switch).
@@ -187,7 +189,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.11.14"
+local VERSION = "2.11.15"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1790,6 +1792,7 @@ end
 local tbr_panel_open = false
 local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
 local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
+local tbr_panel_root = nil   -- the open panel widget, for suspend-dismiss
 
 -- reuse: the open panel, to rebuild in place (view switch): no close, no
 -- repaint of the home behind it, just this panel's area refreshed.
@@ -1865,6 +1868,7 @@ local function openTBRPanel(hs, view, switching, reuse)
     -- here: the new view's own refresh covers the same area.
     local function close(for_switch)
         tbr_panel_open = false
+        tbr_panel_root = nil
         if for_switch then
             UIManager:close(root)
             return
@@ -2139,6 +2143,7 @@ local function openTBRPanel(hs, view, switching, reuse)
         return true
     end
     tbr_panel_open = true
+    tbr_panel_root = root
     -- "full" (one flash of just the panel area) on open and close: a plain
     -- "ui" refresh left ghosts of the covers/home behind. "full" also isn't
     -- downgraded by "Avoid mandatory black flashes in UI".
@@ -2170,6 +2175,25 @@ hookHomeEdgeSwipe = function(hs)
             end
         end
         return orig(self, args, ges, ...)
+    end
+end
+
+-- Dismiss the TBR side panel on suspend: it should not stay open over the
+-- sleep screen. Hooks UIManager.broadcastEvent for the onSuspend event,
+-- the same pattern Network Tweaks uses.
+do
+    local ok, UIManager = pcall(require, "ui/uimanager")
+    if ok and type(UIManager) == "table" and type(UIManager.broadcastEvent) == "function" then
+        local orig_broadcast = UIManager.broadcastEvent
+        UIManager.broadcastEvent = function(self, event, ...)
+            local handler = type(event) == "table" and event.handler
+            if handler == "onSuspend" and tbr_panel_open and tbr_panel_root then
+                local root, open = tbr_panel_root, tbr_panel_open
+                tbr_panel_open, tbr_panel_root = false, nil
+                pcall(UIManager.close, UIManager, root)
+            end
+            return orig_broadcast(self, event, ...)
+        end
     end
 end
 
