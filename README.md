@@ -79,7 +79,6 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ![Addons Menu](images/addons-menu.png)
 ![Addons Menu 2](images/addons-menu-2.png)
-![Readmastery Menu Path](images/readmastery-menu-path.png)
 
 One **Tools → Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
 
@@ -233,6 +232,7 @@ Level-ups show a cosmetic title badge at certain milestone levels (for example "
 ## ReadMastery Quests
 
 ![Readmastery Quests](images/readmastery-quests.png)
+![Readmastery Menu](images/readmastery-menu-path.png)
 
 Drop this alongside ReadMastery Notify and restart. Independent, optional add-on: without Notify, quest-complete popups fall back to a plain default box.
 
