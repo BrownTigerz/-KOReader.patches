@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.2.0
+Version: 1.2.1
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -29,6 +29,8 @@ Install: drop in koreader/patches/ and restart KOReader. Loads after
 2-shortcutstoolbar-icon-tweaks.lua (file order), which it works with.
 
 Changelog
+  1.2.1  Suspend dismisses the shelf: if the Quick Shelf page is showing
+         when the device sleeps, the pager drops back to the book panel.
   1.2.0  Renamed Quick Shelf (was Recent Books: it shows To Be Read too).
          File is now 2-shortcutstoolbar-quick-shelf.lua: delete
          2-shortcutstoolbar-recent-books.lua. Your list choice carries
@@ -47,7 +49,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.2.0"
+local PATCH_VERSION = "1.2.1"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -375,6 +377,15 @@ local function makePager(panel, avail_w)
             UIManager:setDirty(win, function() return "flashui", d, true end)
         end
         return true
+    end
+
+    -- On suspend the shelf dismisses: the menu wakes on the book panel,
+    -- not the strip. (Nothing is consumed: the event keeps propagating.)
+    function pager:onSuspend()
+        if self.page ~= 1 then
+            self.page = 1
+            self[1] = self.pages[1]
+        end
     end
 
     -- Two dots, bottom centre, in the panel's bottom padding.
