@@ -35,6 +35,7 @@ All patches work independently and together. If one fails to attach (for example
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
+| [Reading Log for SimpleUI](#reading-log-for-simpleui) | `simpleuireadinglog.koplugin.zip` | simpleui.koplugin | 1.5.3 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -382,3 +383,27 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 
 `Famous Quotes.txt` is a separate file for the sleep screen banner's quote fallback (see above).
 
+---
+
+## Reading Log for SimpleUI
+
+![Reading Log Today](images/readinglog-today.png)
+![Reading Log Monthly](images/readinglog-monthly.png)
+![Reading Log Yearly](images/readinglog-yearly.png)
+![Reading Log Settings](images/readinglog-settings.png)
+
+Runs the [Reading Log](https://github.com/stevenzamora1/reading-log) dashboard and cards (by stevenzamora1, AGPL-3.0 — thank you!) as SimpleUI home screen modules. No Bookshelf needed.
+
+**Install:** unzip `simpleuireadinglog.koplugin.zip` and copy the `simpleui_readinglog.koplugin` folder into KOReader's `plugins/` folder (next to `simpleui.koplugin`), then restart KOReader.
+
+- **Dashboard module:** Today / Monthly / Yearly tabs — activity rings, continue reading, pages-per-day chart, year goal with covers, reading heatmap and more. Tabs and month arrows work by tap; swipe still turns SimpleUI pages.
+- **Every card is also its own module:** enable individual cards (`Reading Log · Activity Rings`, etc.) from SimpleUI's module list.
+- **Night Mode:** cards switch to the Dark theme while Night Mode is on (changeable per module).
+- **Reading goals:** the year goal and daily minutes stay in sync with SimpleUI's own Reading Goals — changing the goal in either place changes both.
+- Settings are stored in `koreader/settings/simpleui_readinglog.lua`, separate from Bookshelf.
+
+**Notes**
+- The on-device "Check for Patch Updates" handles Lua patches only — update this plugin by replacing the folder with the new version's.
+- "Details" on a book opens SimpleUI's own book menu (mark finished / on hold, collections, book info).
+
+**Uninstall:** delete `simpleui_readinglog.koplugin` from `plugins/` and restart KOReader.
