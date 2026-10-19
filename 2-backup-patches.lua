@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.0 (2026-10-19)
+2-backup-patches.lua                                     2.3.1 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.1  2026-10-19
+    - Manifest entries can now be { version = "x.y.z", url = "https://" }
+      tables for cross-repo downloads (e.g. a plugin release asset);
+      the updater uses the given URL directly.
   2.3.0  2026-10-19
     - Updater now handles .koplugin.zip manifest entries: downloads the
       zip, unzips into plugins/<name>.koplugin/, and reads the version
@@ -187,7 +191,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.0"
+local VERSION = "2.3.1"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1393,7 +1397,13 @@ end
 -- newer (installed is newer than the repo), or unknown.
 local function entryStatus(repo_path, available)
     local filename = repo_path:match("[^/]+$")
-    local e = { repo_path = repo_path, filename = filename, available = available }
+    -- Table form: { version = "x.y.z", url = "https://..." } for cross-repo
+    -- downloads. The url rides along for updatePatches to use directly.
+    local version, url = available, nil
+    if type(available) == "table" then
+        version, url = available.version, available.url
+    end
+    local e = { repo_path = repo_path, filename = filename, available = version, url = url }
     local path, stale = localInstall(repo_path)
     if path then
         updaterTrace("location", "%s: using %s%s", filename, path,
@@ -1478,7 +1488,8 @@ local function updatePatches(targets)
 
         local succeeded, failed = {}, {}
         for i, t in ipairs(targets) do
-            local url = updaterUrl(t.repo_path)
+            -- Cross-repo entries carry their own download URL.
+            local url = t.url or updaterUrl(t.repo_path)
             updaterTrace("download", "start %s (%s)", t.filename, url)
             -- Plain text, no progress bar: e-ink hates the flicker.
             local downloading = InfoMessage:new{
@@ -1613,10 +1624,15 @@ function Backup.checkForPatchUpdates()
                 manifest_url, tostring(code), #body, n)
         end
 
-        -- Per-patch direction for every manifest entry.
+        -- Per-patch direction for every manifest entry. A value can be a
+        -- version string, or a table { version = "x.y.z", url = "..." }
+        -- for entries downloaded from outside the patches repo
+        -- (e.g. a plugin release asset).
         local statuses, outdated = {}, {}
         for repo_path, available in pairs(manifest) do
-            if type(repo_path) == "string" and type(available) == "string" then
+            if type(repo_path) == "string" and
+                (type(available) == "string" or
+                 (type(available) == "table" and type(available.version) == "string")) then
                 local e = entryStatus(repo_path, available)
                 updaterTrace("compare", "%s: installed %s vs manifest %s → %s",
                     e.repo_path, e.installed or "?", e.available, e.status)
