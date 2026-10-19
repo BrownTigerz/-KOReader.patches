@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.1 (2026-10-19)
+2-backup-patches.lua                                     2.3.2 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.2  2026-10-19
+    - Updater status list: plugin (.koplugin.zip) entries now appear
+      under their own "Plugins" header, separate from Patches and
+      Diagnostics. Added version-comparison tracing for plugins.
   2.3.1  2026-10-19
     - Manifest entries can now be { version = "x.y.z", url = "https://" }
       tables for cross-repo downloads (e.g. a plugin release asset);
@@ -191,7 +195,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.1"
+local VERSION = "2.3.2"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1426,6 +1430,11 @@ local function entryStatus(repo_path, available)
     end
     e.installed = installed
     local cmp = compareVersions(installed, available)
+    -- Trace the raw strings for plugin version debugging.
+    if isPlugin(repo_path) then
+        updaterTrace("compare", "%s: pluginVersion=%q manifest=%q cmp=%d",
+            e.filename, tostring(installed), tostring(available), cmp)
+    end
     if cmp < 0 then
         e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, available)
     elseif cmp > 0 then
@@ -1640,7 +1649,17 @@ function Backup.checkForPatchUpdates()
                 if e.status == "update_available" then outdated[#outdated + 1] = e end
             end
         end
-        table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
+        -- Sort by category (patches, plugins, diagnostics), then repo path.
+        local function category(e)
+            if e.repo_path:sub(1, 6) == "debug/" then return 3 end
+            if isPlugin(e.repo_path) then return 2 end
+            return 1
+        end
+        table.sort(statuses, function(a, b)
+            local ca, cb = category(a), category(b)
+            if ca ~= cb then return ca < cb end
+            return a.repo_path < b.repo_path
+        end)
         table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
 
         local status_menu
@@ -1797,16 +1816,23 @@ function Backup.checkForPatchUpdates()
                 updatePatches(outdated)
             end,
         }
-        -- Patches and diagnostics under labeled headers, easier to scan
-        -- and tap. (statuses is sorted by repo path, so the debug/
-        -- entries come last.)
-        local in_debug = nil
+        -- Patches, plugins, and diagnostics under labeled headers, easier to
+        -- scan and tap. (statuses is sorted by category, then repo path.)
+        local last_cat = nil
         for i, e in ipairs(statuses) do
-            local is_debug = e.repo_path:sub(1, 6) == "debug/"
-            if is_debug ~= in_debug then
-                in_debug = is_debug
+            local cat
+            if e.repo_path:sub(1, 6) == "debug/" then
+                cat = "diagnostics"
+            elseif isPlugin(e.repo_path) then
+                cat = "plugins"
+            else
+                cat = "patches"
+            end
+            if cat ~= last_cat then
+                last_cat = cat
                 items[#items + 1] = {
-                    text = is_debug and _("Diagnostics") or _("Patches"),
+                    text = cat == "diagnostics" and _("Diagnostics")
+                        or cat == "plugins" and _("Plugins") or _("Patches"),
                     select_enabled = false,
                 }
             end
