@@ -47,5 +47,5 @@ return {
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.1.6",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.5",
     ["debug/2-zz-xray-direct-lookup-diagnostics.lua"] = "1.2.5",
-    ["simpleui_readinglog.koplugin.zip"] = { version = "1.5.3", url = "https://github.com/BrownTigerz/simpleui_readinglog.koplugin/releases/download/v1.5.3/simpleui_readinglog.koplugin.zip" },
+    ["simpleui_readinglog.koplugin.zip"] = { version = "1.5.4", url = "https://github.com/BrownTigerz/simpleui_readinglog.koplugin/releases/download/v1.5.4/simpleui_readinglog.koplugin.zip" },
 }
