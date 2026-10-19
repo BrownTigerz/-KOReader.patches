@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.7.7
+Version 2.8.1
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -37,6 +37,11 @@ What it logs:
     Bookshelf, file browser), Bookshelf's "Close Bookshelf" and book-holding
     steps, SimpleUI's reader-to-home steps, how long closing a book blocks
     the screen, and SimpleUI / Bookshelf warnings and errors.
+  - Reading Log for SimpleUI (simpleui_readinglog.koplugin): install check,
+    which of its modules are on, every build (size, theme, night mode, tap
+    regions, too tall for the page, size mismatch), every tap and the region
+    it hit, every home screen refresh it asks for and why, refresh loops,
+    and its own / Reading Log's warnings and errors.
 
 It sets no timers of its own: summaries are written on the next redraw.
 
@@ -51,6 +56,14 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.8.1  One line per entry: window names and messages with line breaks
+         (e.g. the "Screenshot saved to:" popup) are joined with " / ",
+         and the invisible text-direction marks KOReader puts around file
+         paths are removed.
+  2.8.0  Reading Log for SimpleUI: install and module checks, and the
+         plugin's own "readinglog:" lines (builds, taps, refreshes, refresh
+         loops, night mode rebuilds) logged through this diagnostic.
+         Warnings/errors tagged readinglog or almanac are caught too.
   2.7.7  New Books check also runs on the SimpleUI 2.7.5 release (once at
          start): its library scan's newest books and the newest files on
          disk, with the reason any are left out.
@@ -142,9 +155,21 @@ end
 local DIAG_TAG = "simpleui"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
+-- Unicode bidi isolate / embedding marks (U+2066-2069, U+202A-202E) that
+-- KOReader wraps around file paths in popups.
+local BIDI = { "\226\129\166", "\226\129\167", "\226\129\168", "\226\129\169",
+    "\226\128\170", "\226\128\171", "\226\128\172", "\226\128\173", "\226\128\174" }
+local function oneLine(s)
+    s = tostring(s)
+    for _i, m in ipairs(BIDI) do s = s:gsub(m, "") end
+    s = s:gsub("%s*[\r\n]+%s*", " / ")
+    return s
+end
+
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
+    line = oneLine(line)
     pcall(function()
         if (lfs.attributes(SHARED_LOG, "size") or 0) > SHARED_MAX_BYTES then
             os.remove(SHARED_LOG .. ".old")
@@ -222,7 +247,7 @@ do
         if w then w:write(first, "\n") w:close() end
     end
     if os.difftime(os.time(), first) > EXPIRE_S then
-        write("simpleui diagnostics 2.7.4 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
+        write("simpleui diagnostics 2.8.1 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
             .. "): not watching anything. Delete this patch, or delete simpleui-diagnostics.state for 3 more days.")
         return
     end
@@ -232,7 +257,7 @@ end
 -- through this, so their lines follow this diagnostic's window and expiry.
 package.loaded["simpleui_diagnostics"] = { log = log }
 
-write("==================== simpleui diagnostics 2.7.7 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.8.1 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
@@ -719,7 +744,8 @@ if ok_ui and type(UIManager) == "table" then
                 if on() then
                     local first = tostring((...))
                     local low = first:lower()
-                    if low:find("simpleui") or low:find("bookshelf") or low:find("sui_") then
+                    if low:find("simpleui") or low:find("bookshelf") or low:find("sui_")
+                        or low:find("readinglog") or low:find("almanac") then
                         local bits = {}
                         for k = 1, math.min(select("#", ...), 6) do bits[#bits + 1] = tostring((select(k, ...))) end
                         log("%s: %s", lvl == "err" and "ERROR" or "warning", table.concat(bits, " "))
@@ -1265,4 +1291,104 @@ do
         local ok, err = pcall(hookSources)
         if not ok then log("new books: couldn't hook (%s)", tostring(err)) end
     end)
+end
+
+-- --------------------------------------------------------------------------
+-- 9. Reading Log for SimpleUI (simpleui_readinglog.koplugin)
+--    The plugin logs its own builds, taps and refreshes through this file's
+--    log (package.loaded["simpleui_diagnostics"]); these are the checks it
+--    can't make about itself: is it installed whole, did its modules reach
+--    SimpleUI's registry, which are switched on, and Reading Log's own
+--    "[almanac]" notes.
+-- --------------------------------------------------------------------------
+do
+    local RL_ID = "simpleui_readinglog"
+    local RL_FILES = { "main.lua", "_meta.lua", "readinglog/almanac/init.lua", "readinglog/almanac/data.lua",
+        "readinglog/almanac/panels.lua", "readinglog/almanac/settings.lua", "readinglog/almanac/modules.lua" }
+
+    -- Reading Log writes its notable events at info level, tagged "[almanac]"
+    local logger = require("logger")
+    local orig_info = logger.info
+    if type(orig_info) == "function" then
+        logger.info = function(...)
+            if on() then
+                local first = tostring((...))
+                if first:find("almanac", 1, true) or first:find("readinglog", 1, true) then
+                    local bits = {}
+                    for k = 1, math.min(select("#", ...), 8) do bits[#bits + 1] = tostring((select(k, ...))) end
+                    log("readinglog: kit note: %s", table.concat(bits, " "))
+                end
+            end
+            return orig_info(...)
+        end
+    end
+
+    local function registryCheck()
+        local Reg = package.loaded["modules/moduleregistry"]
+        if type(Reg) ~= "table" then
+            log("readinglog: SimpleUI module registry not loaded yet")
+            return
+        end
+        local okl, list = pcall(Reg.list)
+        if not okl or type(list) ~= "table" then
+            log("readinglog: couldn't list SimpleUI modules (%s)", tostring(list))
+            return
+        end
+        local found, on_list = 0, {}
+        for _i, m in ipairs(list) do
+            if type(m) == "table" and type(m.id) == "string" and m.id:find("^readinglog_") then
+                found = found + 1
+                local oke, en = pcall(Reg.isEnabled, m, "simpleui_hs_")
+                if oke and en then on_list[#on_list + 1] = m.id end
+            end
+        end
+        log("readinglog: %d Reading Log modules in SimpleUI's registry (expected 22); switched on: %s",
+            found, #on_list > 0 and table.concat(on_list, ", ") or "(none)")
+        if found == 0 then
+            log("readinglog: NOT REGISTERED - modules won't appear in SimpleUI's list")
+        end
+    end
+
+    userpatch.registerPatchPluginFunc(RL_ID, function(plugin)
+        if not on() then return end
+        local path = type(plugin) == "table" and plugin.path
+        local ver = "?"
+        if path then pcall(function() ver = (dofile(path .. "/_meta.lua") or {}).version or "?" end) end
+        log("readinglog: plugin %s at %s", tostring(ver), q(path))
+        if path then
+            local missing = {}
+            for _i, f in ipairs(RL_FILES) do
+                if lfs.attributes(path .. "/" .. f, "mode") ~= "file" then missing[#missing + 1] = f end
+            end
+            log("readinglog: files %s", #missing == 0 and "all present"
+                or ("MISSING: " .. table.concat(missing, ", ") .. " (copy the whole folder again)"))
+        end
+        local settings = DataStorage:getSettingsDir() .. "/simpleui_readinglog.lua"
+        log("readinglog: settings file %s", lfs.attributes(settings, "mode") == "file"
+            and string.format("present (%d bytes)", lfs.attributes(settings, "size") or 0)
+            or "not created yet (nothing changed from defaults)")
+        local bs = DataStorage:getSettingsDir() .. "/bookshelf/micromodules/alm_dashboard.lua"
+        if lfs.attributes(bs, "mode") == "file" then
+            log("readinglog: Bookshelf copy of Reading Log also installed (fine: separate settings, they don't share)")
+        end
+        if not package.loaded["simpleui"] and not package.loaded["modules/moduleregistry"] then
+            log("readinglog: SimpleUI not loaded when this plugin started (it registers on the next tick)")
+        end
+    end)
+
+    -- Registry check once per start, when the SimpleUI home first shows
+    -- (after the plugin's next-tick registration; no timer of our own).
+    local ok_u, UIM = pcall(require, "ui/uimanager")
+    if ok_u and type(UIM) == "table" then
+        local checked = false
+        local orig_show9 = UIM.show
+        UIM.show = function(self, w, ...)
+            local res = { orig_show9(self, w, ...) }
+            if not checked and on() and type(w) == "table" and w.name == "homescreen" then
+                checked = true
+                self:nextTick(function() if on() then pcall(registryCheck) end end)
+            end
+            return unpack(res)
+        end
+    end
 end
