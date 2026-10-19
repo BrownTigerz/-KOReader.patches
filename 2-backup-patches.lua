@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.2.12 (2026-10-18)
+2-backup-patches.lua                                     2.3.0 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.0  2026-10-19
+    - Updater now handles .koplugin.zip manifest entries: downloads the
+      zip, unzips into plugins/<name>.koplugin/, and reads the version
+      from the plugin's _meta.lua instead of the Lua-text regex. Remove
+      works on plugin directories too.
   2.2.12  2026-10-18
     - Updater Wi-Fi connect: the "Connecting to Wi-Fi…" status now goes
       through the shared notification contract (styledNote) instead of
@@ -182,7 +187,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.2.12"
+local VERSION = "2.3.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1209,6 +1214,64 @@ local UPDATER_MANIFEST = "patch-versions.lua"
 local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
 PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
 local DEBUG_DIR = PATCH_DIR .. "/debug"
+-- KOReader plugins live next to patches/: <koreader>/plugins/
+local PLUGINS_DIR = (PATCH_DIR:match("^(.*)/[^/]+$") or DATA) .. "/plugins"
+
+-- A manifest entry for a plugin zip, e.g. "plugins/foo.koplugin.zip".
+-- Generic: any future .koplugin.zip entry works the same way.
+local function isPlugin(repo_path)
+    return repo_path:match("%.koplugin%.zip$") ~= nil
+end
+
+-- "plugins/foo.koplugin.zip" -> "foo.koplugin"
+local function pluginDirName(repo_path)
+    local filename = repo_path:match("[^/]+$") or repo_path
+    return filename:gsub("%.zip$", "")
+end
+
+-- Version from a plugin's _meta.lua (standard KOReader plugin metadata).
+local function pluginVersion(plugindir)
+    local chunk = loadfile(plugindir .. "/_meta.lua")
+    if not chunk then return nil end
+    local ok, meta = pcall(chunk)
+    if ok and type(meta) == "table" and meta.version then
+        return tostring(meta.version)
+    end
+    return nil
+end
+
+-- Write body to a temp file with short-write protection: checks f:write /
+-- f:close results and compares on-disk size. Returns nil on success, or an
+-- error string. The caller removes the temp file on failure.
+local function writeTempFile(tmp, body)
+    local f = io.open(tmp, "w")
+    if not f then return _("Couldn't save.") end
+    local wok = f:write(body)
+    local cok = f:close()
+    local ondisk = lfs.attributes(tmp, "size")
+    if wok and cok and ondisk == #body then
+        return nil
+    end
+    os.remove(tmp)
+    return _("Couldn't save.")
+end
+
+-- Recursive delete for plugin directories.
+local function rmTree(path)
+    local mode = lfs.attributes(path, "mode")
+    if mode == "file" then
+        return os.remove(path)
+    elseif mode == "directory" then
+        for entry in lfs.dir(path) do
+            if entry ~= "." and entry ~= ".." then
+                local ok, err = rmTree(path .. "/" .. entry)
+                if not ok then return nil, err end
+            end
+        end
+        return lfs.rmdir(path)
+    end
+    return nil, "not found"
+end
 
 -- Trace hook for the diagnostics patch: 2-zz-backup-patches-diagnostics.lua
 -- sets _G.__backup_updater_trace while it's watching, and every trace()
@@ -1289,6 +1352,14 @@ end
 -- wins, and a stale duplicate is reported for cleanup on update.
 -- Returns the chosen path (or nil), plus a stale duplicate path or nil.
 local function localInstall(repo_path)
+    -- Plugins live as directories under plugins/, not files in patches/.
+    if isPlugin(repo_path) then
+        local plugindir = PLUGINS_DIR .. "/" .. pluginDirName(repo_path)
+        if lfs.attributes(plugindir, "mode") == "directory" then
+            return plugindir, nil
+        end
+        return nil, nil
+    end
     local filename = repo_path:match("[^/]+$")
     local is_debug = repo_path:sub(1, 6) == "debug/"
     local dirs = is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR }
@@ -1307,6 +1378,10 @@ end
 -- had one, would win on update). Used when installing a patch that isn't
 -- there at all.
 local function defaultDest(repo_path)
+    -- A plugin installs to its own directory under plugins/.
+    if isPlugin(repo_path) then
+        return PLUGINS_DIR .. "/" .. pluginDirName(repo_path)
+    end
     local filename = repo_path:match("[^/]+$")
     if repo_path:sub(1, 6) == "debug/" then
         return DEBUG_DIR .. "/" .. filename
@@ -1329,7 +1404,12 @@ local function entryStatus(repo_path, available)
         return e
     end
     e.dest, e.stale = path, stale
-    local installed = installedVersion(path)
+    local installed
+    if isPlugin(repo_path) then
+        installed = pluginVersion(path)
+    else
+        installed = installedVersion(path)
+    end
     if not installed then
         e.status, e.status_text = "unknown", _("Unknown Version")
         return e
@@ -1408,12 +1488,34 @@ local function updatePatches(targets)
             local body, err = fetchUrl(url)
             UIManager:close(downloading)
             -- Write to a temp file first so a failed download can never
-            -- leave a half-written patch behind. The content must compile
-            -- as Lua, otherwise it's a bad download, not a patch.
+            -- leave a half-written patch behind.
             local ferr
             if not body then
                 ferr = tostring(err)
+            elseif isPlugin(t.repo_path) then
+                -- Plugin zip: no loadstring check (it's a zip, not Lua).
+                -- Write with the same short-write protection, then unzip
+                -- into the plugin directory.
+                local tmp = t.dest .. ".zip.new"
+                ferr = writeTempFile(tmp, body)
+                if not ferr then
+                    -- -o: overwrite without prompting; -q: quiet.
+                    local ok_unzip = os.execute(string.format("unzip -o -q %q -d %q",
+                        tmp, t.dest))
+                    os.remove(tmp)
+                    if ok_unzip == 0 or ok_unzip == true then
+                        if pluginVersion(t.dest) then
+                            succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
+                        else
+                            ferr = _("Invalid plugin.")
+                        end
+                    else
+                        ferr = _("Couldn't unzip.")
+                    end
+                end
             elseif not loadstring(body) then
+                -- The content must compile as Lua, otherwise it's a bad
+                -- download, not a patch.
                 ferr = _("Invalid file.")
             else
                 local tmp = t.dest .. ".new"
@@ -1608,7 +1710,13 @@ function Backup.checkForPatchUpdates()
                     ok_text = ok_text,
                     ok_callback = function()
                         updaterTrace("row", "tap: remove %s", e.filename)
-                        local ok1, err1 = os.remove(e.dest)
+                        -- Plugins are directories: recursive delete.
+                        local ok1, err1
+                        if isPlugin(e.repo_path) then
+                            ok1, err1 = rmTree(e.dest)
+                        else
+                            ok1, err1 = os.remove(e.dest)
+                        end
                         if diag_e then
                             local ok2, err2 = os.remove(diag_e.dest)
                             updaterTrace("row", "removed diagnostics %s: %s",
