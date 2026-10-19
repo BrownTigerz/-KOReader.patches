@@ -49,6 +49,7 @@ The `debug/` folder holds temporary troubleshooting companions for the main patc
 ![Simpleui Tweaks Panel](images/simpleui-tweaks-panel.jpg)
 ![Simpleui Tweaks Toberead](images/simpleui-tweaks-toberead.jpg)
 ![Simpleui Tweaks Settings](images/simpleui-tweaks-settings.jpg)
+![Swipe On Currently Reading](images/reading-insights-tweaks.jpg)
 
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
@@ -76,7 +77,7 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ## Add-ons menu
 
-![Addons Menu](images/addons-menu.jpg)
+![Add Ons Menu Path](images/readmastery-menu.jpg)
 
 One **Tools → Add-ons** menu for plugins and patches. It gathers plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into a single place, so Tools stays uncluttered. Moved plugins work exactly the same.
 
@@ -89,6 +90,8 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 ---
 
 ## Patch Backup & Restore
+
+![Patch Backup Menu](images/addons-menu.jpg)
 
 Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.9.28.3 (stable, no icons), 26.9.29-beta and 26.9.30-beta; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
@@ -204,7 +207,6 @@ Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreads
 
 ## ReadMastery Notify
 
-![Readmastery Menu](images/readmastery-menu.jpg)
 
 A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. Designed to feel rewarding without getting in the way while reading. Doesn't edit any ReadMastery file; settings live in their own file (`settings/ReadMastery_notify.lua`).
 
@@ -320,7 +322,6 @@ For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the to
 
 ## Reading Insights Tweaks
 
-![Reading Insights Tweaks](images/reading-insights-tweaks.jpg)
 
 Enhances Reading Insights and the built-in Statistics calendar with cover art and goal-shaded views. Each feature has its own toggle, and toggles apply without a restart. Built for Reading Insights 8.1+, which now has its own streak calendar covers, tap-a-day and sleep screen — this patch keeps the extras it doesn't do.
 
