@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.4 (2026-10-19)
+2-backup-patches.lua                                     2.3.5 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.5  2026-10-19
+    - Updater: per-target pcall so a Lua error during one download can
+      never silently kill the whole update (Trapper only logs). Errors
+      now appear in the failure list.
   2.3.4  2026-10-19
     - Hotfix: table-format manifest entries crashed the status menu —
       the update-available text passed the raw table to T(), whose
@@ -205,7 +209,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.4"
+local VERSION = "2.3.5"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1522,6 +1526,9 @@ local function updatePatches(targets)
 
         local succeeded, failed = {}, {}
         for i, t in ipairs(targets) do
+            -- Never let one target's Lua error kill the whole update
+            -- silently (Trapper only logs). Catch it and report visibly.
+            local ok_target, target_err = pcall(function()
             -- Cross-repo entries carry their own download URL.
             local url = t.url or updaterUrl(t.repo_path)
             updaterTrace("download", "start %s (%s)", t.filename, url)
@@ -1604,6 +1611,12 @@ local function updatePatches(targets)
                 failed[#failed + 1] = T(_("%1 (%2)"), t.filename, ferr)
             else
                 updaterTrace("download", "done %s: %d bytes → %s", t.filename, #body, t.dest)
+            end
+            end) -- pcall per target
+            if not ok_target then
+                local msg = tostring(target_err):gsub("^.-:%d+: ", "")
+                updaterTrace("download", "ERROR %s: %s", t.filename, msg)
+                failed[#failed + 1] = T(_("%1 (%2)"), t.filename, msg)
             end
         end
 
