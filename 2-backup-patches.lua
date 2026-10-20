@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.8 (2026-10-19)
+2-backup-patches.lua                                     2.4.0 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.0  2026-10-19
+    - REMOVED: .koplugin.zip plugin update support (unreliable; use
+      Storefront for plugins instead). Updater is Lua-patches-only again.
+      Removed isPlugin/pluginDirName/pluginVersion/rmTree/writeTempFile,
+      table-format manifest entries, and the Plugins section header.
   2.3.8  2026-10-19
     - CRITICAL FIX: plugin install used "_" as a throwaway var, shadowing
       gettext and crashing after the wipe — leaving no plugin installed.
@@ -220,7 +225,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.8"
+local VERSION = "2.4.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1247,64 +1252,6 @@ local UPDATER_MANIFEST = "patch-versions.lua"
 local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
 PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
 local DEBUG_DIR = PATCH_DIR .. "/debug"
--- KOReader plugins live next to patches/: <koreader>/plugins/
-local PLUGINS_DIR = (PATCH_DIR:match("^(.*)/[^/]+$") or DATA) .. "/plugins"
-
--- A manifest entry for a plugin zip, e.g. "plugins/foo.koplugin.zip".
--- Generic: any future .koplugin.zip entry works the same way.
-local function isPlugin(repo_path)
-    return repo_path:match("%.koplugin%.zip$") ~= nil
-end
-
--- "plugins/foo.koplugin.zip" -> "foo.koplugin"
-local function pluginDirName(repo_path)
-    local filename = repo_path:match("[^/]+$") or repo_path
-    return filename:gsub("%.zip$", "")
-end
-
--- Version from a plugin's _meta.lua (standard KOReader plugin metadata).
-local function pluginVersion(plugindir)
-    local chunk = loadfile(plugindir .. "/_meta.lua")
-    if not chunk then return nil end
-    local ok, meta = pcall(chunk)
-    if ok and type(meta) == "table" and meta.version then
-        return tostring(meta.version)
-    end
-    return nil
-end
-
--- Write body to a temp file with short-write protection: checks f:write /
--- f:close results and compares on-disk size. Returns nil on success, or an
--- error string. The caller removes the temp file on failure.
-local function writeTempFile(tmp, body)
-    local f = io.open(tmp, "w")
-    if not f then return _("Couldn't save.") end
-    local wok = f:write(body)
-    local cok = f:close()
-    local ondisk = lfs.attributes(tmp, "size")
-    if wok and cok and ondisk == #body then
-        return nil
-    end
-    os.remove(tmp)
-    return _("Couldn't save.")
-end
-
--- Recursive delete for plugin directories.
-local function rmTree(path)
-    local mode = lfs.attributes(path, "mode")
-    if mode == "file" then
-        return os.remove(path)
-    elseif mode == "directory" then
-        for entry in lfs.dir(path) do
-            if entry ~= "." and entry ~= ".." then
-                local ok, err = rmTree(path .. "/" .. entry)
-                if not ok then return nil, err end
-            end
-        end
-        return lfs.rmdir(path)
-    end
-    return nil, "not found"
-end
 
 -- Trace hook for the diagnostics patch: 2-zz-backup-patches-diagnostics.lua
 -- sets _G.__backup_updater_trace while it's watching, and every trace()
@@ -1398,14 +1345,6 @@ end
 -- wins, and a stale duplicate is reported for cleanup on update.
 -- Returns the chosen path (or nil), plus a stale duplicate path or nil.
 local function localInstall(repo_path)
-    -- Plugins live as directories under plugins/, not files in patches/.
-    if isPlugin(repo_path) then
-        local plugindir = PLUGINS_DIR .. "/" .. pluginDirName(repo_path)
-        if lfs.attributes(plugindir, "mode") == "directory" then
-            return plugindir, nil
-        end
-        return nil, nil
-    end
     local filename = repo_path:match("[^/]+$")
     local is_debug = repo_path:sub(1, 6) == "debug/"
     local dirs = is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR }
@@ -1424,10 +1363,6 @@ end
 -- had one, would win on update). Used when installing a patch that isn't
 -- there at all.
 local function defaultDest(repo_path)
-    -- A plugin installs to its own directory under plugins/.
-    if isPlugin(repo_path) then
-        return PLUGINS_DIR .. "/" .. pluginDirName(repo_path)
-    end
     local filename = repo_path:match("[^/]+$")
     if repo_path:sub(1, 6) == "debug/" then
         return DEBUG_DIR .. "/" .. filename
@@ -1439,13 +1374,7 @@ end
 -- newer (installed is newer than the repo), or unknown.
 local function entryStatus(repo_path, available)
     local filename = repo_path:match("[^/]+$")
-    -- Table form: { version = "x.y.z", url = "https://..." } for cross-repo
-    -- downloads. The url rides along for updatePatches to use directly.
-    local version, url = available, nil
-    if type(available) == "table" then
-        version, url = available.version, available.url
-    end
-    local e = { repo_path = repo_path, filename = filename, available = version, url = url }
+    local e = { repo_path = repo_path, filename = filename, available = available }
     local path, stale = localInstall(repo_path)
     if path then
         updaterTrace("location", "%s: using %s%s", filename, path,
@@ -1456,27 +1385,15 @@ local function entryStatus(repo_path, available)
         return e
     end
     e.dest, e.stale = path, stale
-    local installed
-    if isPlugin(repo_path) then
-        installed = pluginVersion(path)
-    else
-        installed = installedVersion(path)
-    end
+    local installed = installedVersion(path)
     if not installed then
         e.status, e.status_text = "unknown", _("Unknown Version")
         return e
     end
     e.installed = installed
-    -- Compare against the extracted version string (e.available), not the
-    -- raw manifest value (which may be a { version, url } table).
-    local cmp = compareVersions(installed, e.available)
-    -- Trace the raw strings for plugin version debugging.
-    if isPlugin(repo_path) then
-        updaterTrace("compare", "%s: pluginVersion=%q manifest=%q cmp=%d",
-            e.filename, tostring(installed), tostring(e.available), cmp)
-    end
+    local cmp = compareVersions(installed, available)
     if cmp < 0 then
-        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, e.available)
+        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, available)
     elseif cmp > 0 then
         e.status, e.status_text = "newer", T(_("Installed Is Newer (%1)"), installed)
     else
@@ -1540,8 +1457,7 @@ local function updatePatches(targets)
             -- Never let one target's Lua error kill the whole update
             -- silently (Trapper only logs). Catch it and report visibly.
             local ok_target, target_err = pcall(function()
-            -- Cross-repo entries carry their own download URL.
-            local url = t.url or updaterUrl(t.repo_path)
+            local url = updaterUrl(t.repo_path)
             updaterTrace("download", "start %s (%s)", t.filename, url)
             -- Plain text, no progress bar: e-ink hates the flicker.
             local downloading = InfoMessage:new{
@@ -1559,56 +1475,6 @@ local function updatePatches(targets)
             local ferr
             if not body then
                 ferr = tostring(err)
-            elseif isPlugin(t.repo_path) then
-                -- Plugin zip: no loadstring check (it's a zip, not Lua).
-                -- Write with the same short-write protection, then unzip
-                -- into the plugin directory.
-                local tmp = t.dest .. ".zip.new"
-                ferr = writeTempFile(tmp, body)
-                if not ferr then
-                    -- Sanity check: a zip starts with PK\x03\x04. If we got
-                    -- HTML (e.g. an error page), say so instead of a
-                    -- cryptic unzip failure.
-                    if body:sub(1, 4) ~= "PK\x03\x04" then
-                        os.remove(tmp)
-                        ferr = _("Not a plugin file.")
-                        updaterTrace("download", "FAILED %s: body is not a zip (%d bytes)",
-                            t.filename, #body)
-                    else
-                        -- Unzip to a temp dir first, validate, THEN swap.
-                        -- Never wipe the working install until the new one
-                        -- is proven good.
-                        local newdir = t.dest .. ".newdir"
-                        rmTree(newdir)
-                        -- -o: overwrite without prompting; capture stderr
-                        -- so failures say why.
-                        local cmd = string.format("unzip -o %q -d %q 2>&1",
-                            tmp, newdir)
-                        local pipe = io.popen(cmd)
-                        local out = pipe and pipe:read("*a") or ""
-                        local ok_close, i, code = pipe and pipe:close()
-                        os.remove(tmp)
-                        if ok_close and pluginVersion(newdir) then
-                            rmTree(t.dest)
-                            updaterTrace("download", "wiped %s for fresh install", t.dest)
-                            if os.rename(newdir, t.dest) then
-                                succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
-                            else
-                                rmTree(newdir)
-                                ferr = _("Couldn't install.")
-                            end
-                        else
-                            rmTree(newdir)
-                            if not ok_close then
-                                ferr = T(_("Couldn't unzip (%1)."), (out:gsub("%s+", " "):sub(1, 80)))
-                                updaterTrace("download", "FAILED %s: unzip: %s",
-                                    t.filename, out:gsub("%s+", " "):sub(1, 120))
-                            else
-                                ferr = _("Invalid plugin.")
-                            end
-                        end
-                    end
-                end
             elseif not loadstring(body) then
                 -- The content must compile as Lua, otherwise it's a bad
                 -- download, not a patch.
@@ -1715,15 +1581,10 @@ function Backup.checkForPatchUpdates()
                 manifest_url, tostring(code), #body, n)
         end
 
-        -- Per-patch direction for every manifest entry. A value can be a
-        -- version string, or a table { version = "x.y.z", url = "..." }
-        -- for entries downloaded from outside the patches repo
-        -- (e.g. a plugin release asset).
+        -- Per-patch direction for every manifest entry.
         local statuses, outdated = {}, {}
         for repo_path, available in pairs(manifest) do
-            if type(repo_path) == "string" and
-                (type(available) == "string" or
-                 (type(available) == "table" and type(available.version) == "string")) then
+            if type(repo_path) == "string" and type(available) == "string" then
                 local e = entryStatus(repo_path, available)
                 updaterTrace("compare", "%s: installed %s vs manifest %s → %s",
                     e.repo_path, e.installed or "?", e.available, e.status)
@@ -1731,17 +1592,8 @@ function Backup.checkForPatchUpdates()
                 if e.status == "update_available" then outdated[#outdated + 1] = e end
             end
         end
-        -- Sort by category (patches, plugins, diagnostics), then repo path.
-        local function category(e)
-            if e.repo_path:sub(1, 6) == "debug/" then return 3 end
-            if isPlugin(e.repo_path) then return 2 end
-            return 1
-        end
-        table.sort(statuses, function(a, b)
-            local ca, cb = category(a), category(b)
-            if ca ~= cb then return ca < cb end
-            return a.repo_path < b.repo_path
-        end)
+        -- Sort: patches first, then diagnostics (debug/ sorts last anyway).
+        table.sort(statuses, function(a, b) return a.repo_path < b.repo_path end)
         table.sort(outdated, function(a, b) return a.repo_path < b.repo_path end)
 
         local status_menu
@@ -1827,13 +1679,7 @@ function Backup.checkForPatchUpdates()
                     ok_text = ok_text,
                     ok_callback = function()
                         updaterTrace("row", "tap: remove %s", e.filename)
-                        -- Plugins are directories: recursive delete.
-                        local ok1, err1
-                        if isPlugin(e.repo_path) then
-                            ok1, err1 = rmTree(e.dest)
-                        else
-                            ok1, err1 = os.remove(e.dest)
-                        end
+                        local ok1, err1 = os.remove(e.dest)
                         if diag_e then
                             local ok2, err2 = os.remove(diag_e.dest)
                             updaterTrace("row", "removed diagnostics %s: %s",
@@ -1898,23 +1744,16 @@ function Backup.checkForPatchUpdates()
                 updatePatches(outdated)
             end,
         }
-        -- Patches, plugins, and diagnostics under labeled headers, easier to
-        -- scan and tap. (statuses is sorted by category, then repo path.)
-        local last_cat = nil
+        -- Patches and diagnostics under labeled headers, easier to scan
+        -- and tap. (statuses is sorted by repo path, so the debug/
+        -- entries come last.)
+        local in_debug = nil
         for i, e in ipairs(statuses) do
-            local cat
-            if e.repo_path:sub(1, 6) == "debug/" then
-                cat = "diagnostics"
-            elseif isPlugin(e.repo_path) then
-                cat = "plugins"
-            else
-                cat = "patches"
-            end
-            if cat ~= last_cat then
-                last_cat = cat
+            local is_debug = e.repo_path:sub(1, 6) == "debug/"
+            if is_debug ~= in_debug then
+                in_debug = is_debug
                 items[#items + 1] = {
-                    text = cat == "diagnostics" and _("Diagnostics")
-                        or cat == "plugins" and _("Plugins") or _("Patches"),
+                    text = is_debug and _("Diagnostics") or _("Patches"),
                     select_enabled = false,
                 }
             end
