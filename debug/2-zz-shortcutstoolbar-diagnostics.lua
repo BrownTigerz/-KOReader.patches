@@ -1,8 +1,11 @@
 --[[
 2-zz-shortcutstoolbar-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.6
+Version 1.0.7
 
 Changelog:
+  1.0.7 - Watches icon tweaks 1.13.0's close-on-sleep: which top menus
+          were open when the sleep screen was set up, how long closing
+          them took, and flags any still open at sleep or on wake.
   1.0.6 - Shared-log rotation cap raised from 256 KB to 2 MB
           (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical across all
           diagnostics per the shared-log contract).
@@ -51,6 +54,9 @@ It changes nothing in the icon patch or the toolbar. It records:
     the icon patch itself for system toggle shortcuts; the SSH and
     Calibre plugins implement the handlers.)
   • Icon patch warnings (button order mismatch) and Lua memory.
+  • Close-on-sleep (icon tweaks 1.13.0+): the top menus open when the sleep
+    screen is set up, how long closing them took, and any menu still open
+    at sleep or on wake (should be none).
 
 Battery safety (in case you forget to delete it):
   • Logs for 5 minutes, starting the first time you open a toolbar after
@@ -71,7 +77,8 @@ How to use:
      restart KOReader.
   2. Open a toolbar, then within 5 minutes do whatever you want checked:
      tap/hold icons, toggle SSH, Wi-Fi, Calibre, night mode, close the
-     menu, read a few pages, sleep and wake.
+     menu, read a few pages, sleep and wake. For close-on-sleep: open the
+     toolbar (reader, then library) and put the device to sleep with it open.
   3. Send diagnostics.log (filter the [shortcutstoolbar] lines).
   4. Delete this file and restart.
 The "zz" makes it load after the icon tweaks patch.
@@ -85,7 +92,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.0.6"
+local DIAG_VERSION = "1.0.7"
 local STATE = DataStorage:getDataDir() .. "/shortcutstoolbar-diagnostics.state"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
@@ -217,7 +224,36 @@ local stats = {
     timers = 0, timers_asleep = 0,
     paints = 0, paint_ms = 0,
     warnings = 0, invert_bad = 0,
+    sleeps = 0, menus_closed = 0, menus_left = 0, menus_on_wake = 0, close_ms = 0,
 }
+
+-- Open TouchMenus (reader / library top menus) in the window stack.
+local function openMenus()
+    local ok, TouchMenu = pcall(require, "ui/widget/touchmenu")
+    local stack = UIManager._window_stack
+    local list = {}
+    if not ok or type(stack) ~= "table" then return list end
+    for i = 1, #stack do
+        local w = stack[i].widget
+        local inner = type(w) == "table" and w[1]
+        if type(inner) == "table" and inner.closeMenu ~= nil and inner.closeMenu == TouchMenu.closeMenu then
+            local where = "menu"
+            local okR, ReaderUI = pcall(require, "apps/reader/readerui")
+            if okR and ReaderUI.instance and ReaderUI.instance.menu
+                    and ReaderUI.instance.menu.menu_container == w then
+                where = "reader menu"
+            else
+                local FM = package.loaded["apps/filemanager/filemanager"]
+                if type(FM) == "table" and FM.instance and FM.instance.menu
+                        and FM.instance.menu.menu_container == w then
+                    where = "library menu"
+                end
+            end
+            list[#list + 1] = where
+        end
+    end
+    return list
+end
 
 local function mem() return collectgarbage("count") end
 
@@ -271,9 +307,12 @@ local function summary(why)
         stats.timers, stats.timers_asleep, n, n > 0 and (" (" .. where .. ")") or "")
     log("indicator icon paints: %d, total %dms", stats.paints, stats.paint_ms)
     log("tap highlights on icons without size info: %d | icon patch warnings: %d", stats.invert_bad, stats.warnings)
+    log("sleeps: %d | top menus closed for sleep: %d (%d ms) | left open at sleep: %d | open on wake: %d",
+        stats.sleeps, stats.menus_closed, stats.close_ms, stats.menus_left, stats.menus_on_wake)
     log("Lua memory: %d KB", math.floor(mem()))
     local verdict = (stats.dirty_hidden == 0 and stats.dirty_asleep == 0 and stats.timers_asleep == 0
-        and stats.invert_bad == 0) and "OK: no wasted redraws, nothing while asleep"
+        and stats.invert_bad == 0 and stats.menus_left == 0 and stats.menus_on_wake == 0)
+        and "OK: no wasted redraws, nothing while asleep, no menu left open over sleep"
         or "CHECK the flagged lines above"
     log("verdict: %s", verdict)
 end
@@ -330,7 +369,37 @@ end
 -- Toolbar builds (wraps the icon patch's wrapper: plugin funcs run in order)
 -- --------------------------------------------------------------------------
 
+-- Close-on-sleep: wrapped here, after the icon patch has wrapped it, so this
+-- sees the menus before the patch closes them and the result after.
+local function watchSleepClose()
+    local ok, Screensaver = pcall(require, "ui/screensaver")
+    if not ok or type(Screensaver) ~= "table" or Screensaver.__stb_diag_sleep then return end
+    Screensaver.__stb_diag_sleep = true
+    local patched = Screensaver.__stb_close_menus == true
+    local orig = Screensaver.setup
+    Screensaver.setup = function(...)
+        if not active() then return orig(...) end
+        stats.sleeps = stats.sleeps + 1
+        local before = openMenus()
+        local t = now()
+        local res = { pcall(orig, ...) }
+        local took = ms(t)
+        local after = openMenus()
+        local closed = math.max(0, #before - #after)
+        stats.menus_closed = stats.menus_closed + closed
+        stats.close_ms = stats.close_ms + math.max(0, took)
+        log("sleep screen setup: open menus before %s, after %s | close-on-sleep %s | %d ms (incl. sleep screen setup)%s",
+            #before > 0 and table.concat(before, ", ") or "none",
+            #after > 0 and table.concat(after, ", ") or "none",
+            patched and "on" or "NOT installed (icon tweaks < 1.13.0?)", took,
+            #after > 0 and "  CHECK" or "")
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2)
+    end
+end
+
 userpatch.registerPatchPluginFunc("shortcutstoolbar", function()
+    pcall(watchSleepClose)
     local ok, HC = pcall(require, "home_content")
     if not ok or type(HC) ~= "table" or HC.__stb_diag then return end
     HC.__stb_diag = true
@@ -451,11 +520,22 @@ UIManager.broadcastEvent = function(self, event, ...)
     local h = type(event) == "table" and event.handler
     if active() and h then
         if h == "onSuspend" then
+            local left = openMenus()
+            if #left > 0 then
+                stats.menus_left = stats.menus_left + #left
+                log("SLEEP: top menu still open: %s  CHECK", table.concat(left, ", "))
+            end
             local n, where = pendingMainTasks()
             log("SLEEP: icon patch timers still pending: %d%s", n, n > 0 and ("  (" .. where .. ")") or "")
             summary("going to sleep")
         elseif h == "onResume" then
-            log("WAKE (anything the icon patch does next is logged)")
+            local open = openMenus()
+            if #open > 0 then
+                stats.menus_on_wake = stats.menus_on_wake + #open
+                log("WAKE: top menu open on wake: %s  CHECK", table.concat(open, ", "))
+            else
+                log("WAKE: no top menu open (anything the icon patch does next is logged)")
+            end
         elseif WATCH_EVENTS[h] then
             log("event: %s", WATCH_EVENTS[h])
         end

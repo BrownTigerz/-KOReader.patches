@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.12.2
+Version: 1.13.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -25,6 +25,9 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
   • Hold the built-in Wi-Fi button: network list (Network Tweaks' picker
     when installed). Hold the built-in Restart or Search button: Restart /
     Exit KOReader, Reboot, Power off. Tap does what it always did.
+  • Going to sleep with the top menu open (reader or library, where the
+    toolbar lives) closes it first, so you wake up to the page, not the
+    menu, and a sleep screen that keeps the page doesn't show it either.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
 home-screen module. Does not modify any plugin files. Compatible with
@@ -46,6 +49,9 @@ and SSH indicators also run at most one short catch-up timer after a tap
 while asleep.
 
 Changelog
+  1.13.0 The reader and library top menus close when the device goes to
+         sleep, so they're not still open on wake (or in a sleep screen
+         that shows the current page).
   1.12.2 Title case for all user-facing menu/item labels ("Reset All Icon
          Tweaks", "Night Mode", "Power Off", ...). First letter of each
          word only; SimpleUI/X-Ray/Wi-Fi/SSH-style names untouched.
@@ -129,7 +135,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.12.2"
+local PATCH_VERSION = "1.13.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -1138,6 +1144,56 @@ local function buildMenu()
 end
 
 -- --------------------------------------------------------------------------
+-- Close the top menus on sleep
+-- --------------------------------------------------------------------------
+-- KOReader draws the sleep screen first and only then sends "Suspend", so
+-- the menus are closed when the sleep screen is set up: the redraw that
+-- follows shows the page (or library) without them, and that's what's there
+-- on wake. Any open TouchMenu (reader / library top menu) is closed through
+-- its own close callback, the same as tapping outside it.
+
+-- A TouchMenu or anything built on it: same closeMenu method, or the class
+-- somewhere up its metatable chain.
+local function isTouchMenu(w, TouchMenu)
+    if type(w) ~= "table" then return false end
+    if w.closeMenu ~= nil and w.closeMenu == TouchMenu.closeMenu then return true end
+    local mt = getmetatable(w)
+    while type(mt) == "table" do
+        if mt == TouchMenu then return true end
+        local nxt = getmetatable(mt)
+        if not nxt and type(mt.__index) == "table" and mt.__index ~= mt then nxt = mt.__index end
+        mt = nxt
+    end
+    return false
+end
+
+local function closeMenusForSleep()
+    local ok, TouchMenu = pcall(require, "ui/widget/touchmenu")
+    local stack = UIManager._window_stack
+    if not ok or type(stack) ~= "table" then return end
+    local menus = {}
+    for i = #stack, 1, -1 do
+        local inner = stack[i].widget and stack[i].widget[1]
+        if isTouchMenu(inner, TouchMenu) and type(inner.closeMenu) == "function" then
+            menus[#menus + 1] = inner
+        end
+    end
+    for _i, m in ipairs(menus) do pcall(m.closeMenu, m) end
+end
+
+local function hookSleep()
+    local ok, Screensaver = pcall(require, "ui/screensaver")
+    if not ok or type(Screensaver) ~= "table" or type(Screensaver.setup) ~= "function"
+            or Screensaver.__stb_close_menus then return end
+    Screensaver.__stb_close_menus = true
+    local orig_setup = Screensaver.setup
+    Screensaver.setup = function(...)
+        pcall(closeMenusForSleep)
+        return orig_setup(...)
+    end
+end
+
+-- --------------------------------------------------------------------------
 -- Entry point
 -- --------------------------------------------------------------------------
 
@@ -1146,6 +1202,7 @@ require("logger").info("shortcutstoolbar icon tweaks v" .. PATCH_VERSION)
 userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
     hookHomeContent()
     hookExecute()
+    hookSleep()
     if plugin.__stb_icon_tweaks_menu then return end
     plugin.__stb_icon_tweaks_menu = true
 
