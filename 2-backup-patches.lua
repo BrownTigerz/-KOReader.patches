@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.2 (2026-10-19)
+2-backup-patches.lua                                     2.3.3 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,12 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.3  2026-10-19
+    - Fixed "Installed Is Newer" false positive for table-format manifest
+      entries: version comparison now uses the extracted version string,
+      not the raw table. Downloader follows HTTP redirects (GitHub
+      release assets). Unzip failures now report the actual error and
+      reject non-zip downloads.
   2.3.2  2026-10-19
     - Updater status list: plugin (.koplugin.zip) entries now appear
       under their own "Plugins" header, separate from Patches and
@@ -195,7 +201,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.2"
+local VERSION = "2.3.3"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1297,8 +1303,9 @@ local function updaterUrl(repo_path)
 end
 
 -- GET a URL. on_progress, when given, is called with the cumulative byte
--- count as chunks arrive (drives the progress bar). Returns the body, or
--- nil + error. Never throws.
+-- count as chunks arrive (drives the progress bar). Follows redirects
+-- (GitHub release assets 302 to a CDN). Returns the body, or nil + error.
+-- Never throws.
 local function fetchUrl(url, on_progress)
     local ok_http, http = pcall(require, "socket.http")
     local ok_ltn12, ltn12 = pcall(require, "ltn12")
@@ -1307,22 +1314,34 @@ local function fetchUrl(url, on_progress)
     if not (ok_http and ok_ltn12 and ok_sock and ok_su) then
         return nil, _("No network stack.")
     end
-    local chunks = {}
-    local sink = ltn12.sink.table(chunks)
-    if on_progress then
-        sink = socketutil.chainSinkWithProgressCallback(sink, on_progress)
+    -- Follow redirects manually (LuaSocket doesn't). Cap the hops.
+    for hop = 1, 5 do
+        local chunks = {}
+        local sink = ltn12.sink.table(chunks)
+        if on_progress then
+            sink = socketutil.chainSinkWithProgressCallback(sink, on_progress)
+        end
+        socketutil:set_timeout()
+        local ok, code, headers, status = pcall(function()
+            return socket.skip(1, http.request{
+                url = url,
+                sink = sink,
+            })
+        end)
+        socketutil:reset_timeout()
+        if not ok then return nil, tostring(code) end
+        if code == 301 or code == 302 or code == 307 or code == 308 then
+            local loc = headers and headers.location
+            if not loc then return nil, tostring(status or code), code end
+            updaterTrace("download", "redirect %d → %s", code, loc)
+            url = loc
+        elseif code ~= 200 then
+            return nil, tostring(status or code), code
+        else
+            return table.concat(chunks), nil, code
+        end
     end
-    socketutil:set_timeout()
-    local ok, code, _headers, status = pcall(function()
-        return socket.skip(1, http.request{
-            url = url,
-            sink = sink,
-        })
-    end)
-    socketutil:reset_timeout()
-    if not ok then return nil, tostring(code) end
-    if code ~= 200 then return nil, tostring(status or code), code end
-    return table.concat(chunks), nil, code
+    return nil, _("Too many redirects.")
 end
 
 -- Numeric dotted-version compare: -1 if a < b, 0 if equal, 1 if a > b.
@@ -1429,7 +1448,9 @@ local function entryStatus(repo_path, available)
         return e
     end
     e.installed = installed
-    local cmp = compareVersions(installed, available)
+    -- Compare against the extracted version string (e.available), not the
+    -- raw manifest value (which may be a { version, url } table).
+    local cmp = compareVersions(installed, e.available)
     -- Trace the raw strings for plugin version debugging.
     if isPlugin(repo_path) then
         updaterTrace("compare", "%s: pluginVersion=%q manifest=%q cmp=%d",
@@ -1519,18 +1540,34 @@ local function updatePatches(targets)
                 local tmp = t.dest .. ".zip.new"
                 ferr = writeTempFile(tmp, body)
                 if not ferr then
-                    -- -o: overwrite without prompting; -q: quiet.
-                    local ok_unzip = os.execute(string.format("unzip -o -q %q -d %q",
-                        tmp, t.dest))
-                    os.remove(tmp)
-                    if ok_unzip == 0 or ok_unzip == true then
-                        if pluginVersion(t.dest) then
-                            succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
-                        else
-                            ferr = _("Invalid plugin.")
-                        end
+                    -- Sanity check: a zip starts with PK\x03\x04. If we got
+                    -- HTML (e.g. an error page), say so instead of a
+                    -- cryptic unzip failure.
+                    if body:sub(1, 4) ~= "PK\x03\x04" then
+                        os.remove(tmp)
+                        ferr = _("Not a plugin file.")
+                        updaterTrace("download", "FAILED %s: body is not a zip (%d bytes)",
+                            t.filename, #body)
                     else
-                        ferr = _("Couldn't unzip.")
+                        -- -o: overwrite without prompting; capture stderr
+                        -- so failures say why.
+                        local cmd = string.format("unzip -o %q -d %q 2>&1",
+                            tmp, t.dest)
+                        local pipe = io.popen(cmd)
+                        local out = pipe and pipe:read("*a") or ""
+                        local ok_close, _, code = pipe and pipe:close()
+                        os.remove(tmp)
+                        if ok_close then
+                            if pluginVersion(t.dest) then
+                                succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
+                            else
+                                ferr = _("Invalid plugin.")
+                            end
+                        else
+                            ferr = T(_("Couldn't unzip (%1)."), (out:gsub("%s+", " "):sub(1, 80)))
+                            updaterTrace("download", "FAILED %s: unzip: %s",
+                                t.filename, out:gsub("%s+", " "):sub(1, 120))
+                        end
                     end
                 end
             elseif not loadstring(body) then
