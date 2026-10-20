@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.6 (2026-10-19)
+2-backup-patches.lua                                     2.3.7 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,9 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.7  2026-10-19
+    - Plugin updates now wipe the old plugin directory before unzipping
+      fresh, so files removed in the new version don't linger as stale.
   2.3.6  2026-10-19
     - Updater: log HTTP code and byte count immediately after each
       download, before any file handling, to diagnose silent failures.
@@ -212,7 +215,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.6"
+local VERSION = "2.3.7"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1567,6 +1570,11 @@ local function updatePatches(targets)
                         updaterTrace("download", "FAILED %s: body is not a zip (%d bytes)",
                             t.filename, #body)
                     else
+                        -- Wipe the old plugin dir first: unzip -o overwrites
+                        -- but never removes files the new version dropped.
+                        -- A clean unzip is the only way to avoid stale files.
+                        rmTree(t.dest)
+                        updaterTrace("download", "wiped %s for fresh install", t.dest)
                         -- -o: overwrite without prompting; capture stderr
                         -- so failures say why.
                         local cmd = string.format("unzip -o %q -d %q 2>&1",
