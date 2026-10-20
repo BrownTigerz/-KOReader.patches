@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.5 (2026-10-19)
+2-backup-patches.lua                                     2.3.6 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,9 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.6  2026-10-19
+    - Updater: log HTTP code and byte count immediately after each
+      download, before any file handling, to diagnose silent failures.
   2.3.5  2026-10-19
     - Updater: per-target pcall so a Lua error during one download can
       never silently kill the whole update (Trapper only logs). Errors
@@ -209,7 +212,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.5"
+local VERSION = "2.3.6"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1537,8 +1540,12 @@ local function updatePatches(targets)
                 text = T(_("Downloading %1..."), t.filename),
             }
             UIManager:show(downloading)
-            local body, err = fetchUrl(url)
+            local body, err, code = fetchUrl(url)
             UIManager:close(downloading)
+            -- Log the raw download result before anything else touches it.
+            updaterTrace("download", "fetched %s: HTTP %s, %s bytes, err=%s",
+                t.filename, tostring(code or "?"),
+                body and tostring(#body) or "nil", tostring(err or "none"))
             -- Write to a temp file first so a failed download can never
             -- leave a half-written patch behind.
             local ferr
