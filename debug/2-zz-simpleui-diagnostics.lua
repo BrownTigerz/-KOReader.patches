@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.8.1
+Version 2.8.3
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -56,6 +56,12 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.8.3  Sleep timer list is taken after every plugin has handled sleep, so
+         it shows only timers that really stay pending (a plugin that
+         cancels its timer on sleep no longer shows up). This patch's own
+         timers are left out of the list.
+  2.8.2  Reading Log for SimpleUI 1.6.0: expects 34 modules (new cards) and
+         checks its 3 new kit files (host, menus, colourtext).
   2.8.1  One line per entry: window names and messages with line breaks
          (e.g. the "Screenshot saved to:" popup) are joined with " / ",
          and the invisible text-direction marks KOReader puts around file
@@ -247,7 +253,7 @@ do
         if w then w:write(first, "\n") w:close() end
     end
     if os.difftime(os.time(), first) > EXPIRE_S then
-        write("simpleui diagnostics 2.8.1 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
+        write("simpleui diagnostics 2.8.3 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
             .. "): not watching anything. Delete this patch, or delete simpleui-diagnostics.state for 3 more days.")
         return
     end
@@ -257,7 +263,7 @@ end
 -- through this, so their lines follow this diagnostic's window and expiry.
 package.loaded["simpleui_diagnostics"] = { log = log }
 
-write("==================== simpleui diagnostics 2.8.1 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.8.3 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
@@ -563,27 +569,32 @@ if ok_ui and type(UIManager) == "table" then
         local slept_at
         UIManager.broadcastEvent = function(self, event, ...)
             local h = type(event) == "table" and event.handler
-            if (h == "onSuspend" or h == "onResume") and on() then
+            if h == "onSuspend" and on() then
+                slept_at = os.time()
+                pcall(summary)
+                -- let every plugin handle sleep first (cancel its timers),
+                -- then list what is really still waiting
+                orig_bc(self, event, ...)
                 pcall(function()
-                    if h == "onSuspend" then
-                        slept_at = os.time()
-                        summary()
-                        local by, count = {}, 0
-                        for _i, task in ipairs(self._task_queue or {}) do
-                            local key = where(task.action)
+                    local by, count = {}, 0
+                    for _i, task in ipairs(self._task_queue or {}) do
+                        local key = where(task.action)
+                        if not key:find("diagnostics", 1, true) then
                             by[key] = (by[key] or 0) + 1
                             count = count + 1
                         end
-                        log("---- going to sleep: %d timers waiting ----", count)
-                        local keys = {}
-                        for k in pairs(by) do keys[#keys + 1] = k end
-                        table.sort(keys)
-                        for _i, k in ipairs(keys) do log("  %d x %s", by[k], k) end
-                    else
-                        log("---- woke up after %s ----", slept_at
-                            and (os.time() - slept_at) .. " s asleep" or "an unknown time")
                     end
+                    log("---- going to sleep: %d timers still waiting (after plugins handled sleep) ----", count)
+                    local keys = {}
+                    for k in pairs(by) do keys[#keys + 1] = k end
+                    table.sort(keys)
+                    for _i, k in ipairs(keys) do log("  %d x %s", by[k], k) end
                 end)
+                return
+            end
+            if h == "onResume" and on() then
+                pcall(log, "---- woke up after %s ----", slept_at
+                    and (os.time() - slept_at) .. " s asleep" or "an unknown time")
             end
             return orig_bc(self, event, ...)
         end
@@ -1304,7 +1315,8 @@ end
 do
     local RL_ID = "simpleui_readinglog"
     local RL_FILES = { "main.lua", "_meta.lua", "readinglog/almanac/init.lua", "readinglog/almanac/data.lua",
-        "readinglog/almanac/panels.lua", "readinglog/almanac/settings.lua", "readinglog/almanac/modules.lua" }
+        "readinglog/almanac/panels.lua", "readinglog/almanac/settings.lua", "readinglog/almanac/modules.lua",
+        "readinglog/almanac/host.lua", "readinglog/almanac/menus.lua", "readinglog/almanac/colourtext.lua" }
 
     -- Reading Log writes its notable events at info level, tagged "[almanac]"
     local logger = require("logger")
@@ -1342,7 +1354,7 @@ do
                 if oke and en then on_list[#on_list + 1] = m.id end
             end
         end
-        log("readinglog: %d Reading Log modules in SimpleUI's registry (expected 22); switched on: %s",
+        log("readinglog: %d Reading Log modules in SimpleUI's registry (expected 34); switched on: %s",
             found, #on_list > 0 and table.concat(on_list, ", ") or "(none)")
         if found == 0 then
             log("readinglog: NOT REGISTERED - modules won't appear in SimpleUI's list")
