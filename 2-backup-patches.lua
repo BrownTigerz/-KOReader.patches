@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.7 (2026-10-19)
+2-backup-patches.lua                                     2.3.8 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.8  2026-10-19
+    - CRITICAL FIX: plugin install used "_" as a throwaway var, shadowing
+      gettext and crashing after the wipe — leaving no plugin installed.
+      Plugin updates now unzip to a temp dir, validate, then swap: the
+      old install is never touched until the new one is proven good.
   2.3.7  2026-10-19
     - Plugin updates now wipe the old plugin directory before unzipping
       fresh, so files removed in the new version don't linger as stale.
@@ -215,7 +220,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.7"
+local VERSION = "2.3.8"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1405,7 +1410,7 @@ local function localInstall(repo_path)
     local is_debug = repo_path:sub(1, 6) == "debug/"
     local dirs = is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR }
     local found = {}
-    for _, d in ipairs(dirs) do
+    for i, d in ipairs(dirs) do
         if lfs.attributes(d .. "/" .. filename, "mode") == "file" then
             found[#found + 1] = d .. "/" .. filename
         end
@@ -1570,29 +1575,37 @@ local function updatePatches(targets)
                         updaterTrace("download", "FAILED %s: body is not a zip (%d bytes)",
                             t.filename, #body)
                     else
-                        -- Wipe the old plugin dir first: unzip -o overwrites
-                        -- but never removes files the new version dropped.
-                        -- A clean unzip is the only way to avoid stale files.
-                        rmTree(t.dest)
-                        updaterTrace("download", "wiped %s for fresh install", t.dest)
+                        -- Unzip to a temp dir first, validate, THEN swap.
+                        -- Never wipe the working install until the new one
+                        -- is proven good.
+                        local newdir = t.dest .. ".newdir"
+                        rmTree(newdir)
                         -- -o: overwrite without prompting; capture stderr
                         -- so failures say why.
                         local cmd = string.format("unzip -o %q -d %q 2>&1",
-                            tmp, t.dest)
+                            tmp, newdir)
                         local pipe = io.popen(cmd)
                         local out = pipe and pipe:read("*a") or ""
-                        local ok_close, _, code = pipe and pipe:close()
+                        local ok_close, i, code = pipe and pipe:close()
                         os.remove(tmp)
-                        if ok_close then
-                            if pluginVersion(t.dest) then
+                        if ok_close and pluginVersion(newdir) then
+                            rmTree(t.dest)
+                            updaterTrace("download", "wiped %s for fresh install", t.dest)
+                            if os.rename(newdir, t.dest) then
                                 succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
+                            else
+                                rmTree(newdir)
+                                ferr = _("Couldn't install.")
+                            end
+                        else
+                            rmTree(newdir)
+                            if not ok_close then
+                                ferr = T(_("Couldn't unzip (%1)."), (out:gsub("%s+", " "):sub(1, 80)))
+                                updaterTrace("download", "FAILED %s: unzip: %s",
+                                    t.filename, out:gsub("%s+", " "):sub(1, 120))
                             else
                                 ferr = _("Invalid plugin.")
                             end
-                        else
-                            ferr = T(_("Couldn't unzip (%1)."), (out:gsub("%s+", " "):sub(1, 80)))
-                            updaterTrace("download", "FAILED %s: unzip: %s",
-                                t.filename, out:gsub("%s+", " "):sub(1, 120))
                         end
                     end
                 end
