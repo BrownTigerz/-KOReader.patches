@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.3.3 (2026-10-19)
+2-backup-patches.lua                                     2.3.4 (2026-10-19)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.3.4  2026-10-19
+    - Hotfix: table-format manifest entries crashed the status menu —
+      the update-available text passed the raw table to T(), whose
+      string.gsub can't format tables. Now uses the extracted string.
   2.3.3  2026-10-19
     - Fixed "Installed Is Newer" false positive for table-format manifest
       entries: version comparison now uses the extracted version string,
@@ -201,7 +205,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.3.3"
+local VERSION = "2.3.4"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1454,10 +1458,10 @@ local function entryStatus(repo_path, available)
     -- Trace the raw strings for plugin version debugging.
     if isPlugin(repo_path) then
         updaterTrace("compare", "%s: pluginVersion=%q manifest=%q cmp=%d",
-            e.filename, tostring(installed), tostring(available), cmp)
+            e.filename, tostring(installed), tostring(e.available), cmp)
     end
     if cmp < 0 then
-        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, available)
+        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, e.available)
     elseif cmp > 0 then
         e.status, e.status_text = "newer", T(_("Installed Is Newer (%1)"), installed)
     else
