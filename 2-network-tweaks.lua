@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.8.5
+Version: 1.10.1
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -60,7 +60,35 @@ Menu: Settings (gear) → Network → Network Tweaks
     or tap the Wi-Fi toggle (toolbar/gesture) again. A connect in progress
     is also cancelled when the device goes to sleep.
 
+Bluetooth…  (only with kobo.koplugin on a device it supports)
+  The plugin's Bluetooth menu (on/off, scan, paired devices, settings),
+  moved here from Settings → Network, so it's reachable with the Network
+  menu hidden. Not shown without the plugin.
+
+Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
+  No menu: works on its own when the plugin is installed. On MTK Kobos
+  Bluetooth shares the Wi-Fi chip, so the plugin powers Wi-Fi up to turn
+  Bluetooth on, then switches it back off. Bluetooth keeps working with
+  Wi-Fi off. This makes that hand-off play nice with the rest of this
+  patch:
+  - Never two Wi-Fi restores at once (Bluetooth on wake + KOReader's
+    own wake reconnect, or a Wi-Fi tap while Bluetooth comes up).
+  - The plugin's leftover restore script is stopped when it turns Wi-Fi
+    back off, so it can't bring Wi-Fi back on by itself.
+  - Wi-Fi you turn on while Bluetooth is coming up stays on. Wi-Fi you
+    turn off then goes off as soon as Bluetooth is up, not mid-way.
+  Does nothing without the plugin, or on other devices.
+
 Changelog (condensed; full history in the patches repo)
+  1.10.1 kobo.koplugin hooks never attached (registered as "kobo_plugin";
+         KOReader names plugins after their folder, "kobo"). Now attach by
+         folder name, with a fallback that finds the plugin's modules
+         whatever the folder is called.
+  1.10.0 Bluetooth… entry below Choose Network… with kobo.koplugin: its
+         Bluetooth menu moves here from Settings → Network.
+  1.9.0  kobo.koplugin Bluetooth coexistence: one Wi-Fi restore at a
+         time, the plugin's restore script stopped on its Wi-Fi off,
+         and Wi-Fi on/off taps during Bluetooth start-up respected.
   1.8.5  requestToTurnOnWifi hooked: in Banner/Minimal with Wi-Fi off,
          programmatic connects (e.g. the Backup updater) use the
          background connect — no stock popups, no UI freeze; the
@@ -98,7 +126,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.8.5"
+local PATCH_VERSION = "1.10.1"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -340,8 +368,27 @@ end
 local USER_CONNECT_WINDOW_S = 90
 local user_connect_at -- os.time() of the last Wi-Fi connect the user asked for
 
+-- kobo.koplugin Bluetooth start-up (MTK): while the plugin has Wi-Fi up only
+-- to bring Bluetooth up, what you ask of Wi-Fi is noted here and applied
+-- once Bluetooth is up. See "kobo.koplugin Bluetooth" further down.
+local BT_WINDOW_S = 30 -- plugin waits ~3s; generous in case it never reports
+local bt = {
+    since = nil,       -- os.time() the plugin started bringing Wi-Fi up
+    intent = nil,      -- "on" / "off": the last thing you asked of Wi-Fi meanwhile
+    off_cb = nil,      -- complete callback of a held Wi-Fi off
+}
+
+local function btBringingUpWifi()
+    return bt.since ~= nil and os.difftime(os.time(), bt.since) <= BT_WINDOW_S
+end
+
+local function btReset()
+    bt.since, bt.intent, bt.off_cb = nil, nil, nil
+end
+
 local function markUserConnect()
     user_connect_at = os.time()
+    if btBringingUpWifi() then bt.intent = "on" end
 end
 
 local function recentUserConnect()
@@ -880,15 +927,195 @@ local function killConnectScripts()
         .. " pkill -TERM -f '[o]btain-ip.sh' 2>/dev/null")
 end
 
-NetworkMgr.disableWifi = function(self, ...)
+NetworkMgr.disableWifi = function(self, cb, interactive, ...)
+    if interactive and btBringingUpWifi() then
+        -- kobo.koplugin is bringing Bluetooth up through the Wi-Fi chip:
+        -- powering down now could leave Bluetooth half-started. Stop any
+        -- connect, hold the power-off until Bluetooth is up (~3s).
+        logger.info("network-tweaks: Wi-Fi off held until Bluetooth is up")
+        endQuiet()
+        self:unscheduleConnectivityCheck()
+        self.pending_connection = false
+        self.wifi_was_on = false
+        G_reader_settings:makeFalse("wifi_was_on")
+        bt.intent, bt.off_cb = "off", cb
+        return
+    end
     local connecting = quiet ~= nil or self.pending_connection
     endQuiet()
     if connecting then
         killConnectScripts()
         ffiutil.usleep(200000) -- let them exit before Wi-Fi is torn down
     end
-    return orig_disable(self, ...)
+    return orig_disable(self, cb, interactive, ...)
 end
+
+---------------------------------------------------------------------------
+-- kobo.koplugin Bluetooth (MTK Kobos)
+---------------------------------------------------------------------------
+-- MTK Bluetooth shares the Wi-Fi chip. To turn it on, the plugin starts
+-- restoreWifiAsync (which also tries to join a network), waits for
+-- Bluetooth, then calls turnOffWifi if Wi-Fi was off before. Bluetooth
+-- survives Wi-Fi going off: on MTK KOReader never unloads the modules, it
+-- only switches the Wi-Fi function off. So nothing here keeps Wi-Fi up for
+-- Bluetooth; it fixes the hand-off instead.
+-- Without the plugin, none of the plugin hooks attach and the two NetworkMgr
+-- hooks only skip a duplicate restore / stop a leftover one, which is
+-- right with or without Bluetooth.
+
+-- A restore-wifi-async.sh still running (same [x] trick as killConnectScripts).
+local function restoreScriptRunning()
+    if not (Device:isKobo() and Device:hasWifiRestore()) then return false end
+    local r = os.execute("pgrep -f '[r]estore-wifi-async.sh' >/dev/null 2>&1")
+    return r == 0 or r == true
+end
+
+-- Two restore scripts at once both load the driver and fight over
+-- wpa_supplicant (Bluetooth on wake next to KOReader's own wake reconnect,
+-- or a Wi-Fi tap while Bluetooth comes up). The one running already does the
+-- job; a connectivity check scheduled by the caller picks it up.
+local orig_restore_async = NetworkMgr.restoreWifiAsync
+if orig_restore_async then
+    NetworkMgr.restoreWifiAsync = function(self, ...)
+        if restoreScriptRunning() then
+            logger.info("network-tweaks: a Wi-Fi restore is already running, not starting another")
+            return
+        end
+        return orig_restore_async(self, ...)
+    end
+end
+
+-- turnOffWifi is the device-level power-off. disableWifi goes through it
+-- (after stopping connects above), but the plugin calls it directly, so the
+-- restore script it started kept going and could finish joining a network
+-- with Wi-Fi meant to be off. Stop it first. Not while Bluetooth is still
+-- coming up: enable-wifi.sh may be loading the modules Bluetooth needs.
+local orig_turn_off = NetworkMgr.turnOffWifi
+if orig_turn_off then
+    NetworkMgr.turnOffWifi = function(self, ...)
+        if not btBringingUpWifi() and restoreScriptRunning() then
+            killConnectScripts()
+            ffiutil.usleep(200000)
+        end
+        return orig_turn_off(self, ...)
+    end
+end
+
+-- Bluetooth is up (or gave up, or never reported back): what you asked of
+-- Wi-Fi meanwhile wins over the plugin's own choice. Returns true when it
+-- handled Wi-Fi, false when the plugin should decide as usual.
+local function btFinish()
+    local intent, off_cb = bt.intent, bt.off_cb
+    btReset()
+    if intent == "on" or quiet then
+        logger.info("network-tweaks: Bluetooth start-up done, keeping the Wi-Fi you turned on")
+        stateChanged()
+        return true
+    end
+    if intent == "off" then
+        logger.info("network-tweaks: Bluetooth start-up done, applying the held Wi-Fi off")
+        if NetworkMgr:isWifiOn() then
+            NetworkMgr:disableWifi(off_cb, true)
+        elseif off_cb then
+            pcall(off_cb)
+        end
+        stateChanged()
+        return true
+    end
+    return false
+end
+
+local function patchKoboBluetooth()
+    local KB = package.loaded["src/kobo_bluetooth"]
+    local MTK = package.loaded["src/lib/bluetooth/implementations/mtk_bluetooth"]
+    -- Only MTK models bring Bluetooth up through Wi-Fi. On anything else the
+    -- MTK module isn't loaded and nothing is hooked.
+    if type(KB) ~= "table" or type(MTK) ~= "table" or MTK.__network_tweaks then return end
+    local orig_on = rawget(MTK, "turnBluetoothOn")
+    local orig_restore = rawget(KB, "_restoreWifiState")
+    if type(orig_on) ~= "function" or type(orig_restore) ~= "function" then
+        logger.warn("network-tweaks: kobo.koplugin Bluetooth not recognised, coexistence off")
+        return
+    end
+    MTK.__network_tweaks = true
+
+    -- Start-up begins: the window opens only when the plugin is about to
+    -- bring Wi-Fi up itself (same checks it makes before doing so). A timer
+    -- closes it if the plugin never reports back, so a held Wi-Fi off still
+    -- happens.
+    MTK.turnBluetoothOn = function(self, ...)
+        local ok_s, supported = pcall(self.isDeviceSupported, self)
+        if ok_s and supported and not NetworkMgr:isWifiOn() then
+            local ok_e, enabled = pcall(self.isBluetoothEnabled, self)
+            if ok_e and not enabled then
+                btReset()
+                local opened = os.time()
+                bt.since = opened
+                UIManager:scheduleIn(BT_WINDOW_S + 1, function()
+                    if bt.since == opened then
+                        logger.warn("network-tweaks: Bluetooth start-up never finished, closing its Wi-Fi window")
+                        if not btFinish() then stateChanged() end
+                    end
+                end)
+            end
+        end
+        return orig_on(self, ...)
+    end
+
+    KB._restoreWifiState = function(self, ...)
+        if btFinish() then return end
+        local ok, res = pcall(orig_restore, self, ...)
+        stateChanged()
+        if not ok then error(res, 0) end
+        return res
+    end
+    logger.info("network-tweaks: kobo.koplugin Bluetooth coexistence on")
+end
+
+-- The plugin's Bluetooth menu, shown in Network Tweaks instead of
+-- Settings → Network. Rebuilt by the plugin on every menu build (only on
+-- devices it supports); taken out of the normal menu and kept here.
+local bt_menu -- the plugin's last Bluetooth menu item, nil without the plugin
+
+local function patchKoboBluetoothMenu()
+    local KB = package.loaded["src/kobo_bluetooth"]
+    if type(KB) ~= "table" or KB.__network_tweaks_menu then return end
+    local orig_add = rawget(KB, "addToMainMenu")
+    if type(orig_add) ~= "function" then
+        logger.warn("network-tweaks: kobo.koplugin Bluetooth menu not recognised, left in place")
+        return
+    end
+    KB.__network_tweaks_menu = true
+    KB.addToMainMenu = function(self, menu_items, ...)
+        local res = orig_add(self, menu_items, ...)
+        if type(menu_items) == "table" then
+            local item = menu_items.bluetooth
+            if type(item) == "table" and type(item.sub_item_table) == "table" then
+                bt_menu = item
+                menu_items.bluetooth = nil
+            else
+                bt_menu = nil -- device not supported: nothing to show
+            end
+        end
+        return res
+    end
+end
+
+-- Both modules are loaded by the time the plugin instance exists (main.lua
+-- requires the base class; its init creates the MTK instance). Both hooks
+-- are idempotent, so calling this more than once is harmless.
+local function hookKoboPlugin()
+    if package.loaded["src/kobo_bluetooth"] == nil then return end
+    local ok, err = pcall(patchKoboBluetooth)
+    if not ok then logger.warn("network-tweaks: kobo.koplugin hook failed:", err) end
+    local ok_m, err_m = pcall(patchKoboBluetoothMenu)
+    if not ok_m then logger.warn("network-tweaks: kobo.koplugin menu hook failed:", err_m) end
+end
+
+-- KOReader names a plugin after its folder: kobo.koplugin -> "kobo".
+userpatch.registerPatchPluginFunc("kobo", hookKoboPlugin)
+-- Renamed folder: catch it when menus are built (before the plugin adds
+-- its entries) instead. See NetworkMgr.getMenuTable below.
 
 -- Menu toggle and the "Turn on Wi-Fi?" prompt. Long-press keeps the list.
 local orig_toggle_on = NetworkMgr.toggleWifiOn
@@ -994,6 +1221,12 @@ end
 local function reconnectFromHalfOn()
     logger.info("network-tweaks: Wi-Fi on but not connected, reconnecting")
     markUserConnect()
+    if btBringingUpWifi() then
+        -- Half on because kobo.koplugin is bringing Bluetooth up: its restore
+        -- is the reconnect, so join it instead of powering down mid-way.
+        if not quietConnect() then NetworkMgr:toggleWifiOn(nil, false, true) end
+        return
+    end
     NetworkMgr:disableWifi(nil, true)
     UIManager:nextTick(function()
         if not quietConnect() then NetworkMgr:toggleWifiOn(nil, false, true) end
@@ -1658,6 +1891,20 @@ local function menuTable()
                     },
                 },
             }
+            if bt_menu then
+                -- Right below Choose Network… (only with kobo.koplugin).
+                for i, it in ipairs(items) do
+                    if it.text == _("Choose Network…") then
+                        local menu = bt_menu
+                        table.insert(items, i + 1, {
+                            text = _("Bluetooth…"),
+                            help_text = _("Bluetooth from kobo.koplugin: turn it on or off, scan, paired devices and settings."),
+                            sub_item_table_func = function() return menu.sub_item_table end,
+                        })
+                        break
+                    end
+                end
+            end
             if quiet then
                 items[#items].separator = true
                 items[#items + 1] = {
@@ -1687,6 +1934,7 @@ end
 
 local orig_menu = NetworkMgr.getMenuTable
 NetworkMgr.getMenuTable = function(self, common_settings)
+    hookKoboPlugin() -- no-op once attached, or without the plugin
     orig_menu(self, common_settings)
     if not shownInAddons() then
         common_settings.network_tweaks = menuTable()
@@ -1719,6 +1967,7 @@ local stopped_for_sleep = false
 
 local function beforeSleep()
     user_connect_at = nil -- the reconnect on wake isn't the user's
+    btReset() -- the plugin turns Bluetooth off for sleep; nothing to hand over
     if quiet then cancelQuiet(true) end
 
     local running = sshRunning()
