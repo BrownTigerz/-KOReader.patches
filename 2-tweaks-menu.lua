@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.4
+Version: 1.0.5
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -53,9 +53,14 @@ Changelog:
                      preserved, so SimpleUI/X-Ray/Wi-Fi are unchanged).
                      Notification, toast, and dialog strings untouched; moved
                      plugin items keep their own text.
+  1.0.5  2026-10-21  Crash fix: a plugin whose sorting_hint points at a menu
+                     that isn't shown (e.g. kobo.koplugin's "Kobo Library" ->
+                     File browser settings, with that tab hidden) crashed
+                     KOReader's menu build on opening the menu. Such entries
+                     now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.0.4"
+local PATCH_VERSION = "1.0.5"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -660,6 +665,59 @@ if ok_ms and type(MenuSorter) == "table" and not MenuSorter._tweaks_mods_hooked
         return unpack(res, 2, res.n)
     end
 
+    -- KOReader files an unplaced item under its sorting_hint menu, and crashes
+    -- (findById -> nil) when that menu isn't in the tree: its tab hidden by a
+    -- menu-order file / Menu Disabler / SimpleUI, or the hint names a menu
+    -- that doesn't exist in this menu (file browser vs reader). Point such
+    -- hints at a menu that is there. Original hints are kept on the item
+    -- (_tm_hint) so each build decides again.
+    local FALLBACK_HINTS = { "tools", "setting", "main" }
+    local function fixSortingHints(item_table, order)
+        local buttons = order["KOMenu:menu_buttons"]
+        if type(buttons) ~= "table" then return end
+        -- ids that end up placed in the tree (same rules as MenuSorter.sort:
+        -- a submenu needs an item and an order list; an entry needs an item)
+        local placed, visited = {}, {}
+        local function walk(list)
+            for _i, id in ipairs(list) do
+                if type(id) == "string" and item_table[id] ~= nil and not placed[id] then
+                    placed[id] = true
+                    if type(order[id]) == "table" and not visited[id] then
+                        visited[id] = true
+                        walk(order[id])
+                    end
+                end
+            end
+        end
+        walk(buttons)
+        local fallback
+        for _i, id in ipairs(FALLBACK_HINTS) do
+            if placed[id] and type(order[id]) == "table" then fallback = id break end
+        end
+        if not fallback then
+            for _i, id in ipairs(buttons) do
+                if placed[id] then fallback = id break end
+            end
+        end
+        if not fallback then return end
+        for id, item in pairs(item_table) do
+            if type(item) == "table" and not placed[id] then
+                local hint = item._tm_hint or item.sorting_hint
+                if type(hint) == "string" then
+                    if placed[hint] then
+                        item.sorting_hint = hint
+                    else
+                        if item._tm_hint == nil then
+                            logger.info(TAG, "menu", hint, "isn't shown;", id, "goes in", fallback)
+                        end
+                        item._tm_hint = hint
+                        item.sorting_hint = fallback
+                    end
+                end
+            end
+        end
+    end
+
     local orig_sort = MenuSorter.sort
     MenuSorter.sort = function(self, item_table, order, ...)
         if (cur_where == "filemanager" or cur_where == "reader")
@@ -670,6 +728,10 @@ if ok_ms and type(MenuSorter) == "table" and not MenuSorter._tweaks_mods_hooked
             elseif new_order then
                 order = new_order
             end
+        end
+        if type(item_table) == "table" and type(order) == "table" then
+            local ok_h, err_h = pcall(fixSortingHints, item_table, order)
+            if not ok_h then logger.warn(TAG, "sorting hint check failed:", err_h) end
         end
         return orig_sort(self, item_table, order, ...)
     end
