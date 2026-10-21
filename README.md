@@ -22,7 +22,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.5 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.0 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.3 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.8.5 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.10.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.12 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.4 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.4 |
@@ -172,6 +172,7 @@ Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network
 - **Stop SSH Server On Sleep** (on): stops KOReader's SSH server when the device sleeps, like Wi-Fi, and doesn't restart it on wake. Without this, SSH quietly becomes reachable again as soon as Wi-Fi reconnects.
 - **SSH Follows Wi-Fi** (off): SSH starts when you turn Wi-Fi on and stops whenever Wi-Fi goes off, however that happens. It isn't started by the automatic reconnect after waking, so SSH stays off after sleep. Handy for pushing patches.
 - **Choose Network…:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved · away, or Open. Tap one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
+- **Bluetooth…** (only with kobo.koplugin, on devices it supports): the plugin's Bluetooth menu — on/off, scan, paired devices, settings — moved here from Settings → Network. On MTK Kobos Bluetooth shares the Wi-Fi chip, so the patch also keeps the hand-off sane: one Wi-Fi restore at a time, and Wi-Fi on/off taps during Bluetooth start-up are applied once it's up.
 - **Notifications** (default Banner): one style for Wi-Fi on/off, SSH on/off and the Calibre wireless connection, however you trigger them.
   - **Normal:** stock KOReader popups; Wi-Fi waits until connected.
   - **Minimal:** Wi-Fi connects in the background, with small corner notes (top right) like "Wi-Fi connected", "SSH on", "Calibre connected".
