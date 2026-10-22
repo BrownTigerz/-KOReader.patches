@@ -1,6 +1,6 @@
 --[[
 2-zz-backup-patches-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.0
+Version 1.2.1
 
 Watches Patch Backup & Restore (2-backup-patches.lua) and its hooks into
 Device Backup & Restore (backup.koplugin) from the outside, and writes
@@ -69,6 +69,9 @@ How to use:
   4. Delete this file (and the .state file) and restart.
 
 Changelog
+  1.2.1  One line per entry: messages and popups with line breaks are
+         joined with " / " (they used to split into untagged lines), and
+         the invisible text-direction marks around file paths are removed.
   1.2.0  Diagnostics standard: the "started" banner is the first line of
          every start (it came 5 s in, after other lines). No timers of its
          own: the startup report runs on the first pass of the main loop,
@@ -114,7 +117,7 @@ Changelog
   1.0.0  First version.
 ]]
 
-local DIAG_VERSION = "1.2.0"
+local DIAG_VERSION = "1.2.1"
 local WINDOW_S     = 15 * 60       -- logging window after start
 local EXTEND_S     = 5 * 60        -- extension when a backup/restore runs
 local EXPIRE_S     = 3 * 24 * 3600 -- stops hooking anything after this
@@ -150,6 +153,18 @@ end
 local DIAG_TAG = "backup-patches"
 local SHARED_LOG = DATA .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
+-- One line per entry: line breaks (multi-line popups and messages) are
+-- joined with " / ", and the invisible text-direction marks KOReader puts
+-- around file paths are removed, so every line keeps its time and tag.
+local DIAG_BIDI = { "\226\129\166", "\226\129\167", "\226\129\168", "\226\129\169",
+    "\226\128\170", "\226\128\171", "\226\128\172", "\226\128\173", "\226\128\174" }
+local function diagOneLine(s)
+    s = tostring(s)
+    for _i, m in ipairs(DIAG_BIDI) do s = s:gsub(m, "") end
+    s = s:gsub("%s*[\r\n]+%s*", " / ")
+    return s
+end
+
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -162,7 +177,7 @@ local function shared_log(fmt, ...)
         -- never counts as Patch Backup & Restore's file work.
         local f = orig_open(SHARED_LOG, "a")
         if not f then return end
-        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
+        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
         f:close()
     end)
 end
