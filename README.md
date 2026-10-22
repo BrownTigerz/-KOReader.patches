@@ -30,7 +30,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks-2.lua` | shortcutstoolbar.koplugin | 1.14.3 |
 | [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.1 |
-| [X-Ray Direct Lookup](#x-ray-direct-lookup) | `2-xray-direct-lookup.lua` | xray.koplugin | 1.1.10 |
+| [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.0.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
@@ -322,13 +322,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## X-Ray Direct Lookup
 
-![Xray Direct Lookup](images/xray-direct-lookup.png)
-
-For [xray.koplugin](https://github.com/ultimatejimmy/xray.koplugin). When the toggle is on and you select a single word, the patch checks X-Ray's already-fetched entity data first — no AI call, no scan. If X-Ray knows the word, it opens straight away (detail view on a single match, picker on multiple) instead of the dictionary popup. If X-Ray has no data for the word, the standard dictionary popup opens exactly as usual.
-
-- **Toggle:** bind "Toggle direct X-Ray lookup" in Gesture Manager, or the checkbox at the top of the X-Ray menu. Persists across restarts.
-- While X-Ray is open from a lookup, a small **Dictionary** button sits bottom-right; tapping it closes X-Ray and re-opens the standard word popup for the same word.
-
+**Discontinued.** xray.koplugin 26.10.23-beta and later includes this natively as "Auto-Popup on Highlight" (Settings → X-Ray Mode Settings). Delete `2-xray-direct-lookup.lua` and `debug/2-zz-xray-direct-lookup-diagnostics.lua` from your patches folder and restart.
 ---
 
 ## Reading Insights Tweaks
