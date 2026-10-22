@@ -33,7 +33,6 @@ return {
     ["2-simpleui-tweaks.lua"] = "2.11.15",
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.5",
-    ["2-xray-direct-lookup.lua"] = "1.1.10",
     ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.2.0",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.7",
     ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.2.4",
@@ -46,5 +45,4 @@ return {
     ["debug/2-zz-sleepscreen-banner-diagnostics.lua"] = "1.0.7",
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.1.6",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.5",
-    ["debug/2-zz-xray-direct-lookup-diagnostics.lua"] = "1.2.5",
 }
