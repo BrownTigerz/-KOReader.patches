@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.7
+Version 1.1.8
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -58,6 +58,10 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.1.8 (2026-10-22) - One line per entry: messages and popups with line
+                       breaks are joined with " / " (they used to split
+                       into untagged lines), and the invisible text-
+                       direction marks around file paths are removed.
   1.1.7  Fix: sourceStates() was called inside collect() before its local
          declaration, hitting a nil global ("attempt to call a nil value")
          and killing the diagnostics inventory + delete-safety checks.
@@ -94,7 +98,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.7"
+local DIAG_VERSION = "1.1.8"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -128,6 +132,18 @@ local function ms(since)
 end
 
 -- writes regardless of the window (start line, expiry line, closing summary)
+-- One line per entry: line breaks (multi-line popups and messages) are
+-- joined with " / ", and the invisible text-direction marks KOReader puts
+-- around file paths are removed, so every line keeps its time and tag.
+local DIAG_BIDI = { "\226\129\166", "\226\129\167", "\226\129\168", "\226\129\169",
+    "\226\128\170", "\226\128\171", "\226\128\172", "\226\128\173", "\226\128\174" }
+local function diagOneLine(s)
+    s = tostring(s)
+    for _i, m in ipairs(DIAG_BIDI) do s = s:gsub(m, "") end
+    s = s:gsub("%s*[\r\n]+%s*", " / ")
+    return s
+end
+
 local function write(line)
     pcall(function()
         if (lfs.attributes(LOG, "size") or 0) > MAX_BYTES then
@@ -136,7 +152,7 @@ local function write(line)
         end
         local f = io.open(LOG, "a")
         if not f then return end
-        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), line, "\n")
+        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), diagOneLine(line), "\n")
         f:close()
     end)
 end
