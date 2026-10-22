@@ -1,8 +1,12 @@
 --[[
 2-zz-network-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.4
+Version 1.2.5
 
 Changelog:
+  1.2.5 - One line per entry: messages and popups with line breaks are
+          joined with " / " (they used to split into untagged lines), and
+          the invisible text-direction marks around file paths are
+          removed.
   1.2.4 - Shared-log rotation cap raised 256 KB -> 2 MB
           (SHARED_MAX_BYTES = 2 * 1024 * 1024, identical across all
           diagnostics per TK).
@@ -89,6 +93,18 @@ local SSH_PID_FILE = "/tmp/dropbear_koreader.pid"
 local DIAG_TAG = "network-tweaks"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
+-- One line per entry: line breaks (multi-line popups and messages) are
+-- joined with " / ", and the invisible text-direction marks KOReader puts
+-- around file paths are removed, so every line keeps its time and tag.
+local DIAG_BIDI = { "\226\129\166", "\226\129\167", "\226\129\168", "\226\129\169",
+    "\226\128\170", "\226\128\171", "\226\128\172", "\226\128\173", "\226\128\174" }
+local function diagOneLine(s)
+    s = tostring(s)
+    for _i, m in ipairs(DIAG_BIDI) do s = s:gsub(m, "") end
+    s = s:gsub("%s*[\r\n]+%s*", " / ")
+    return s
+end
+
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -99,7 +115,7 @@ local function shared_log(fmt, ...)
         end
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
-        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
+        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
         f:close()
     end)
 end
@@ -223,7 +239,7 @@ local function startTest(what)
         q(nt.connect_style or "banner (default)"))
 end
 
-log("==================== network-tweaks diagnostics 1.2.3 started ====================")
+log("==================== network-tweaks diagnostics 1.2.5 started ====================")
 log("logging for %d min (until %s) | expires %s | log %s",
     ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
     os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), SHARED_LOG)
