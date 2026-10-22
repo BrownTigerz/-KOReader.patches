@@ -265,7 +265,7 @@ do
         if w then w:write(first, "\n") w:close() end
     end
     if os.difftime(os.time(), first) > EXPIRE_S then
-        write("simpleui diagnostics 2.8.3 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
+        write("simpleui diagnostics 2.9.1 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
             .. "): not watching anything. Delete this patch, or delete simpleui-diagnostics.state for 3 more days.")
         return
     end
@@ -275,7 +275,7 @@ end
 -- through this, so their lines follow this diagnostic's window and expiry.
 package.loaded["simpleui_diagnostics"] = { log = log }
 
-write("==================== simpleui diagnostics 2.8.3 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.9.1 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
