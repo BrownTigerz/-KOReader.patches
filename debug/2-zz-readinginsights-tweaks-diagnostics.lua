@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version: 2.0.0
+Version 2.0.1
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -75,6 +75,11 @@ Changelog
                      report lists book_header and stats_calendar only; the
                      suspend check reads Reading Insights 8's sleep screen
                      field (_screensaver_widgets, falls back to the old name).
+  2.0.1  2026-10-22  One line per entry: messages and popups with line breaks
+                     are joined with " / " (they used to split into untagged
+                     lines), and the invisible text-direction marks around
+                     file paths are removed. Header reads "Version" like the
+                     other diagnostics.
 ]]
 
 local DataStorage = require("datastorage")
@@ -85,7 +90,7 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "2.0.0"
+local DIAG_VERSION = "2.0.1"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file
@@ -94,6 +99,18 @@ local DIAG_VERSION = "2.0.0"
 local DIAG_TAG = "readinginsights-tweaks"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
+-- One line per entry: line breaks (multi-line popups and messages) are
+-- joined with " / ", and the invisible text-direction marks KOReader puts
+-- around file paths are removed, so every line keeps its time and tag.
+local DIAG_BIDI = { "\226\129\166", "\226\129\167", "\226\129\168", "\226\129\169",
+    "\226\128\170", "\226\128\171", "\226\128\172", "\226\128\173", "\226\128\174" }
+local function diagOneLine(s)
+    s = tostring(s)
+    for _i, m in ipairs(DIAG_BIDI) do s = s:gsub(m, "") end
+    s = s:gsub("%s*[\r\n]+%s*", " / ")
+    return s
+end
+
 local function shared_log(fmt, ...)
     local ok, line = pcall(string.format, fmt, ...)
     if not ok then line = tostring(fmt) end
@@ -104,7 +121,7 @@ local function shared_log(fmt, ...)
         end
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
-        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
+        f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
         f:close()
     end)
 end
