@@ -44,5 +44,5 @@ return {
     ["debug/2-zz-simpleui-diagnostics.lua"] = "2.9.1",
     ["debug/2-zz-sleepscreen-banner-diagnostics.lua"] = "1.0.7",
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.1.6",
-    ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.5",
+    ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.6",
 }
