@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.8.3
+Version 2.9.1
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -42,6 +42,11 @@ What it logs:
     regions, too tall for the page, size mismatch), every tap and the region
     it hit, every home screen refresh it asks for and why, refresh loops,
     and its own / Reading Log's warnings and errors.
+  - Swipe tracer (home screen only): every swipe / pan on the home screen,
+    which page SimpleUI is on before and after (a page turn), Reading Log's
+    swipe card switching, and the timing from finger lift to the card
+    rebuilt and the screen refreshed, plus any extra redraw within 3 s
+    (covers or data landing after the switch).
 
 It sets no timers of its own: summaries are written on the next redraw.
 
@@ -56,6 +61,13 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.9.1  Swipe tracer: page turns are timed to the redraw that shows them
+         (Reading Log's page-turn flash is asked during that redraw), and
+         empty redraws no longer end the trace. A tap ends the trace (tab
+         switches after a swipe aren't counted as its redraws).
+  2.9.0  Swipe tracer: home screen swipes and pans, page before/after,
+         Reading Log swipe card timing (lift -> rebuilt -> on screen) and
+         follow-up redraws (covers/data) within 3 s. Idle while reading.
   2.8.3  Sleep timer list is taken after every plugin has handled sleep, so
          it shows only timers that really stay pending (a plugin that
          cancels its timer on sleep no longer shows up). This patch's own
@@ -1401,6 +1413,123 @@ do
                 self:nextTick(function() if on() then pcall(registryCheck) end end)
             end
             return unpack(res)
+        end
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- 10. Swipe tracer (home screen only)
+--     Each swipe or pan on the SimpleUI home: direction, distance, speed,
+--     the page before/after (a page turn), then Reading Log's redraw of its
+--     swipe card: when it asked (+ms from lift), when the screen refresh
+--     finished, and any further Reading Log redraw within 3 s (covers or
+--     data landing). Nothing is hooked into the reader's own pages.
+-- --------------------------------------------------------------------------
+do
+    local ok_u, UIM = pcall(require, "ui/uimanager")
+    if ok_u and type(UIM) == "table" and type(UIM.sendEvent) == "function" then
+        local TR = nil -- the swipe being traced
+        local FOLLOW_MS = 3000
+
+        local function topWidget()
+            local st = UIM._window_stack
+            local top = type(st) == "table" and st[#st]
+            return type(top) == "table" and top.widget or nil
+        end
+        local function onHome()
+            local w = topWidget()
+            return type(w) == "table" and w.name == "homescreen", w
+        end
+        local function pageOf(w)
+            return type(w) == "table" and tonumber(w._current_page) or nil
+        end
+        local function fromReadingLog()
+            for lvl = 3, 6 do
+                local info = debug.getinfo(lvl, "S")
+                if not info then break end
+                local src = info.source or ""
+                if src:find("simpleui_readinglog", 1, true) then return true end
+            end
+            return false
+        end
+        local function expired()
+            if TR and now_ms() - TR.t0 > FOLLOW_MS then
+                if TR.redraws == 0 then
+                    log("  swipe trace: no Reading Log redraw (%s)", TR.page_note or "page unchanged")
+                end
+                TR = nil
+            end
+        end
+
+        local orig_send10 = UIM.sendEvent
+        UIM.sendEvent = function(self, event, ...)
+            if not (on() and type(event) == "table" and event.handler == "onGesture") then
+                return orig_send10(self, event, ...)
+            end
+            local ges = event.args and event.args[1]
+            local kind = type(ges) == "table" and ges.ges
+            -- a tap starts something else: stop following the last swipe
+            if kind == "tap" or kind == "hold" then TR = nil end
+            if kind ~= "swipe" and kind ~= "pan_release" and kind ~= "two_finger_swipe" then
+                return orig_send10(self, event, ...)
+            end
+            local home, w = onHome()
+            if not home then return orig_send10(self, event, ...) end
+            expired()
+            local pos = type(ges.pos) == "table" and ges.pos or {}
+            local dist = tonumber(ges.distance) or 0
+            local before = pageOf(w)
+            local t0 = now_ms()
+            log("SWIPE %s %s from %s,%s, %d px | page %s",
+                tostring(kind), tostring(ges.direction), tostring(pos.x), tostring(pos.y), dist, q(before))
+            TR = { t0 = t0, dir = ges.direction, redraws = 0, asked = nil, painted = false }
+            local res = { orig_send10(self, event, ...) }
+            local handled_ms = now_ms() - t0
+            local _h, w2 = onHome()
+            local after = pageOf(w2)
+            if before and after and before ~= after then
+                TR.page_note = "SimpleUI turned page " .. before .. " -> " .. after
+                log("  -> SimpleUI page turn %s -> %s (%d ms)", q(before), q(after), handled_ms)
+            elseif handled_ms > 80 then
+                log("  -> handled in %d ms", handled_ms)
+            end
+            return unpack(res)
+        end
+
+        local orig_sd10 = UIM.setDirty
+        UIM.setDirty = function(self, widget, ...)
+            if TR and on() then
+                expired()
+                if TR and fromReadingLog() then
+                    TR.redraws = TR.redraws + 1
+                    local dt = now_ms() - TR.t0
+                    if TR.redraws == 1 then
+                        TR.asked = now_ms()
+                        log("  swipe trace: Reading Log redraw asked +%d ms after lift", dt)
+                    else
+                        log("  swipe trace: extra Reading Log redraw #%d +%d ms (covers/data landing?)", TR.redraws, dt)
+                    end
+                    TR.painted = false
+                end
+            end
+            return orig_sd10(self, widget, ...)
+        end
+
+        local orig_rp10 = UIM._repaint
+        if type(orig_rp10) == "function" then
+            UIM._repaint = function(self, ...)
+                -- a redraw asked for during this repaint (Reading Log's page
+                -- turn flash is asked while the page is drawn) counts too
+                if not (TR and not TR.painted and on()) then return orig_rp10(self, ...) end
+                local t1 = now_ms()
+                local res = { orig_rp10(self, ...) }
+                local took = now_ms() - t1
+                if TR and TR.asked and not TR.painted and took > 0 then
+                    TR.painted = true
+                    log("  swipe trace: on screen +%d ms after lift (this redraw %d ms)", now_ms() - TR.t0, took)
+                end
+                return unpack(res)
+            end
         end
     end
 end
