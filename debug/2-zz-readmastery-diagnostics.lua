@@ -1,8 +1,20 @@
 --[[
 2-zz-readmastery-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.9
+Version 1.1.0
 
 Changelog:
+  1.1.0 (2026-10-22) - Expiry is counted per version: a new version of
+                       this file starts a fresh 10 days (a new version
+                       found the old stamp past its limit and never
+                       hooked anything). Shared perf core (same block as the other
+                       diagnostics): every timer from the ReadMastery
+                       plugin and both patches timed (one that holds the
+                       screen 80 ms+ is named, with file and line), the
+                       screen updates and flashes they ask for, timers
+                       left waiting when the device sleeps, their
+                       warnings and errors, and a once-a-minute perf
+                       line with Lua memory (only when they did
+                       something that minute).
   1.0.9 (2026-10-22) - One line per entry: messages and popups with line
                        breaks are joined with " / " (they used to split
                        into untagged lines), and the invisible text-
@@ -117,6 +129,12 @@ Shuts itself off two ways:
 The shared log file itself is size-capped (rotation at 2 MB, older
 part kept as diagnostics.log.old) as a third, independent safety net.
 
+Shared perf core (whole window): every timer from ReadMastery (plugin and
+both patches) timed, slow ones (80 ms+) named; screen updates and flashes
+they ask for; their timers left waiting at sleep; their warnings and
+errors; a once-a-minute perf line with Lua memory, only for minutes they
+were active.
+
 The "zz" makes it load after both 2-ReadMastery-*.lua files, so the
 notification bridge and the plugin's own classes already exist by the
 time this wraps them.
@@ -129,7 +147,7 @@ local LuaSettings = require("luasettings")
 local lfs = require("libs/libkoreader-lfs")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local PATCH_VERSION = "1.0.9"
+local PATCH_VERSION = "1.1.0"
 local EXPIRE_AFTER_DAYS = 10
 local WINDOW_DAYS = 5 -- active-logging window per start, in days
 local WINDOW_S = WINDOW_DAYS * 86400
@@ -140,10 +158,13 @@ local SLOW_PAGE_UPDATE_MS = 50 -- log a warning if a single page-turn's full han
 -- --------------------------------------------------------------------------
 
 local meta = LuaSettings:open(DataStorage:getSettingsDir() .. "/readmastery-diagnostics-meta.lua")
+-- Counted per version: a new version of this file starts a fresh window
+-- (1.1.0 came in after the old stamp was past its limit and never ran).
 local first_loaded = meta:readSetting("first_loaded")
-if not first_loaded then
+if not first_loaded or meta:readSetting("version") ~= PATCH_VERSION then
     first_loaded = os.time()
     meta:saveSetting("first_loaded", first_loaded)
+    meta:saveSetting("version", PATCH_VERSION)
     meta:flush()
 end
 local days_active = (os.time() - first_loaded) / 86400
@@ -610,3 +631,275 @@ UIManager:nextTick(function()
             "ReadMastery diagnostics: logging for " .. WINDOW_DAYS .. " days")
     end)
 end)
+
+-- --------------------------------------------------------------------------
+-- Shared perf core v1 (the same block in every diagnostic that uses it)
+-- The first diagnostic to load installs it; the others plug into it. One
+-- copy of KOReader's timer loop with each timer timed, one watch on screen
+-- updates, sleep, input events and warnings, handed to whichever
+-- diagnostics are logging right now. With none logging, every hook passes
+-- straight through. No timers of its own; it's installed on the first pass
+-- of the main loop, after every patch, so its hooks are the outermost.
+-- --------------------------------------------------------------------------
+local DiagCore
+do
+    local CORE_VERSION = 1
+    DiagCore = package.loaded["diag_perf_core"]
+    if type(DiagCore) ~= "table" then
+        DiagCore = { version = CORE_VERSION, clients = {} }
+        package.loaded["diag_perf_core"] = DiagCore
+        local UIM = require("ui/uimanager")
+        local ok_time, ktime = pcall(require, "ui/time")
+        local function nowMs()
+            if ok_time and type(ktime) == "table" and ktime.now and ktime.to_ms then
+                return ktime.to_ms(ktime.now())
+            end
+            return math.floor(os.clock() * 1000)
+        end
+        DiagCore.now_ms = nowMs
+        local function pk(...) return { n = select("#", ...), ... } end
+
+        -- "plugins/x.koplugin/main.lua:12" for a function or a debug.getinfo
+        local function short(src, line)
+            src = tostring(src or "?"):gsub("^@", ""):gsub("^%./", ""):gsub("^.-plugins/", "plugins/")
+                :gsub("^.-patches/", "patches/")
+            return line and (src .. ":" .. tostring(line)) or src
+        end
+        function DiagCore.where(fn)
+            if type(fn) ~= "function" then return tostring(fn) end
+            local info = debug.getinfo(fn, "S")
+            if not info then return "?" end
+            return short(info.source, info.linedefined)
+        end
+        local function caller(level)
+            local info = debug.getinfo(level + 1, "Sl")
+            if not info then return "?" end
+            return short(info.source, info.currentline)
+        end
+
+        local function anyOn()
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then return true end
+            end
+            return false
+        end
+        local function emit(kind, ...)
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then pcall(c.handle, kind, ...) end
+            end
+        end
+
+        local function install()
+            -- Timers: KOReader's _checkTasks loop, each task timed.
+            local orig_tasks = UIM._checkTasks
+            if ok_time and type(orig_tasks) == "function" and type(UIM._task_queue) == "table" then
+                UIM._checkTasks = function(self)
+                    if not anyOn() then return orig_tasks(self) end
+                    self._now = ktime.now()
+                    local wait_until = nil
+                    self._task_queue_dirty = false
+                    while self._task_queue[1] do
+                        local task_time = self._task_queue[#self._task_queue].time
+                        if task_time <= self._now then
+                            local task = table.remove(self._task_queue)
+                            local t0 = nowMs()
+                            if type(task.args) == "table" then
+                                task.action(unpack(task.args, 1, task.args.n))
+                            else
+                                task.action()
+                            end
+                            emit("timer", task.action, nowMs() - t0)
+                        else
+                            wait_until = task_time
+                            break
+                        end
+                    end
+                    return wait_until, self._now
+                end
+            end
+
+            -- Screen updates: who asked, and which kind (a flash or not).
+            local orig_sd = UIM.setDirty
+            if type(orig_sd) == "function" then
+                UIM.setDirty = function(self, widget, refresh, ...)
+                    if not anyOn() then return orig_sd(self, widget, refresh, ...) end
+                    local src = caller(2)
+                    if type(refresh) == "function" then
+                        local f = refresh
+                        refresh = function(...)
+                            local r = pk(f(...))
+                            emit("dirty", src, r[1])
+                            return unpack(r, 1, r.n)
+                        end
+                    else
+                        emit("dirty", src, refresh)
+                    end
+                    return orig_sd(self, widget, refresh, ...)
+                end
+            end
+
+            -- Input events: slow ones (taps, swipes) are reported.
+            local orig_send = UIM.sendEvent
+            if type(orig_send) == "function" then
+                UIM.sendEvent = function(self, event, ...)
+                    if not anyOn() then return orig_send(self, event, ...) end
+                    local t0 = nowMs()
+                    local res = pk(orig_send(self, event, ...))
+                    local dt = nowMs() - t0
+                    if dt >= 15 and type(event) == "table" then
+                        local h = tostring(event.handler or "?"):gsub("^on", "")
+                        local ges = h == "Gesture" and event.args and event.args[1]
+                        if type(ges) == "table" and ges.ges then h = "Gesture " .. tostring(ges.ges) end
+                        emit("event", h, dt)
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Sleep: the timers still waiting after every plugin handled it.
+            local orig_bc = UIM.broadcastEvent
+            if type(orig_bc) == "function" then
+                UIM.broadcastEvent = function(self, event, ...)
+                    local h = type(event) == "table" and event.handler
+                    if not (anyOn() and (h == "onSuspend" or h == "onResume")) then
+                        return orig_bc(self, event, ...)
+                    end
+                    local res = pk(orig_bc(self, event, ...))
+                    if h == "onSuspend" then
+                        local actions = {}
+                        for _i, task in ipairs(self._task_queue or {}) do actions[#actions + 1] = task.action end
+                        emit("sleep", actions)
+                    else
+                        emit("wake")
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Warnings and errors, with the file that wrote them.
+            local ok_l, logger = pcall(require, "logger")
+            if ok_l and type(logger) == "table" then
+                for _i, lvl in ipairs({ "warn", "err" }) do
+                    local orig = logger[lvl]
+                    if type(orig) == "function" then
+                        logger[lvl] = function(...)
+                            if anyOn() then
+                                local src = caller(2)
+                                local parts = {}
+                                for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+                                local msg = table.concat(parts, " ")
+                                if #msg > 300 then msg = msg:sub(1, 300) .. "..." end
+                                emit("warn", lvl, src, msg)
+                            end
+                            return orig(...)
+                        end
+                    end
+                end
+            end
+        end
+        UIM:nextTick(function() pcall(install) end)
+    end
+
+    function DiagCore.register(client)
+        table.insert(DiagCore.clients, client)
+    end
+
+    -- A standard client: everything the core sees that comes from the
+    -- patch's own files (o.targets: parts of a path, e.g. "2-network-tweaks.lua").
+    --   o.name     label in the lines ("ShelfSync Tweaks")
+    --   o.log, o.on  the diagnostic's own log and "logging now?" functions
+    --   o.errors   also log the patch's warnings/errors (when the
+    --              diagnostic doesn't catch them itself)
+    --   o.busy     optional: while it returns true, a timer of anyone's that
+    --              holds the screen 250 ms+ or a tap/swipe 1 s+ is logged
+    --              (replaces a freeze heartbeat; the patch was busy then, it
+    --              isn't necessarily the cause)
+    --   o.extra    optional: a few words added to the once-a-minute line
+    --   o.summary  optional: where the once-a-minute line goes (default
+    --              o.log; a diagnostic that only writes inside its own
+    --              windows passes a function that drops it otherwise)
+    function DiagCore.client(o)
+        local SLOW_MS = o.slow_ms or 80
+        local BUSY_TIMER_MS, BUSY_EVENT_MS = o.busy_timer_ms or 250, o.busy_event_ms or 1000
+        local function mine(src)
+            src = tostring(src or "")
+            for _i, t in ipairs(o.targets) do
+                if src:find(t, 1, true) then return true end
+            end
+            return false
+        end
+        local st = { since = os.time(), runs = 0, ms = 0, max = 0, max_src = nil, dirty = 0, flashes = 0 }
+        local function summary(force)
+            if not force and os.time() - st.since < 60 then return end
+            if st.runs > 0 or st.dirty > 0 then
+                local extra = o.extra and o.extra() or nil
+                ;(o.summary or o.log)("perf (last %d s): %s timers ran %d times, %d ms in all, slowest %d ms%s | screen updates asked %d, flashes %d | Lua memory %.1f MB%s",
+                    os.time() - st.since, o.name, st.runs, st.ms, st.max,
+                    st.max_src and (" (" .. st.max_src .. ")") or "", st.dirty, st.flashes,
+                    collectgarbage("count") / 1024, extra and (" | " .. extra) or "")
+            end
+            st.since, st.runs, st.ms, st.max, st.max_src, st.dirty, st.flashes = os.time(), 0, 0, 0, nil, 0, 0
+        end
+        local FLASH = { flashui = true, full = true, flashpartial = true }
+        local client = { on = o.on }
+        function client.handle(kind, a, b, c)
+            if kind == "timer" then
+                local src = DiagCore.where(a)
+                if mine(src) then
+                    st.runs, st.ms = st.runs + 1, st.ms + b
+                    if b > st.max then st.max, st.max_src = b, src end
+                    if b >= SLOW_MS then o.log("slow: %s timer %s took %d ms", o.name, src, b) end
+                elseif o.busy and b >= BUSY_TIMER_MS and o.busy() then
+                    o.log("screen held %d ms by timer %s while %s was busy", b, src, o.name)
+                end
+            elseif kind == "dirty" then
+                if mine(a) then
+                    st.dirty = st.dirty + 1
+                    if FLASH[b] then
+                        st.flashes = st.flashes + 1
+                        o.log("FLASH %s asked by %s", tostring(b), a)
+                    end
+                end
+            elseif kind == "event" then
+                if o.busy and b >= BUSY_EVENT_MS and o.busy() then
+                    o.log("screen held %d ms by a %s while %s was busy", b, a, o.name)
+                end
+            elseif kind == "sleep" then
+                summary(true)
+                local by, n = {}, 0
+                for _i, fn in ipairs(a or {}) do
+                    local src = DiagCore.where(fn)
+                    if mine(src) then by[src] = (by[src] or 0) + 1; n = n + 1 end
+                end
+                if n == 0 then
+                    o.log("going to sleep: no %s timers left waiting", o.name)
+                else
+                    local bits = {}
+                    for src, k in pairs(by) do bits[#bits + 1] = k .. " x " .. src end
+                    table.sort(bits)
+                    o.log("going to sleep: %d %s timers still waiting (!): %s", n, o.name, table.concat(bits, ", "))
+                end
+                return
+            elseif kind == "warn" then
+                -- a = level, b = the file that wrote it, c = the message
+                if o.errors and mine(b) then
+                    o.log("%s from %s: %s", a == "err" and "ERROR" or "warning", b, tostring(c))
+                end
+            end
+            summary(false)
+        end
+        DiagCore.register(client)
+        return client
+    end
+end
+
+-- The ReadMastery plugin and both patches (not this file)
+DiagCore.client({
+    name = "ReadMastery",
+    targets = { "2-ReadMastery-", "eadmastery.koplugin/", "eadMastery.koplugin/" },
+    log = log,
+    on = on,
+    errors = true,
+})
