@@ -2,7 +2,7 @@
 ReadMastery - Notification Style Patch
 =======================================
 
-Version: 1.0.4
+Version: 1.0.5
 
 Drop this file, unmodified plugin included, into your KOReader
 `patches/` folder:
@@ -76,6 +76,12 @@ All settings are stored in their own file
 ReadMastery's own data file.
 
 Changelog:
+  1.0.5 (2026-10-22) - A tap on a Banner toast itself now only dismisses
+    it. It also reached whatever was underneath: with the toast in the
+    top-right corner, dismissing a quest toast fired the reader's
+    top-right corner gesture (here, "set current page as reading
+    location", which moved the saved location). Taps and swipes
+    elsewhere still close the toast and go through as before.
   1.0.4 (2026-10-11) - Title case for all user-facing menu texts, per
     the shared convention: style options, banner position label,
     duration options ("2 Seconds"), and the font picker's default
@@ -131,7 +137,7 @@ local Screen = Device.screen
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.4"
+local PATCH_VERSION = "1.0.5"
 
 -- =================================================================
 -- Settings (own file - ReadMastery's own data.json is never touched)
@@ -433,8 +439,20 @@ function Banner:onKeyPress(key)
 end
 Banner.onKeyRepeat = Banner.onKeyPress
 
+-- Any gesture closes the toast. Elsewhere on the screen it still goes
+-- through (a page-turn tap turns the page). A tap or hold ON the toast
+-- only dismisses it: it used to reach what's underneath too, e.g. the
+-- reader's corner gesture behind a top-right toast.
+local ON_TOAST = { tap = true, hold = true, double_tap = true, hold_release = true }
 function Banner:onGesture(ev)
     UIManager:close(self)
+    local pos = type(ev) == "table" and ev.pos
+    local d = self.frame and self.frame.dimen
+    if pos and d and d.x and ON_TOAST[ev.ges]
+            and pos.x >= d.x and pos.x < d.x + d.w
+            and pos.y >= d.y and pos.y < d.y + d.h then
+        return true
+    end
     return false
 end
 
