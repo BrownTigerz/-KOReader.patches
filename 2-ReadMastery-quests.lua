@@ -2,7 +2,7 @@
 ReadMastery - Quests & Tag Engine Patch
 ========================================
 
-Version: 1.0.4
+Version: 1.0.5
 
 Drop this alongside 2-ReadMastery-notify.lua in your KOReader
 `patches/` folder and restart. Independent, optional add-on - if
@@ -18,7 +18,8 @@ Adds ONE new top-level menu toggle: "Quests (Enhanced)".
 
   OFF (default): zero overhead - the tracking hooks below do
   nothing, "View Quests" is greyed out. ReadMastery behaves
-  exactly like stock.
+  exactly like stock, apart from the page guard (always on, see
+  the 1.0.5 changelog).
 
   ON: tracks Daily / Weekly / Monthly / Seasonal quests (see list
   below) using ReadMastery's own live session data (pages/minutes/
@@ -135,6 +136,30 @@ author (getProps().authors), which is why Author Explorer is safe
 to have already but a series-based quest isn't.
 
 Changelog:
+  1.0.5 (2026-10-22) - Page guard: only pages you haven't read yet
+    this sitting count. ReadMastery counted every turn by distance in
+    both directions, so paging back and forward again (or a short
+    jump back) paid page XP, daily/lifetime pages and quest progress
+    again for pages already read. Back turns and re-reads now count
+    no pages (their time still counts as reading time); a turn that
+    is partly new counts only the new pages. Skim filter: a new page
+    turned away from in under 4 seconds counts nothing and stays
+    unread (flipping ahead isn't reading). Setting the current page as
+    your reading location (Track Reading Location's gesture) makes the
+    pages after it unread again, so reading forward from your anchor
+    always pays. Resets each book open,
+    so re-reading a book another day still counts. Always on,
+    Quests toggle or not.
+    New quests: Second Look (weekly, 300 XP) - re-read 20 pages after
+    going back and setting an earlier page as your reading location,
+    counting pages up to where you'd read before. Return Visit
+    (monthly) - re-read a book you've finished before and finish it
+    again; the sooner you came back, the more it pays: 1500 XP within
+    a month, 1000 within 3, 700 within 6, 400 after that, for the whole
+    book (90%+ of its pages read). Re-reading part pays that share,
+    under a quarter doesn't count. Finish dates and pages read since are kept per book from now
+    on (Reset Progress leaves them); a book already marked finished in
+    KOReader uses that date the first time.
   1.0.4 (2026-10-18) - Fixed quest progress loss on restart/crash/dead
     battery: progress was only flushed to disk on quest completion,
     book end, or reset/toggle. trackReading now marks Quest.dirty when
@@ -175,7 +200,7 @@ local logger      = require("logger")
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.4"
+local PATCH_VERSION = "1.0.5"
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -207,6 +232,14 @@ local Quest = {
         total_xp = 0,
         by_id = {},
     },
+    -- When each book was last finished (book fingerprint -> os.time()),
+    -- for Return Visit. Reading history, not progress: Reset Progress
+    -- leaves it alone. One number per finished book.
+    finished_at = settings:readSetting("finished_at") or {},
+    -- Pages read in each book since its last finish (book fingerprint ->
+    -- pages), so Return Visit only pays for a real re-read. Cleared
+    -- for a book when it's finished.
+    since_finish = settings:readSetting("since_finish") or {},
 }
 -- Runtime-only: true once quest progress has changed in memory but not
 -- yet been flushed to disk. Flushed on document close and on suspend,
@@ -228,6 +261,8 @@ local function persist(flush_now)
     settings:saveSetting("enabled", Quest.enabled)
     settings:saveSetting("state", Quest.state)
     settings:saveSetting("lifetime", Quest.lifetime)
+    settings:saveSetting("finished_at", Quest.finished_at)
+    settings:saveSetting("since_finish", Quest.since_finish)
     if flush_now then
         settings:flush()
     end
@@ -313,6 +348,7 @@ local WEEKLY_QUESTS = {
     { id = "w_nonfiction", title = "Expand the Mind",             type = "tag_pages", target = 100, reward_xp = 350, tag_groups = { "nonfiction" } },
     { id = "w_genre_explorer", title = "Genre Explorer", type = "tag_book_finish", target = 1, reward_xp = 500, tag_groups = { "fantasy", "scifi" } },
     { id = "w_final_stretch", title = "The Final Stretch", type = "final_stretch", target = 1, reward_xp = 200 },
+    { id = "w_second_look",   title = "Second Look",       type = "reread_pages",  target = 20, reward_xp = 300 },
 }
 
 local MONTHLY_QUESTS = {
@@ -324,7 +360,26 @@ local MONTHLY_QUESTS = {
     { id = "m_immersion", title = "Lost in the Story",   type = "single_session_minutes", target = 120,  reward_xp = 800 },
     { id = "m_switchup",       title = "Change of Scenery", type = "tag_unique_book_finish", target = 2, reward_xp = 900 },
     { id = "m_polymath",       title = "Genre Hopper",      type = "tag_unique_book_finish", target = 3, reward_xp = 1400 },
+    { id = "m_return",         title = "Return Visit",      type = "return_visit",           target = 1, reward_xp = 400,
+      reward_text = "up to +1500 XP (the sooner after your last finish, the more; scaled by how much you re-read)" },
 }
+
+-- Return Visit pays by how soon you came back to the book: re-reading
+-- a whole book again quickly is the rare one, so it pays the most.
+-- Checked in order, first match wins.
+local RETURN_TIERS = {
+    { days = 30,  xp = 1500, label = "within a month" },
+    { days = 90,  xp = 1000, label = "within 3 months" },
+    { days = 180, xp = 700,  label = "within 6 months" },
+    { days = nil, xp = 400,  label = "6 months or more" },
+}
+-- XP is scaled by how much of the book you re-read (counted pages since
+-- the last finish, so no flips or jumps): the whole book pays the full
+-- tier, half pays half. 90%+ counts as the whole book (skimmed pages and
+-- a font change shift the count a little). Under 25% isn't a re-read
+-- and doesn't use up the month's quest.
+local RETURN_FULL_SHARE = 0.9
+local RETURN_MIN_SHARE  = 0.25
 
 -- Seasonal: active only during a specific month, resets (fresh key)
 -- each year that month comes around. Only shown in View Quests while
@@ -422,6 +477,19 @@ local function describeQuest(quest)
                .. "(tracks each book's primary/first listed author) - "
                .. quest.discovery_xp .. " XP for each NEW author, +" .. quest.reward_xp
                .. " XP once you've covered all " .. quest.target .. "."
+    elseif quest.type == "reread_pages" then
+        return "Re-read " .. quest.target .. " pages: go back to an earlier page, set it as your "
+               .. "reading location (Track Reading Location's gesture), and read forward. Pages "
+               .. "up to where you'd read before count; flipping through doesn't."
+    elseif quest.type == "return_visit" then
+        local bits = {}
+        for _, t in ipairs(RETURN_TIERS) do
+            bits[#bits + 1] = t.label .. " = " .. t.xp .. " XP"
+        end
+        return "Re-read a book you've finished before and finish it again. "
+               .. "The sooner you came back to it, the more it pays: " .. table.concat(bits, ", ") .. ". "
+               .. "That's for re-reading the whole book; re-reading part of it pays that share "
+               .. "(half the book, half the XP), and under a quarter doesn't count."
     elseif quest.type == "final_stretch" then
         return "Reach 80%+ completion during a reading session, then finish the book in "
                .. "that same session, with at least 5 pages of real reading along the way."
@@ -613,6 +681,130 @@ end
 -- Patch the plugin
 -- =================================================================
 
+-- =================================================================
+-- Page guard: only pages you haven't read yet this sitting count.
+-- ReadMastery counts every turn by distance, both directions
+-- (math.abs), so paging back 5 and forward 5 again paid 10 pages of
+-- XP, daily/lifetime pages and quest progress for nothing new. Jumps
+-- over 5 pages it already ignores; this handles the small ones.
+--
+-- Pages counted this sitting live on ReadMastery's own session table
+-- (session._rm_seen), so they reset with each new session (every book
+-- open), same as everything else in it. Re-reading a book another day
+-- still counts.
+--
+--   back turn, or forward over pages already counted -> no pages, no
+--     page XP; the time still counts as reading time, the same way
+--     ReadMastery counts it (2 min idle limit).
+--   forward turn partly over new pages -> ReadMastery counts only
+--     the new ones (it's handed a shorter distance).
+--   new page left in under 4 s -> skimmed, not read: no pages, and
+--     it stays unread so a proper read of it later still counts.
+--   jump over 5 pages -> left to ReadMastery, which ignores it.
+-- =================================================================
+local RM_MAX_JUMP = 5     -- ReadMastery's MAX_NORMAL_PAGE_JUMP
+local RM_IDLE_S   = 120   -- ReadMastery's IDLE_TIMEOUT
+-- Skim filter: a new page left in under this long wasn't read (flipping
+-- ahead to find a spot). It doesn't count and stays unread, so reading
+-- it properly later still counts.
+local MIN_READ_MS = 4000
+local ok_ktime, ktime = pcall(require, "ui/time")
+local function nowMs()
+    if ok_ktime and type(ktime) == "table" and ktime.now and ktime.to_ms then
+        return ktime.to_ms(ktime.now())
+    end
+    return os.time() * 1000
+end
+
+local function guardPageTurn(instance, page)
+    local session = instance and instance.session
+    if not (session and session.is_active and session.last_page) then return false end
+    local cur = page
+    if not cur and instance.ui and instance.ui.document and instance.ui.document.getCurrentPage then
+        local ok, p = pcall(instance.ui.document.getCurrentPage, instance.ui.document)
+        if ok then cur = p end
+    end
+    local last = session.last_page
+    if type(cur) ~= "number" or type(last) ~= "number" then return false end
+    local seen = session._rm_seen
+    if not seen then
+        seen = { [last] = true }
+        session._rm_seen = seen
+    end
+    local t = nowMs()
+    local since = session._rm_turn_ms and (t - session._rm_turn_ms) or nil
+    if cur ~= last then session._rm_turn_ms = t end
+    if cur == last or math.abs(cur - last) > RM_MAX_JUMP then return false end
+
+    local new = 0
+    if cur > last then
+        for p = last + 1, cur do
+            if not seen[p] then new = new + 1 end
+        end
+    end
+    -- First turn of a sitting has no timing yet: trust it.
+    if new > 0 and (since == nil or since >= MIN_READ_MS) then
+        local upto = session._rm_reread_to
+        for p = last + 1, cur do
+            if not seen[p] and upto and p <= upto then
+                session._rm_reread_new = (session._rm_reread_new or 0) + 1
+            end
+            seen[p] = true
+        end
+        -- Hand ReadMastery a distance of just the new pages; it sets
+        -- last_page = cur itself afterwards.
+        session.last_page = cur - new
+        return false
+    end
+
+    -- Nothing new (or skimmed): keep ReadMastery's place and clock
+    -- moving without counting pages.
+    local now = os.time()
+    local prev = session.last_page_turn_time
+    if prev then
+        local dt = now - prev
+        if dt >= 0 and dt <= RM_IDLE_S then
+            session.active_reading_seconds = (session.active_reading_seconds or 0) + dt
+        else
+            -- idle, the same reset ReadMastery does
+            session.continuous_pages = 0
+            session.continuous_start_time = now
+        end
+    end
+    session.last_page_turn_time = now
+    session.last_page = cur
+    return true
+end
+
+-- Track Reading Location's "Set Current Page As Reading Location"
+-- (gesture/button) makes this page your new place: pages after it go
+-- back to unread, so reading forward from it pays again. Pages before
+-- it stay as they were. The skim filter still applies. Pages read
+-- again up to where you'd been count toward Second Look.
+local function forgetAheadOf(instance)
+    local session = instance and instance.session
+    if not (session and session.is_active) then return end
+    local here = session.last_page
+    local seen = session._rm_seen
+    if type(here) ~= "number" or not seen then return end
+    -- Where you'd read to before going back: Track Reading Location's
+    -- anchor (it hasn't moved yet, this runs first), or the furthest
+    -- page counted this sitting. Pages up to it are re-reads (Second
+    -- Look).
+    local furthest = 0
+    local ui = instance.ui
+    if ui and type(ui._rlt_anchor) == "number" then furthest = ui._rlt_anchor end
+    for p in pairs(seen) do
+        if p > furthest then furthest = p end
+        if p > here then seen[p] = nil end
+    end
+    if furthest > here and furthest > (session._rm_reread_to or 0) then
+        session._rm_reread_to = furthest
+    end
+    -- reading time on the anchor page starts now
+    session._rm_turn_ms = nowMs()
+end
+
 local function patchReadMastery(plugin)
   local ok, err = pcall(function()
     local MainMenu = require("ui/mainmenu")
@@ -633,6 +825,8 @@ local function patchReadMastery(plugin)
         genre_conquer = Icons.CROWN,
         author_explorer = Icons.CAT_DISCOVERY,
         final_stretch = Icons.ARROW_RIGHT,
+        reread_pages = Icons.PAGE,
+        return_visit = Icons.CALENDAR,
     }
 
     -- ---------------------------------------------------------------
@@ -920,6 +1114,10 @@ local function patchReadMastery(plugin)
         local function note(q) if q then table.insert(completed_list, q) end end
 
         if delta_pages > 0 then
+            local bid = Runtime.book_id
+            if bid and (Quest.finished_at[bid] or Runtime.sidecar_finished_t) then
+                Quest.since_finish[bid] = (Quest.since_finish[bid] or 0) + delta_pages
+            end
             note(addProgress(Quest.state.daily, findQuest(DAILY_ALWAYS, "d_pages"), delta_pages))
             note(addProgress(Quest.state.weekly, findQuest(WEEKLY_QUESTS, "w_marathon"), delta_pages))
 
@@ -946,6 +1144,12 @@ local function patchReadMastery(plugin)
             if bookMatches(w_nonfiction) then
                 note(addProgress(Quest.state.weekly, w_nonfiction, delta_pages))
             end
+        end
+
+        local reread = session._rm_reread_new
+        if reread and reread > 0 then
+            session._rm_reread_new = 0
+            note(addProgress(Quest.state.weekly, QUEST_BY_ID.w_second_look, reread))
         end
 
         if delta_secs > 0 then
@@ -999,6 +1203,54 @@ local function patchReadMastery(plugin)
     -- fresh (chaining to ReadMastery's handler too, in case a future
     -- version adds one).
     -- ---------------------------------------------------------------
+    -- A book already marked finished when you open it (KOReader's own
+    -- status, with the date it was set) - covers books finished before
+    -- Return Visit kept its own dates. Read at open, before reaching the
+    -- end again can change it.
+    local function sidecarFinishedAt(instance)
+        local ds = instance and instance.ui and instance.ui.doc_settings
+        if not ds then return nil end
+        local ok, summary = pcall(ds.readSetting, ds, "summary")
+        if not ok or type(summary) ~= "table" or summary.status ~= "complete" then return nil end
+        local y, m, d = tostring(summary.modified or ""):match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+        if not y then return nil end
+        return os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })
+    end
+
+    -- Return Visit: paid by how long since this book was last finished.
+    -- Return Visit: a book you'd finished before, re-read (half of it
+    -- or more since that finish) and finished again. Paid by how soon.
+    local function trackReturnVisit(instance, book_id, page_count, note)
+        local now = os.time()
+        local prev = Quest.finished_at[book_id] or Runtime.sidecar_finished_t
+        local read = Quest.since_finish[book_id] or 0
+        Quest.finished_at[book_id] = now
+        Quest.since_finish[book_id] = nil
+        Runtime.sidecar_finished_t = nil
+        if not prev then return end
+        if not page_count or page_count <= 0 then return end
+        local share = read / page_count
+        if share < RETURN_MIN_SHARE then return end
+        if share >= RETURN_FULL_SHARE then share = 1 end
+        local days = (now - prev) / 86400
+        for _, tier in ipairs(RETURN_TIERS) do
+            if not tier.days or days < tier.days then
+                local quest = QUEST_BY_ID.m_return
+                if addProgress(Quest.state.monthly, quest, 1) then
+                    -- this finish's own reward and title, the rest from the quest
+                    local xp = math.floor(tier.xp * share / 10 + 0.5) * 10
+                    local how = share >= 1 and "whole book"
+                        or (math.floor(share * 100 + 0.5) .. "% re-read")
+                    note(setmetatable({
+                        reward_xp = xp,
+                        title = quest.title .. " (" .. tier.label .. ", " .. how .. ")",
+                    }, { __index = quest }))
+                end
+                return
+            end
+        end
+    end
+
     local function trackEndOfBook(instance)
         if not Quest.enabled then return end
         local now_t = ensurePeriod()
@@ -1037,6 +1289,8 @@ local function patchReadMastery(plugin)
 
         local completed_list = {}
         local function note(q) if q then table.insert(completed_list, q) end end
+
+        trackReturnVisit(instance, book_id, page_count, note)
 
         local book_groups = Runtime.current_book_groups or {}
         local function bookMatchesAny(quest)
@@ -1195,7 +1449,7 @@ local function patchReadMastery(plugin)
         local status = done and "Complete!" or (tostring(shown_val) .. " / " .. tostring(quest.target))
         local text = tostring(quest.title) .. "\n\n" .. tostring(describeQuest(quest))
                      .. "\n\nProgress: " .. status
-                     .. "\nReward: +" .. tostring(quest.reward_xp) .. " XP"
+                     .. "\nReward: " .. (quest.reward_text or ("+" .. tostring(quest.reward_xp) .. " XP"))
 
         -- keep_menu_open on the row (below) means the list never closes
         -- on tap, so there's no race against a fullscreen menu tearing
@@ -1354,7 +1608,13 @@ local function patchReadMastery(plugin)
         if plugin.onPageUpdate then
             local orig_onPageUpdate = plugin.onPageUpdate
             plugin.onPageUpdate = function(instance, page)
-                local ret = orig_onPageUpdate(instance, page)
+                -- Page guard (always on, Quests toggle or not): only new
+                -- pages count. Returns true when it handled a re-read
+                -- turn itself and ReadMastery's own counting is skipped.
+                local ret
+                if not guardPageTurn(instance, page) then
+                    ret = orig_onPageUpdate(instance, page)
+                end
                 if Quest.enabled then
                     checkFinalStretchEligibility(instance, page)
                     checkNearCompletionNudges(instance, page)
@@ -1415,10 +1675,28 @@ local function patchReadMastery(plugin)
                 Runtime.last_active_seconds = (session and session.active_reading_seconds) or 0
                 Runtime.current_book_groups = detectBookGroups(instance)
                 Runtime.current_book_author = detectBookAuthor(instance)
+                do
+                    local path = session and session.book_path
+                    local ok_h, h = pcall(function() return path and util.partialMD5(path) end)
+                    Runtime.book_id = (ok_h and h) or path
+                end
                 Runtime.final_stretch_eligible = false
                 Runtime.nudge_80_sent = false
                 Runtime.nudge_90_sent = false
+                Runtime.sidecar_finished_t = sidecarFinishedAt(instance)
                 return ret
+            end
+        end
+
+        do
+            -- The gesture is sent to ReaderUI, which hands it to its
+            -- plugins first, so this runs just before Track Reading
+            -- Location moves its anchor. Returns nothing, so the event
+            -- carries on to it untouched.
+            local orig_onSetLoc = plugin.onSetCurrentPageAsReadingLocation
+            plugin.onSetCurrentPageAsReadingLocation = function(instance, ...)
+                forgetAheadOf(instance)
+                if orig_onSetLoc then return orig_onSetLoc(instance, ...) end
             end
         end
 
