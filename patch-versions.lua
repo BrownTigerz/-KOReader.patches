@@ -30,7 +30,7 @@ return {
     ["2-shelfsync-tweaks.lua"] = "1.11.13",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.14.3",
     ["2-shortcutstoolbar-quick-shelf.lua"] = "1.2.1",
-    ["2-simpleui-tweaks.lua"] = "2.12.0",
+    ["2-simpleui-tweaks.lua"] = "2.12.1",
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.6",
     ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.2.1",
