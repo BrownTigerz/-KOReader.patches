@@ -8,6 +8,7 @@ Temporary troubleshooting companions for the main patches. Each `2-zz-*-diagnost
 - **Self-limiting:** each diagnostic logs for its own window after every KOReader start (15–30 minutes for most; ReadMastery and Track Reading Location run a 5-day watch), then goes quiet. Each has a hard expiry counted from first install (24 hours to 10 days — 10 days for those two long-watch ones), after which it's one line per start, then nothing. Re-copy the file for a fresh window. (The Debugging Menu's "Delete all logs" also restarts the windows.)
 - **State files:** `<name>-diagnostics.state` in the KOReader data dir holds the first-run stamp the expiry is counted from.
 - **Load order:** the `zz` in the name makes each diagnostic load after its main patch.
+- **Shared perf core:** diagnostics that include it share one copy of KOReader's timer loop and one watch on screen updates, sleep, slow taps and warnings (the first one loaded installs it, the rest plug in, so they never replace each other's). Each reports only its own patch's files: timers timed (slow ones named), flashes and who asked, timers left waiting at sleep, and a once-a-minute perf line with Lua memory. No timers of its own. In: SimpleUI, ShelfSync Tweaks, Network Tweaks (more to follow).
 - The debugging diagnostic (`2-zz-debugging-diagnostics.lua`) keeps its own separate log, because it watches the Debugging Menu itself.
 
 ## Install
