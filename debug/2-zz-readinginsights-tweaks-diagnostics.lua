@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.0.1
+Version 2.1.1
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -26,6 +26,11 @@ What it records:
   Memory    Lua heap + process RSS at the start and end of each session, so a
             leak shows as steady growth.
   Warnings  every "RI tweaks:" warning the main patch logs.
+  Perf      (shared perf core) for the whole 48 hours: a Tweaks or Reading
+            Insights timer that holds the screen 80 ms+, a flash either
+            asks for, and their timers still waiting when the device sleeps
+            each open a session; inside a session, a once-a-minute perf
+            line (their timers, screen updates, flashes, Lua memory).
 
 How to use:
   1. Put this file in koreader/patches/ next to 2-readinginsights-tweaks.lua
@@ -40,7 +45,8 @@ Safety nets in case you forget to delete it:
   - A session only logs while you're using these popups: it starts when one
     opens (or at suspend), ends 2 minutes after the last activity, and never
     runs longer than 10 minutes. Outside a session each hook is one flag check.
-  - It expires 48 hours after it first loaded: from then on it installs no
+  - It expires 48 hours after this version first loaded (a new version
+    starts a new 48 hours): from then on it installs no
     hooks at all, writes one line to the log per start, and shows a one-time
     "delete me" notice at startup.
   - The shared log rotates at 2 MB (older part kept as diagnostics.log.old).
@@ -80,6 +86,20 @@ Changelog
                      lines), and the invisible text-direction marks around
                      file paths are removed. Header reads "Version" like the
                      other diagnostics.
+  2.1.0  2026-10-23  Shared perf core (the same block as the other
+                     diagnostics): slow timers, flashes and timers left
+                     waiting at sleep from Reading Insights Tweaks and
+                     Reading Insights, plus a once-a-minute perf line while
+                     a session is open. The 48 hours now start per version
+                     (kept in readinginsights-tweaks-diagnostics.state; the
+                     old setting is removed), so an update isn't already
+                     expired when it arrives.
+  2.1.1  2026-10-23  "db open ... (open now: N)" only counts connections whose
+                     close it can actually see. On this KOReader a connection
+                     doesn't take the close watcher, so the count only ever
+                     went up (52 after a few minutes) and looked like a leak.
+                     Those opens now say "(closes can't be watched here)" and
+                     the suspend line says so instead of a number.
 ]]
 
 local DataStorage = require("datastorage")
@@ -90,7 +110,7 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "2.0.1"
+local DIAG_VERSION = "2.1.1"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file
@@ -131,7 +151,8 @@ local SESSION_MAX_S = 600   -- and never runs longer than this
 local EXPIRE_H = 48         -- the whole patch goes inert this long after first load
 local HOOK_NAME = "ri_tweaks_hook"
 local SETTINGS_KEY = "ri_cover_calendar"
-local FIRST_LOAD_KEY = "ri_tweaks_diag_first_load"
+local FIRST_LOAD_KEY = "ri_tweaks_diag_first_load" -- before 2.1.0; removed on load
+local STATE = DataStorage:getDataDir() .. "/readinginsights-tweaks-diagnostics.state"
 
 -- ---- Shared notification contract v1 --------------------------------------------------------
 -- Status notes resolve style in priority order: Network Tweaks' note, then
@@ -165,15 +186,29 @@ local function isCallable(v)
 end
 
 -- ---- Auto-expiry ---------------------------------------------------------------------------
-local first_load = G_reader_settings:readSetting(FIRST_LOAD_KEY)
-if type(first_load) ~= "number" then
-    first_load = os.time()
-    G_reader_settings:saveSetting(FIRST_LOAD_KEY, first_load)
+-- First load of THIS version, in a state file: version on line 1, time on
+-- line 2. Another version (or no file) starts a new 48 hours.
+pcall(function()
+    if G_reader_settings:readSetting(FIRST_LOAD_KEY) ~= nil then G_reader_settings:delSetting(FIRST_LOAD_KEY) end
+end)
+local first_load
+do
+    local f = io.open(STATE, "r")
+    if f then
+        local v, t = f:read("*l"), tonumber(f:read("*l") or "")
+        f:close()
+        if v == DIAG_VERSION and t and t <= os.time() then first_load = t end
+    end
+    if not first_load then
+        first_load = os.time()
+        local w = io.open(STATE, "w")
+        if w then w:write(DIAG_VERSION, "\n", first_load, "\n") w:close() end
+    end
 end
 if os.time() - first_load > EXPIRE_H * 3600 then
     -- Expired: one line in the log per start, then no hooks, no logging.
     pcall(function()
-        shared_log("ri-tweaks diagnostics expired; delete 2-zz-readinginsights-tweaks-diagnostics.lua")
+        shared_log("ri-tweaks diagnostics %s expired; delete 2-zz-readinginsights-tweaks-diagnostics.lua", DIAG_VERSION)
     end)
     UIManager:nextTick(function()
         if not shared_note("RI Tweaks diagnostics expired. Delete 2-zz-readinginsights-tweaks-diagnostics.lua") then
@@ -512,17 +547,17 @@ end
 -- ---- Databases -----------------------------------------------------------------------------
 local ok_sq, SQ3 = pcall(require, "lua-ljsqlite3/init")
 local open_conns = 0
+local untracked = 0 -- opened, but their close couldn't be watched
 if ok_sq and type(SQ3) == "table" and type(SQ3.open) == "function" then
     local orig_open = SQ3.open
     SQ3.open = function(path, ...)
         local conn, err = orig_open(path, ...)
         if active() and type(path) == "string"
            and (path:find("statistics.sqlite3", 1, true) or path:find("bookinfo_cache", 1, true)) then
-            open_conns = open_conns + 1
             local name = path:match("[^/]+$")
-            log("db open %s -> %s (open now: %d)", name, conn and "ok" or ("FAILED " .. q(err)), open_conns)
+            local watched = false
             if conn then
-                pcall(function()
+                watched = pcall(function()
                     local orig_c, orig_e = conn.close, conn.exec
                     conn.close = function(c, ...)
                         open_conns = math.max(0, open_conns - 1)
@@ -537,6 +572,15 @@ if ok_sq and type(SQ3) == "table" and type(SQ3.open) == "function" then
                         return unpack(r)
                     end
                 end)
+            end
+            if watched then
+                open_conns = open_conns + 1
+                log("db open %s -> ok (open now: %d)", name, open_conns)
+            elseif conn then
+                untracked = untracked + 1
+                log("db open %s -> ok (closes can't be watched here)", name)
+            else
+                log("db open %s -> FAILED %s", name, q(err))
             end
         end
         return conn, err
@@ -562,7 +606,11 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
                     (self._screensaver_widgets or self._screensaver_widget) and "shown" or "not shown")
                 local pend = pendingTasks()
                 log("timers pending at suspend: %s", #pend > 0 and table.concat(pend, ", ") or "none")
-                log("db connections open at suspend: %d%s", open_conns, open_conns > 0 and "  <-- LEFT OPEN" or "")
+                if untracked > 0 then
+                    log("db connections open at suspend: unknown (%d opened since start; their closes can't be watched here)", untracked)
+                else
+                    log("db connections open at suspend: %d%s", open_conns, open_conns > 0 and "  <-- LEFT OPEN" or "")
+                end
                 suspended_at = os.time()
                 endSession("suspend")
                 return unpack(r)
@@ -611,6 +659,296 @@ if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFu
         end
     end)
 end
+
+-- --------------------------------------------------------------------------
+-- Shared perf core v1 (the same block in every diagnostic that uses it)
+-- The first diagnostic to load installs it; the others plug into it. One
+-- copy of KOReader's timer loop with each timer timed, one watch on screen
+-- updates, sleep, input events and warnings, handed to whichever
+-- diagnostics are logging right now. With none logging, every hook passes
+-- straight through. No timers of its own; it's installed on the first pass
+-- of the main loop, after every patch, so its hooks are the outermost.
+-- --------------------------------------------------------------------------
+local DiagCore
+do
+    local CORE_VERSION = 1
+    DiagCore = package.loaded["diag_perf_core"]
+    if type(DiagCore) ~= "table" then
+        DiagCore = { version = CORE_VERSION, clients = {} }
+        package.loaded["diag_perf_core"] = DiagCore
+        local UIM = require("ui/uimanager")
+        local ok_time, ktime = pcall(require, "ui/time")
+        local function nowMs()
+            if ok_time and type(ktime) == "table" and ktime.now and ktime.to_ms then
+                return ktime.to_ms(ktime.now())
+            end
+            return math.floor(os.clock() * 1000)
+        end
+        DiagCore.now_ms = nowMs
+        local function pk(...) return { n = select("#", ...), ... } end
+
+        -- "plugins/x.koplugin/main.lua:12" for a function or a debug.getinfo
+        local function short(src, line)
+            src = tostring(src or "?"):gsub("^@", ""):gsub("^%./", ""):gsub("^.-plugins/", "plugins/")
+                :gsub("^.-patches/", "patches/")
+            return line and (src .. ":" .. tostring(line)) or src
+        end
+        function DiagCore.where(fn)
+            if type(fn) ~= "function" then return tostring(fn) end
+            local info = debug.getinfo(fn, "S")
+            if not info then return "?" end
+            return short(info.source, info.linedefined)
+        end
+        local function caller(level)
+            local info = debug.getinfo(level + 1, "Sl")
+            if not info then return "?" end
+            return short(info.source, info.currentline)
+        end
+
+        local function anyOn()
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then return true end
+            end
+            return false
+        end
+        local function emit(kind, ...)
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then pcall(c.handle, kind, ...) end
+            end
+        end
+
+        local function install()
+            -- Timers: KOReader's _checkTasks loop, each task timed.
+            local orig_tasks = UIM._checkTasks
+            if ok_time and type(orig_tasks) == "function" and type(UIM._task_queue) == "table" then
+                UIM._checkTasks = function(self)
+                    if not anyOn() then return orig_tasks(self) end
+                    self._now = ktime.now()
+                    local wait_until = nil
+                    self._task_queue_dirty = false
+                    while self._task_queue[1] do
+                        local task_time = self._task_queue[#self._task_queue].time
+                        if task_time <= self._now then
+                            local task = table.remove(self._task_queue)
+                            local t0 = nowMs()
+                            if type(task.args) == "table" then
+                                task.action(unpack(task.args, 1, task.args.n))
+                            else
+                                task.action()
+                            end
+                            emit("timer", task.action, nowMs() - t0)
+                        else
+                            wait_until = task_time
+                            break
+                        end
+                    end
+                    return wait_until, self._now
+                end
+            end
+
+            -- Screen updates: who asked, and which kind (a flash or not).
+            local orig_sd = UIM.setDirty
+            if type(orig_sd) == "function" then
+                UIM.setDirty = function(self, widget, refresh, ...)
+                    if not anyOn() then return orig_sd(self, widget, refresh, ...) end
+                    local src = caller(2)
+                    if type(refresh) == "function" then
+                        local f = refresh
+                        refresh = function(...)
+                            local r = pk(f(...))
+                            emit("dirty", src, r[1])
+                            return unpack(r, 1, r.n)
+                        end
+                    else
+                        emit("dirty", src, refresh)
+                    end
+                    return orig_sd(self, widget, refresh, ...)
+                end
+            end
+
+            -- Input events: slow ones (taps, swipes) are reported.
+            local orig_send = UIM.sendEvent
+            if type(orig_send) == "function" then
+                UIM.sendEvent = function(self, event, ...)
+                    if not anyOn() then return orig_send(self, event, ...) end
+                    local t0 = nowMs()
+                    local res = pk(orig_send(self, event, ...))
+                    local dt = nowMs() - t0
+                    if dt >= 15 and type(event) == "table" then
+                        local h = tostring(event.handler or "?"):gsub("^on", "")
+                        local ges = h == "Gesture" and event.args and event.args[1]
+                        if type(ges) == "table" and ges.ges then h = "Gesture " .. tostring(ges.ges) end
+                        emit("event", h, dt)
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Sleep: the timers still waiting after every plugin handled it.
+            local orig_bc = UIM.broadcastEvent
+            if type(orig_bc) == "function" then
+                UIM.broadcastEvent = function(self, event, ...)
+                    local h = type(event) == "table" and event.handler
+                    if not (anyOn() and (h == "onSuspend" or h == "onResume")) then
+                        return orig_bc(self, event, ...)
+                    end
+                    local res = pk(orig_bc(self, event, ...))
+                    if h == "onSuspend" then
+                        local actions = {}
+                        for _i, task in ipairs(self._task_queue or {}) do actions[#actions + 1] = task.action end
+                        emit("sleep", actions)
+                    else
+                        emit("wake")
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Warnings and errors, with the file that wrote them.
+            local ok_l, logger = pcall(require, "logger")
+            if ok_l and type(logger) == "table" then
+                for _i, lvl in ipairs({ "warn", "err" }) do
+                    local orig = logger[lvl]
+                    if type(orig) == "function" then
+                        logger[lvl] = function(...)
+                            if anyOn() then
+                                local src = caller(2)
+                                local parts = {}
+                                for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+                                local msg = table.concat(parts, " ")
+                                if #msg > 300 then msg = msg:sub(1, 300) .. "..." end
+                                emit("warn", lvl, src, msg)
+                            end
+                            return orig(...)
+                        end
+                    end
+                end
+            end
+        end
+        UIM:nextTick(function() pcall(install) end)
+    end
+
+    function DiagCore.register(client)
+        table.insert(DiagCore.clients, client)
+    end
+
+    -- A standard client: everything the core sees that comes from the
+    -- patch's own files (o.targets: parts of a path, e.g. "2-network-tweaks.lua").
+    --   o.name     label in the lines ("ShelfSync Tweaks")
+    --   o.log, o.on  the diagnostic's own log and "logging now?" functions
+    --   o.errors   also log the patch's warnings/errors (when the
+    --              diagnostic doesn't catch them itself)
+    --   o.busy     optional: while it returns true, a timer of anyone's that
+    --              holds the screen 250 ms+ or a tap/swipe 1 s+ is logged
+    --              (replaces a freeze heartbeat; the patch was busy then, it
+    --              isn't necessarily the cause)
+    --   o.extra    optional: a few words added to the once-a-minute line
+    --   o.summary  optional: where the once-a-minute line goes (default
+    --              o.log; a diagnostic that only writes inside its own
+    --              windows passes a function that drops it otherwise)
+    function DiagCore.client(o)
+        local SLOW_MS = o.slow_ms or 80
+        local BUSY_TIMER_MS, BUSY_EVENT_MS = o.busy_timer_ms or 250, o.busy_event_ms or 1000
+        local function mine(src)
+            src = tostring(src or "")
+            for _i, t in ipairs(o.targets) do
+                if src:find(t, 1, true) then return true end
+            end
+            return false
+        end
+        local st = { since = os.time(), runs = 0, ms = 0, max = 0, max_src = nil, dirty = 0, flashes = 0 }
+        local function summary(force)
+            if not force and os.time() - st.since < 60 then return end
+            if st.runs > 0 or st.dirty > 0 then
+                local extra = o.extra and o.extra() or nil
+                ;(o.summary or o.log)("perf (last %d s): %s timers ran %d times, %d ms in all, slowest %d ms%s | screen updates asked %d, flashes %d | Lua memory %.1f MB%s",
+                    os.time() - st.since, o.name, st.runs, st.ms, st.max,
+                    st.max_src and (" (" .. st.max_src .. ")") or "", st.dirty, st.flashes,
+                    collectgarbage("count") / 1024, extra and (" | " .. extra) or "")
+            end
+            st.since, st.runs, st.ms, st.max, st.max_src, st.dirty, st.flashes = os.time(), 0, 0, 0, nil, 0, 0
+        end
+        local FLASH = { flashui = true, full = true, flashpartial = true }
+        local client = { on = o.on }
+        function client.handle(kind, a, b, c)
+            if kind == "timer" then
+                local src = DiagCore.where(a)
+                if mine(src) then
+                    st.runs, st.ms = st.runs + 1, st.ms + b
+                    if b > st.max then st.max, st.max_src = b, src end
+                    if b >= SLOW_MS then o.log("slow: %s timer %s took %d ms", o.name, src, b) end
+                elseif o.busy and b >= BUSY_TIMER_MS and o.busy() then
+                    o.log("screen held %d ms by timer %s while %s was busy", b, src, o.name)
+                end
+            elseif kind == "dirty" then
+                if mine(a) then
+                    st.dirty = st.dirty + 1
+                    if FLASH[b] then
+                        st.flashes = st.flashes + 1
+                        o.log("FLASH %s asked by %s", tostring(b), a)
+                    end
+                end
+            elseif kind == "event" then
+                if o.busy and b >= BUSY_EVENT_MS and o.busy() then
+                    o.log("screen held %d ms by a %s while %s was busy", b, a, o.name)
+                end
+            elseif kind == "sleep" then
+                summary(true)
+                local by, n = {}, 0
+                for _i, fn in ipairs(a or {}) do
+                    local src = DiagCore.where(fn)
+                    if mine(src) then by[src] = (by[src] or 0) + 1; n = n + 1 end
+                end
+                if n == 0 then
+                    o.log("going to sleep: no %s timers left waiting", o.name)
+                else
+                    local bits = {}
+                    for src, k in pairs(by) do bits[#bits + 1] = k .. " x " .. src end
+                    table.sort(bits)
+                    o.log("going to sleep: %d %s timers still waiting (!): %s", n, o.name, table.concat(bits, ", "))
+                end
+                return
+            elseif kind == "warn" then
+                -- a = level, b = the file that wrote it, c = the message
+                if o.errors and mine(b) then
+                    o.log("%s from %s: %s", a == "err" and "ERROR" or "warning", b, tostring(c))
+                end
+            end
+            summary(false)
+        end
+        DiagCore.register(client)
+        return client
+    end
+end
+
+-- Reading Insights Tweaks' own file and the Reading Insights plugin. A
+-- problem (slow timer, flash, timer left waiting at sleep) opens a session
+-- like any other activity; "nothing left at sleep" and the perf line are
+-- only written inside one.
+local function perfLine(fmt, ...)
+    local ok, line = pcall(string.format, fmt, ...)
+    return ok and line or tostring(fmt)
+end
+DiagCore.client({
+    name = "Reading Insights (Tweaks)",
+    targets = { "2-readinginsights-tweaks.lua", "readinginsights.koplugin/" },
+    on = function() return true end, -- expired: this file returned before here
+    log = function(fmt, ...)
+        local line = perfLine(fmt, ...)
+        if line:find("^going to sleep: no ") then
+            if active() then log("%s", line) end
+        else
+            touch("perf")
+            log("%s", line)
+        end
+    end,
+    summary = function(fmt, ...)
+        if active() then log("%s", perfLine(fmt, ...)) end
+    end,
+    errors = false, -- the main patch's warnings are caught above
+})
 
 -- ---- Go ------------------------------------------------------------------------------------
 local ok_snap, snap_err = pcall(snapshot)

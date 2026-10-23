@@ -1,6 +1,6 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 2.0.0
+    Version: 2.1.0
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin) and KOReader's Statistics calendar.
     Each one is on its own toggle.
@@ -16,6 +16,9 @@
                                   covers instead of title bars, time badge shaded
                                   by your daily goal. Tap a day still opens its
                                   day view.
+      5. Close on sleep           Reading Insights (and anything it opened) closes
+                                  when the device sleeps, so waking shows your
+                                  home screen or book, not the stats. On by default.
 
     Streak calendar covers, tap-a-day and the sleep card were removed in 2.0.0:
     Reading Insights 8.1+ does all three itself (streak calendar covers with
@@ -47,7 +50,9 @@
     only when you open one of these views (a few small read-only queries + covers
     already cached by CoverBrowser). Scaled covers are kept for the session (max
     150). The only timer is a one-shot 30s retry window after a missing cover was
-    sent for extraction.
+    sent for extraction. One quick check each time a window opens (to know
+    Reading Insights' own: Simple UI's home mark in 2.0.1, closing on sleep in
+    2.1.0); at sleep, Reading Insights' windows are closed, nothing else runs.
 
     Versioning
       1.0.x  fixes, e.g. adapting to a Reading Insights or KOReader change
@@ -91,6 +96,22 @@
                          start. Nothing hooks suspend/resume any more. Kept: book
                          calendar header, heatmap goal shading, record covers,
                          Statistics calendar covers, daily goal.
+      2.0.1  2026-10-23  Simple UI: closing Reading Insights after one of its
+                         full-screen pages (a day's book list, Achievements, a
+                         year's books) went to the stock library instead of the
+                         home screen. Simple UI closes its home under a
+                         full-screen page and only brings it back if nothing
+                         else is open when the page closes, and Reading
+                         Insights' popup still was. Reading Insights' own
+                         full-screen pages now keep Simple UI's home open under
+                         them (Simple UI's own _sui_keep_homescreen flag), so
+                         closing them and then Reading Insights lands on home.
+      2.1.0  2026-10-23  New toggle, Close Reading Insights On Sleep (on by
+                         default): Reading Insights and everything it opened
+                         (its popup, day lists, Achievements...) close when the
+                         device sleeps, so waking shows the home screen or the
+                         book you were reading. Reading Insights' own sleep
+                         screen isn't affected (it's drawn after they close).
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -122,7 +143,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "2.0.0" -- the only number to change when updating
+local PATCH_VERSION = "2.1.0" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -134,6 +155,7 @@ local DEFAULTS = {
     heatmap_goal = true,   -- 2. heatmap goal shading
     records = true,        -- 3. record covers
     stats_calendar = true, -- 4. built-in Statistics calendar covers
+    close_on_sleep = true, -- 5. close Reading Insights' windows on sleep
     goal_min = 30,
 }
 
@@ -1085,6 +1107,7 @@ local function menuItem()
             toggle(_("Heatmap: Shade By Daily Goal"), "heatmap_goal"),
             toggle(_("Records: Book Covers"), "records"),
             toggle(_("Statistics Calendar: Book Covers"), "stats_calendar"),
+            toggle(_("Close Reading Insights On Sleep"), "close_on_sleep"),
             {
                 text_func = function() return T(_("Daily Goal: %1"), fmtDuration(goalSecs())) end,
                 keep_menu_open = true,
@@ -1127,3 +1150,81 @@ local function hookMenu(mod)
 end
 hookMenu("apps/filemanager/filemanagermenu")
 hookMenu("apps/reader/modules/readermenu")
+
+-- ---- Reading Insights' windows: Simple UI's home, and closing on sleep -------------------
+-- Windows Reading Insights (or this patch) opens are noted as they open:
+--  * Simple UI closes its home screen when a full-screen window opens over it,
+--    and brings it back when that window closes, but only if nothing else is
+--    open then. Reading Insights opens its full-screen pages (a day's books,
+--    Achievements, a year's books) from its own popup, which is still open
+--    when the page closes: home wasn't brought back, and closing the popup
+--    left the stock library. Simple UI skips that for windows marked
+--    _sui_keep_homescreen, so Reading Insights' full-screen windows get the
+--    mark (2.0.1).
+--  * Close On Sleep: when the device sleeps, every one of them still open is
+--    closed, so waking shows home or the book (2.1.0).
+-- Installed on the first UI tick, after Simple UI has wrapped UIManager.show.
+local ri_windows = setmetatable({}, { __mode = "k" }) -- open windows Reading Insights opened
+local in_suspend = false
+
+local function fromReadingInsights()
+    for level = 3, 8 do -- the caller, past a few other wrappers of UIManager.show
+        local info = debug.getinfo(level, "S")
+        if not info then return false end
+        local src = info.source or ""
+        if src:find("readinginsights.koplugin", 1, true) or src:find("readinginsights-tweaks.lua", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+UIManager:nextTick(function()
+    -- Simple UI 2.7 (infra/sui_patches) and 3.0 (also infra/sui_window_hooks)
+    -- both honour the mark.
+    local sui = package.loaded["infra/sui_patches"] or package.loaded["infra/sui_window_hooks"]
+    local orig_show = UIManager.show
+    UIManager.show = function(self, widget, ...)
+        -- not Reading Insights' own sleep screen, shown while it handles sleep
+        if type(widget) == "table" and not in_suspend and not Device.screen_saver_mode
+                and widget.name ~= "homescreen" and fromReadingInsights() then
+            ri_windows[widget] = true
+            if sui and widget.covers_fullscreen and not widget._sui_keep_homescreen then
+                widget._sui_keep_homescreen = true
+            end
+        end
+        return orig_show(self, widget, ...)
+    end
+end)
+
+-- Closes every window Reading Insights opened that is still open, top first.
+local function closeRIWindows()
+    local open = {}
+    local stack = UIManager._window_stack or {}
+    for i = #stack, 1, -1 do
+        local w = stack[i].widget
+        if w and ri_windows[w] then open[#open + 1] = w end
+    end
+    for _i, w in ipairs(open) do
+        ri_windows[w] = nil
+        pcall(UIManager.close, UIManager, w)
+    end
+    if #open > 0 then logger.info(TAG, "closed", #open, "Reading Insights window(s) on sleep") end
+end
+
+if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFunc) == "function" then
+    userpatch.registerPatchPluginFunc("readinginsights", function(plugin)
+        if plugin._ri_tweaks_sleep then return end
+        plugin._ri_tweaks_sleep = true
+        local orig = plugin.onSuspend -- a function or KOReader's callable handler table
+        plugin.onSuspend = function(self, ...)
+            if getSetting("close_on_sleep") then pcall(closeRIWindows) end
+            if not orig then return end
+            in_suspend = true
+            local r = { pcall(orig, self, ...) }
+            in_suspend = false
+            if not r[1] then error(r[2], 0) end
+            return unpack(r, 2)
+        end
+    end)
+end
