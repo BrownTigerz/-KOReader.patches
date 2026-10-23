@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.10.2
+Version: 1.10.3
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -80,6 +80,18 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.10.3 Network list connect: the IP address is fetched in the background
+         on Kobo (obtain-ip.sh took ~4 s inside the tap, screen frozen 5-7 s
+         with no cancel). "Obtaining IP address… · tap to cancel" now
+         cancels; no answer in 30 s shows "Couldn't get an IP address".
+         Going to sleep while the network list is still scanning stops the
+         scan: before, the radio stayed on through sleep and the list
+         appeared over the sleep screen (or "Wi-Fi failed" after waking).
+         Turning Wi-Fi off mid-scan (KOReader does it first when Wi-Fi is
+         on and the device sleeps) stops the scan first: it used to wait
+         10 s for the stopped wpa_supplicant, so sleep took 10.9 s.
+         Cancelling a background connect also stops its 2 s watch timer.
+         Found by the Network Tweaks diagnostics' perf core.
   1.10.2 Wi-Fi off / reconnects skip the "is a restore still running?"
          process check (a shell fork) unless one was started in the last
          45s, so the usual path costs nothing extra.
@@ -129,7 +141,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.10.2"
+local PATCH_VERSION = "1.10.3"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -755,7 +767,10 @@ local function currentSSID()
     return ok and type(nw) == "table" and nw.ssid or nil
 end
 
+local watch -- below; its timer stops with the attempt
+
 local function endQuiet()
+    if watch then UIManager:unschedule(watch) end
     if quiet and quiet.banner then
         UIManager:close(quiet.banner)
         quiet.banner = nil
@@ -795,7 +810,7 @@ local function failureNote()
     UIManager:show(fail)
 end
 
-local function watch(attempt)
+watch = function(attempt)
     if quiet ~= attempt then return end
     if not NetworkMgr.pending_connection then
         -- Finished outside our callback (e.g. KOReader's blocking goOnlineToRun).
@@ -930,7 +945,14 @@ local function killConnectScripts()
         .. " pkill -TERM -f '[o]btain-ip.sh' 2>/dev/null")
 end
 
+-- The network list scan running now ({ cancel = fn(radio) }, set further
+-- down). Anything turning Wi-Fi off stops it first, while wpa_supplicant is
+-- still there to answer: once it's gone, the scan's goodbye to it waits
+-- 10 s for a reply (going to sleep took 10.9 s).
+local list_scan
+
 NetworkMgr.disableWifi = function(self, cb, interactive, ...)
+    if list_scan then pcall(list_scan.cancel, "none") end
     if interactive and btBringingUpWifi() then
         -- kobo.koplugin is bringing Bluetooth up through the Wi-Fi chip:
         -- powering down now could leave Bluetooth half-started. Stop any
@@ -1514,13 +1536,21 @@ local startScan, showPicker -- forward declarations
 
 -- Done with the list. If the radio was only brought up for it and nothing
 -- got connected, Wi-Fi goes back off.
-local function finishPicker(state)
+-- radio: nil = power down on the next tick; "now" = right away (going to
+-- sleep: KOReader doesn't count a list-only radio as Wi-Fi on, so its own
+-- sleep handling wouldn't switch it off); "none" = Wi-Fi is being turned
+-- off by the caller already.
+local function finishPicker(state, radio)
     if state.finished then return end
     state.finished = true
     if state.radio_only and not state.picked then
         logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
         os.execute("pkill -TERM -f '[e]nable-wifi.sh' 2>/dev/null")
-        UIManager:nextTick(function() NetworkMgr:disableWifi(nil, true) end)
+        if radio == "now" then
+            pcall(NetworkMgr.disableWifi, NetworkMgr, nil, true)
+        elseif radio ~= "none" then
+            UIManager:nextTick(function() NetworkMgr:disableWifi(nil, true) end)
+        end
     elseif state.disconnected and not state.picked and not NetworkMgr:isConnected() then
         -- Disconnected here and didn't pick another: don't leave the radio
         -- on with nothing connected (the toolbar would show Wi-Fi as on).
@@ -1533,6 +1563,73 @@ local function closePicker(state)
     local d = state.dlg
     state.dlg = nil
     if d then UIManager:close(d) end
+end
+
+-- Getting an IP address in the background (Kobo). The network list's
+-- connect used to run obtain-ip.sh inside the tap: ~4 s with the screen
+-- frozen and nothing to cancel. Now the script runs in the background
+-- (like enable-wifi.sh for the scan; cancelling a connect already kills it)
+-- and a check every 0.5 s picks up the address.
+local IP_TICK_S = 0.5
+local IP_MAX_S = 30 -- obtain-ip.sh normally answers in ~4 s
+local list_ip -- the attempt running now: { stop = fn }
+
+local function asyncIPSupported()
+    return Device:isKobo() and lfs.attributes("./obtain-ip.sh", "mode") == "file"
+end
+
+local connectedTo -- below connectTo
+
+local function obtainIPAsync(state, nw)
+    local attempt = { started = os.time() }
+    local banner, tick
+    local function stop()
+        if list_ip ~= attempt then return false end
+        list_ip = nil
+        UIManager:unschedule(tick)
+        if banner then UIManager:close(banner); banner = nil end
+        NetworkMgr.pending_connection = false
+        return true
+    end
+    attempt.stop = stop
+    local function killScript()
+        os.execute("pkill -TERM -f '[o]btain-ip.sh' 2>/dev/null")
+    end
+    local function cancel()
+        if not stop() then return end
+        logger.info("network-tweaks: getting an IP address cancelled")
+        killScript()
+        pcall(NetworkMgr.disconnectNetwork, NetworkMgr, nw)
+        pcall(NetworkMgr.releaseIP, NetworkMgr)
+        note(_("Wi-Fi connection cancelled"), _("Wi-Fi cancelled"))
+        stateChanged()
+        finishPicker(state)
+    end
+    tick = function()
+        if list_ip ~= attempt then return end
+        -- Wi-Fi switched off meanwhile (toolbar, sleep): nothing to wait for
+        if not NetworkMgr:isWifiOn() then stop() return end
+        local ok_c, connected = pcall(NetworkMgr.isConnected, NetworkMgr)
+        if ok_c and connected then
+            stop()
+            return connectedTo(state, nw)
+        end
+        if os.difftime(os.time(), attempt.started) >= IP_MAX_S then
+            stop()
+            killScript()
+            logger.warn("network-tweaks: couldn't get an IP address: no answer in", IP_MAX_S, "s")
+            note(_("Couldn't get an IP address"), _("No IP address"), 3)
+            return showPicker(state)
+        end
+        UIManager:scheduleIn(IP_TICK_S, tick)
+    end
+    if list_ip then list_ip.stop() end
+    list_ip = attempt
+    -- Connecting: Wi-Fi off / sleep meanwhile kills the script (disableWifi above)
+    NetworkMgr.pending_connection = true
+    banner = progress(_("Obtaining IP address…"), cancel)
+    os.execute("./obtain-ip.sh &")
+    UIManager:scheduleIn(IP_TICK_S, tick)
 end
 
 local function connectTo(state, nw)
@@ -1568,6 +1665,9 @@ local function connectTo(state, nw)
         return showPicker(state)
     end
 
+    -- Kobo: get the address in the background (obtain-ip.sh takes ~4 s;
+    -- run here it held the screen that long, with no way to cancel).
+    if asyncIPSupported() then return obtainIPAsync(state, nw) end
     local info = progress(_("Obtaining IP address…"))
     local ok_ip, ip_err = pcall(NetworkMgr.obtainIP, NetworkMgr)
     UIManager:close(info)
@@ -1576,6 +1676,10 @@ local function connectTo(state, nw)
         note(_("Couldn't get an IP address"), _("No IP address"), 3)
         return showPicker(state)
     end
+    return connectedTo(state, nw)
+end
+
+connectedTo = function(state, nw)
     nw.connected = true
     state.picked = true
     logger.info("network-tweaks: connected to", nw.ssid, "from the network list")
@@ -1775,15 +1879,30 @@ startScan = function(state)
     local cancel_step
     local done = false
     local info
+    local scan_entry = {}
     info = progress(_("Scanning for networks…"), function()
         if done then return end
         done = true
+        if list_scan == scan_entry then list_scan = nil end
         if cancel_step then cancel_step() end
         -- Banner / corner note stay until closed (a Normal popup closes
         -- itself when tapped).
         if info and info.toast then UIManager:close(info) end
         finishPicker(state)
     end)
+    -- Going to sleep mid-scan: stop it (radio power-up, scan checks),
+    -- close the note, drop the list (radio back off if only up for it).
+    -- Otherwise the list showed up over the sleep screen with the radio on.
+    scan_entry.cancel = function(radio)
+        if done then return end
+        done = true
+        list_scan = nil
+        if cancel_step then cancel_step() end
+        if info then UIManager:close(info) end
+        logger.info("network-tweaks: network list scan stopped (sleep or Wi-Fi off)")
+        finishPicker(state, radio or "now")
+    end
+    list_scan = scan_entry
 
     local function scan()
         if done then return end
@@ -1791,6 +1910,7 @@ startScan = function(state)
             how = how or {}
             if done then return end
             done = true
+            if list_scan == scan_entry then list_scan = nil end
             UIManager:close(info)
             if not results or (how.stale and #results == 0) then
                 if connectStyle() == "normal" then
@@ -1812,6 +1932,7 @@ startScan = function(state)
             if done then return end
             if not ok then
                 done = true
+                if list_scan == scan_entry then list_scan = nil end
                 UIManager:close(info)
                 note(_("Wi-Fi didn't come up"), _("Wi-Fi failed"), 3)
                 return finishPicker(state)
@@ -2019,6 +2140,10 @@ local orig_broadcast = UIManager.broadcastEvent
 UIManager.broadcastEvent = function(self, event, ...)
     local handler = type(event) == "table" and event.handler
     if handler == "onSuspend" then
+        -- an address still being fetched for the network list: stop
+        -- checking (sleep turns Wi-Fi off and ends the script)
+        if list_ip then pcall(list_ip.stop) end
+        if list_scan then pcall(list_scan.cancel, "now") end
         local ok, err = pcall(beforeSleep)
         if not ok then logger.warn("network-tweaks: sleep handling failed:", err) end
         calibre.quiet_disconnect = true
