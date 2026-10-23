@@ -64,7 +64,9 @@ Changelog
          hold a custom shortcut that toggles SSH to open Bluetooth from
          the Kobo plugin (OGKevin/kobo.koplugin): Turn Bluetooth On / Off,
          Scan For Devices, Paired Devices. Without the Kobo plugin the
-         shortcut's edit dialog opens as before. Bluetooth notes: the Kobo
+         shortcut's edit dialog opens as before. A Wi-Fi / SSH change
+         redraws the toolbar once, with every changed icon, instead of once
+         per icon. Bluetooth notes: the Kobo
          plugin's Bluetooth messages ("Scanning for Bluetooth devices...",
          "Bluetooth enabled", "Failed to connect to ...") show in Network
          Tweaks' style (Banner / Minimal) like its Wi-Fi notes; with Normal,
@@ -735,6 +737,9 @@ local function syncLive()
     if next(live) == nil then return end
     local s = loadSettings()
     local want_wifi = wifiOn() and "wifi" or "wifi.open.0"
+    -- One screen update per toolbar: the changed icons' areas combined, so a
+    -- Wi-Fi change with SSH and Calibre indicators asks once, not three times.
+    local per_win, order = {}, {}
     for btn, key in pairs(live) do
         local dirty = false
         if key == "wifi" and btn.icon ~= want_wifi and btn.setIcon then
@@ -751,7 +756,15 @@ local function syncLive()
             if gone then
                 live[btn] = nil
             elseif win then
-                UIManager:setDirty(win, "ui", btn.dimen)
+                local area = per_win[win]
+                if not area then
+                    order[#order + 1] = win
+                    per_win[win] = btn.dimen and btn.dimen:copy() or false
+                elseif area and btn.dimen then
+                    per_win[win] = area:combine(btn.dimen)
+                else
+                    per_win[win] = false -- an icon with no size yet: the whole toolbar
+                end
             elseif btn._stb_win and not waiting[btn] then
                 waitForScreen(btn, function()
                     local w = visibleWindow(btn)
@@ -759,6 +772,9 @@ local function syncLive()
                 end)
             end
         end
+    end
+    for _i, win in ipairs(order) do
+        UIManager:setDirty(win, "ui", per_win[win] or nil)
     end
 end
 
