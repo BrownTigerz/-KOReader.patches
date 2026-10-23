@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.5
+Version: 1.0.6
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -53,6 +53,9 @@ Changelog:
                      preserved, so SimpleUI/X-Ray/Wi-Fi are unchanged).
                      Notification, toast, and dialog strings untouched; moved
                      plugin items keep their own text.
+  1.0.6  2026-10-23  New "Check For Patch Updates" entry in Patches (below
+                     Debugging, order 950), shown only when Backup Patches
+                     is installed; invokes Backup's updater global directly.
   1.0.5  2026-10-21  Crash fix: a plugin whose sorting_hint points at a menu
                      that isn't shown (e.g. kobo.koplugin's "Kobo Library" ->
                      File browser settings, with that tab hidden) crashed
@@ -60,7 +63,7 @@ Changelog:
                      now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.0.5"
+local PATCH_VERSION = "1.0.6"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -144,6 +147,29 @@ TM.menu_id = MENU_ID
 TM.version = PATCH_VERSION
 
 logger.info(TAG, "v" .. PATCH_VERSION .. " loaded")
+
+-- "Check for Patch Updates" entry (Backup Patches updater): shows in Patches
+-- below the Debug Menu entry, only when Backup's updater global is available.
+-- (2-backup-patches.lua loads before this file and sets the global at load.)
+do
+    local fn = _G.__backup_patches_check_updates
+    if type(fn) == "function" then
+        TM.entries.check_patch_updates = {
+            text = "Check For Patch Updates",
+            order = 950,  -- below Debugging (900)
+            where = "filemanager",
+            build = function()
+                return {
+                    text = "Check For Patch Updates",
+                    callback = function()
+                        local f = _G.__backup_patches_check_updates
+                        if type(f) == "function" then f() end
+                    end,
+                }
+            end,
+        }
+    end
+end
 
 -- Items turned off in "Choose what's in Add-ons" (kept in their original spot).
 -- Plugins by menu id, patches as "patch:<id>".
