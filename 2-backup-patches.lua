@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.0 (2026-10-19)
+2-backup-patches.lua                                     2.4.1 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.1  2026-10-23
+    - Tweaks Menu integration: updater exposed as
+      _G.__backup_patches_check_updates() for Tweaks Menu to call; when
+      Tweaks Menu is installed, Backup's own "Check for Patch Updates"
+      entry hides (updater runs from Tweaks Menu instead).
   2.4.0  2026-10-19
     - REMOVED: .koplugin.zip plugin update support (unreliable; use
       Storefront for plugins instead). Updater is Lua-patches-only again.
@@ -225,7 +230,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.0"
+local VERSION = "2.4.1"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1186,10 +1191,20 @@ mainItems = function()
             })
         end,
     })
-    table.insert(items, {
-        text = _("Check for Patch Updates"),
-        callback = function() Backup.checkForPatchUpdates() end,
-    })
+    -- Tweaks Menu hosts the updater when it's installed: hide our own
+    -- entry so there's only one. Detection: its file in patches/, or a
+    -- global if it exposes one.
+    local tweaks_menu_active = _G.__tweaks_menu_active == true
+    if not tweaks_menu_active then
+        local f = io.open(PATCH_DIR .. "/2-tweaks-menu.lua", "r")
+        if f then f:close() tweaks_menu_active = true end
+    end
+    if not tweaks_menu_active then
+        table.insert(items, {
+            text = _("Check for Patch Updates"),
+            callback = function() Backup.checkForPatchUpdates() end,
+        })
+    end
     return items
 end
 
@@ -1769,6 +1784,13 @@ function Backup.checkForPatchUpdates()
         }
         UIManager:show(status_menu)
     end)
+end
+
+-- Exposed for the Tweaks Menu patch: lets it launch the updater directly
+-- from its own menu. When Tweaks Menu is installed, Backup's own
+-- "Check for Patch Updates" entry is hidden (see mainItems).
+_G.__backup_patches_check_updates = function()
+    Backup.checkForPatchUpdates()
 end
 
 -- --------------------------------------------------------------------------
