@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.0
+Version 2.12.1
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.12.1 Section titles on SimpleUI v3.0.0: the label builder moved to
+         engines/sui_section_label, so the hook retargets there (v2.x
+         inline fallback kept).
   2.12.0 TBR panel: more collections. Modules > Collections In Panel picks
          any of your KOReader collections (e.g. Book Club); each becomes a
          panel view after To Be Read: swipe left/right through To Be Read,
@@ -197,7 +200,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.0"
+local VERSION = "2.12.1"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1305,6 +1308,28 @@ local function patchEngine(E)
     return done
 end
 
+-- Section titles on SimpleUI v3.0.0+: the label builder moved to
+-- engines/sui_section_label (M.get). Hook it the same way the old inline
+-- sectionLabel was hooked: track the module id and apply the configured
+-- title colour around the build.
+local function patchSectionLabel(SL)
+    if type(SL) ~= "table" or type(SL.get) ~= "function" then return false end
+    local orig = SL.get
+    if ours[orig] then return true end
+    SL.get = mine(function(cache, id, desc, w, landscape_factor, has_wallpaper, turn_page)
+        local prev = cur_title_id
+        cur_title_id = id
+        in_title = in_title + 1
+        local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
+                               orig, cache, id, desc, w, landscape_factor, has_wallpaper, turn_page))
+        in_title = in_title - 1
+        cur_title_id = prev
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2, res.n)
+    end)
+    return true
+end
+
 local function patchTopbar(T)
     if type(T) ~= "table" or type(T.buildTopbarWidget) ~= "function" then
         return
@@ -1539,6 +1564,7 @@ local function patcherFor(name)
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
     if name == "engines/sui_screen_engine" then return patchEngine end
+    if name == "engines/sui_section_label" then return patchSectionLabel end
     if name == "screens/sui_bottombar" then return patchBottombar end
     if name == "screens/sui_topbar" then return patchTopbar end
     if name == "infra/sui_config" then return patchConfig end
