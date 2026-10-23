@@ -35,7 +35,7 @@ return {
     ["2-tweaks-menu.lua"] = "1.0.5",
     ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.8",
-    ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.2.5",
+    ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.3.0",
     ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.0.1",
     ["debug/2-zz-readmastery-diagnostics.lua"] = "1.0.9",
     ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.1.0",
