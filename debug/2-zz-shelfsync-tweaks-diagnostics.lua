@@ -1,6 +1,6 @@
 --[[
 2-zz-shelfsync-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.7
+Version 1.1.0
 
 Watches ShelfSync and ShelfSync tweaks from the outside and writes what it
 sees as [shelfsync]-tagged lines to the SHARED diagnostics log
@@ -13,6 +13,14 @@ line. It doesn't touch 2-shelfsync-tweaks.lua. The "zz" makes it load after
 it, so it sees the tweaks' hooks too.
 
 Changelog:
+  1.1.0  Shared perf core (same block as the other diagnostics): every
+         timer from ShelfSync and the tweaks is timed (slow ones logged),
+         screen updates and flashes they ask for, the timers they leave
+         waiting when the device sleeps, and a once-a-minute perf line with
+         Lua memory and isActive() calls. The 0.25 s freeze heartbeat and
+         the 60 s memory timer are gone (no-timers rule): while ShelfSync
+         is busy, a timer holding the screen 250 ms+ (with its file) or a
+         tap 1 s+ is logged instead.
   1.0.7  One line per entry: messages and popups with line breaks are
          joined with " / " (they used to split into untagged lines), and
          the invisible text-direction marks around file paths are removed.
@@ -39,12 +47,9 @@ Switches itself off, in case it's forgotten:
     file in again starts a fresh 24 hours.
   - The shared log rotates at 2 MB (older part kept as
     diagnostics.log.old).
-  - Nothing runs while the device sleeps; the once-a-minute memory sample
-    and the freeze check only run while logging is on and awake.
-  - Timers are bounded and self-terminating only: the freeze check (0.25 s
-    while busy), the memory sample (60 s), the 90 s book-open summary and
-    the 2.5 min Wi-Fi watch. All stop when the logging window ends, none
-    run while asleep, none wake the device.
+  - Nothing runs while the device sleeps. No repeating timers: only the
+    one-off 90 s book-open summary and the 2.5 min Wi-Fi watch, which stop
+    when the logging window ends and never wake the device.
 
 What it logs (date + 12-hour clock, [shelfsync] tag, +ms = time since the current test began):
   - Startup: which tweaks hooks are in place (so a ShelfSync update that
@@ -66,9 +71,12 @@ What it logs (date + 12-hour clock, [shelfsync] tag, +ms = time since the curren
     timers (to spot leaks).
   - Taps, tap-through on banners/notes and touch highlights (invert) under
     a banner/note (!).
-  - Performance: slow redraws (over 250 ms), SCREEN FROZEN when nothing
-    could be tapped for a while, how long ShelfSync menus take to build,
-    how often isActive() runs (hot path check), Lua memory once a minute.
+  - Performance: slow redraws (over 250 ms), how long ShelfSync menus take
+    to build, and (shared perf core) every ShelfSync / tweaks timer timed,
+    slow ones named; screen updates and flashes they ask for; timers they
+    leave waiting at sleep; while ShelfSync is busy, any timer holding the
+    screen 250 ms+ (with its file) or tap 1 s+; once a minute: timers, flashes,
+    isActive() calls (hot path check) and Lua memory.
   - ShelfSync's own log lines (turn on ShelfSync > Settings > Verbose
     logging for the detailed ones). Cookie/token-looking strings are
     masked.
@@ -96,7 +104,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local VERSION = "1.0.7"
+local VERSION = "1.1.0"
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
 -- single chronological log. Rotation at 2 MB, older part kept as
@@ -248,54 +256,23 @@ end
 -- Freeze detector + memory sample (only while logging is on and awake)
 -- --------------------------------------------------------------------------
 
+-- While ShelfSync is busy (a sync, autolink), a timer holding the screen
+-- 250 ms+ or a tap 1 s+ is logged by the shared perf core (end of this
+-- file), with its file. No heartbeat timer.
 local busy_until = 0
-local beat_last
-local function beat()
-    if not on() or os.time() > busy_until or Device.screen_saver_mode then
-        beat_last = nil
-        return
-    end
-    local gap = beat_last and ms(beat_last) or 0
-    if gap > 750 then log("SCREEN FROZEN for ~%dms (nothing could be tapped)", gap - 250) end
-    beat_last = now()
-    UIManager:scheduleIn(0.25, beat)
-end
-
 local function busy(seconds)
-    local was = os.time() <= busy_until
     busy_until = math.max(busy_until, os.time() + (seconds or 20))
-    if not was then
-        beat_last = now()
-        UIManager:unschedule(beat)
-        UIManager:scheduleIn(0.25, beat)
-    end
 end
 
+-- isActive() calls are counted and reported in the once-a-minute perf line
+-- (shared perf core, end of this file), with Lua memory. No minute timer.
 local is_active_calls = 0
-local mem_base
-local mem_due = false -- a sample was skipped while asleep; take it on wake
-local function memSample()
-    if not on() then mem_due = false; return end
-    if Device.screen_saver_mode then
-        mem_due = true -- park: no timer chain while asleep, onResume restarts it
-        return
-    end
-    mem_due = false
-    collectgarbage("step", 0)
-    local kb = collectgarbage("count")
-    mem_base = mem_base or kb
-    log("memory %.0f KB (%+.0f KB since start) | timers queued %d | isActive() calls last min %d",
-        kb, kb - mem_base, taskCount(), is_active_calls)
-    is_active_calls = 0
-    UIManager:scheduleIn(60, memSample)
-end
 
 log("==================== shelfsync-tweaks diagnostics %s started ====================", VERSION)
 log("logging for %d min (until %s) | expires %s | log: %s",
     ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
     os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), "diagnostics.log")
 log("device %s | %s", q(Device.model), wifiState())
-UIManager:scheduleIn(60, memSample)
 
 -- --------------------------------------------------------------------------
 -- ShelfSync's own log lines (and the tweaks' warnings)
@@ -356,10 +333,6 @@ UIManager.broadcastEvent = function(self, ev, ...)
         startTest("woke up")
         local r = orig_bc(self, ev, ...)
         log("wake handled | %s | timers queued %d", wifiState(), taskCount())
-        if mem_due and on() then
-            mem_due = false
-            UIManager:scheduleIn(60, memSample) -- restart the parked memory sample
-        end
         return r
     end
     return orig_bc(self, ev, ...)
@@ -723,3 +696,278 @@ UIManager:nextTick(function()
             "ShelfSync diagnostics: logging until %s", os.date("%I:%M %p", stop_at)))
     end)
 end)
+
+-- --------------------------------------------------------------------------
+-- Shared perf core v1 (the same block in every diagnostic that uses it)
+-- The first diagnostic to load installs it; the others plug into it. One
+-- copy of KOReader's timer loop with each timer timed, one watch on screen
+-- updates, sleep, input events and warnings, handed to whichever
+-- diagnostics are logging right now. With none logging, every hook passes
+-- straight through. No timers of its own; it's installed on the first pass
+-- of the main loop, after every patch, so its hooks are the outermost.
+-- --------------------------------------------------------------------------
+local DiagCore
+do
+    local CORE_VERSION = 1
+    DiagCore = package.loaded["diag_perf_core"]
+    if type(DiagCore) ~= "table" then
+        DiagCore = { version = CORE_VERSION, clients = {} }
+        package.loaded["diag_perf_core"] = DiagCore
+        local UIM = require("ui/uimanager")
+        local ok_time, ktime = pcall(require, "ui/time")
+        local function nowMs()
+            if ok_time and type(ktime) == "table" and ktime.now and ktime.to_ms then
+                return ktime.to_ms(ktime.now())
+            end
+            return math.floor(os.clock() * 1000)
+        end
+        DiagCore.now_ms = nowMs
+        local function pk(...) return { n = select("#", ...), ... } end
+
+        -- "plugins/x.koplugin/main.lua:12" for a function or a debug.getinfo
+        local function short(src, line)
+            src = tostring(src or "?"):gsub("^@", ""):gsub("^%./", ""):gsub("^.-plugins/", "plugins/")
+                :gsub("^.-patches/", "patches/")
+            return line and (src .. ":" .. tostring(line)) or src
+        end
+        function DiagCore.where(fn)
+            if type(fn) ~= "function" then return tostring(fn) end
+            local info = debug.getinfo(fn, "S")
+            if not info then return "?" end
+            return short(info.source, info.linedefined)
+        end
+        local function caller(level)
+            local info = debug.getinfo(level + 1, "Sl")
+            if not info then return "?" end
+            return short(info.source, info.currentline)
+        end
+
+        local function anyOn()
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then return true end
+            end
+            return false
+        end
+        local function emit(kind, ...)
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then pcall(c.handle, kind, ...) end
+            end
+        end
+
+        local function install()
+            -- Timers: KOReader's _checkTasks loop, each task timed.
+            local orig_tasks = UIM._checkTasks
+            if ok_time and type(orig_tasks) == "function" and type(UIM._task_queue) == "table" then
+                UIM._checkTasks = function(self)
+                    if not anyOn() then return orig_tasks(self) end
+                    self._now = ktime.now()
+                    local wait_until = nil
+                    self._task_queue_dirty = false
+                    while self._task_queue[1] do
+                        local task_time = self._task_queue[#self._task_queue].time
+                        if task_time <= self._now then
+                            local task = table.remove(self._task_queue)
+                            local t0 = nowMs()
+                            if type(task.args) == "table" then
+                                task.action(unpack(task.args, 1, task.args.n))
+                            else
+                                task.action()
+                            end
+                            emit("timer", task.action, nowMs() - t0)
+                        else
+                            wait_until = task_time
+                            break
+                        end
+                    end
+                    return wait_until, self._now
+                end
+            end
+
+            -- Screen updates: who asked, and which kind (a flash or not).
+            local orig_sd = UIM.setDirty
+            if type(orig_sd) == "function" then
+                UIM.setDirty = function(self, widget, refresh, ...)
+                    if not anyOn() then return orig_sd(self, widget, refresh, ...) end
+                    local src = caller(2)
+                    if type(refresh) == "function" then
+                        local f = refresh
+                        refresh = function(...)
+                            local r = pk(f(...))
+                            emit("dirty", src, r[1])
+                            return unpack(r, 1, r.n)
+                        end
+                    else
+                        emit("dirty", src, refresh)
+                    end
+                    return orig_sd(self, widget, refresh, ...)
+                end
+            end
+
+            -- Input events: slow ones (taps, swipes) are reported.
+            local orig_send = UIM.sendEvent
+            if type(orig_send) == "function" then
+                UIM.sendEvent = function(self, event, ...)
+                    if not anyOn() then return orig_send(self, event, ...) end
+                    local t0 = nowMs()
+                    local res = pk(orig_send(self, event, ...))
+                    local dt = nowMs() - t0
+                    if dt >= 15 and type(event) == "table" then
+                        local h = tostring(event.handler or "?"):gsub("^on", "")
+                        local ges = h == "Gesture" and event.args and event.args[1]
+                        if type(ges) == "table" and ges.ges then h = "Gesture " .. tostring(ges.ges) end
+                        emit("event", h, dt)
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Sleep: the timers still waiting after every plugin handled it.
+            local orig_bc = UIM.broadcastEvent
+            if type(orig_bc) == "function" then
+                UIM.broadcastEvent = function(self, event, ...)
+                    local h = type(event) == "table" and event.handler
+                    if not (anyOn() and (h == "onSuspend" or h == "onResume")) then
+                        return orig_bc(self, event, ...)
+                    end
+                    local res = pk(orig_bc(self, event, ...))
+                    if h == "onSuspend" then
+                        local actions = {}
+                        for _i, task in ipairs(self._task_queue or {}) do actions[#actions + 1] = task.action end
+                        emit("sleep", actions)
+                    else
+                        emit("wake")
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Warnings and errors, with the file that wrote them.
+            local ok_l, logger = pcall(require, "logger")
+            if ok_l and type(logger) == "table" then
+                for _i, lvl in ipairs({ "warn", "err" }) do
+                    local orig = logger[lvl]
+                    if type(orig) == "function" then
+                        logger[lvl] = function(...)
+                            if anyOn() then
+                                local src = caller(2)
+                                local parts = {}
+                                for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+                                local msg = table.concat(parts, " ")
+                                if #msg > 300 then msg = msg:sub(1, 300) .. "..." end
+                                emit("warn", lvl, src, msg)
+                            end
+                            return orig(...)
+                        end
+                    end
+                end
+            end
+        end
+        UIM:nextTick(function() pcall(install) end)
+    end
+
+    function DiagCore.register(client)
+        table.insert(DiagCore.clients, client)
+    end
+
+    -- A standard client: everything the core sees that comes from the
+    -- patch's own files (o.targets: parts of a path, e.g. "2-network-tweaks.lua").
+    --   o.name     label in the lines ("ShelfSync Tweaks")
+    --   o.log, o.on  the diagnostic's own log and "logging now?" functions
+    --   o.errors   also log the patch's warnings/errors (when the
+    --              diagnostic doesn't catch them itself)
+    --   o.busy     optional: while it returns true, a timer of anyone's that
+    --              holds the screen 250 ms+ or a tap/swipe 1 s+ is logged
+    --              (replaces a freeze heartbeat; the patch was busy then, it
+    --              isn't necessarily the cause)
+    --   o.extra    optional: a few words added to the once-a-minute line
+    function DiagCore.client(o)
+        local SLOW_MS = o.slow_ms or 80
+        local BUSY_TIMER_MS, BUSY_EVENT_MS = o.busy_timer_ms or 250, o.busy_event_ms or 1000
+        local function mine(src)
+            src = tostring(src or "")
+            for _i, t in ipairs(o.targets) do
+                if src:find(t, 1, true) then return true end
+            end
+            return false
+        end
+        local st = { since = os.time(), runs = 0, ms = 0, max = 0, max_src = nil, dirty = 0, flashes = 0 }
+        local function summary(force)
+            if not force and os.time() - st.since < 60 then return end
+            if st.runs > 0 or st.dirty > 0 then
+                local extra = o.extra and o.extra() or nil
+                o.log("perf (last %d s): %s timers ran %d times, %d ms in all, slowest %d ms%s | screen updates asked %d, flashes %d | Lua memory %.1f MB%s",
+                    os.time() - st.since, o.name, st.runs, st.ms, st.max,
+                    st.max_src and (" (" .. st.max_src .. ")") or "", st.dirty, st.flashes,
+                    collectgarbage("count") / 1024, extra and (" | " .. extra) or "")
+            end
+            st.since, st.runs, st.ms, st.max, st.max_src, st.dirty, st.flashes = os.time(), 0, 0, 0, nil, 0, 0
+        end
+        local FLASH = { flashui = true, full = true, flashpartial = true }
+        local client = { on = o.on }
+        function client.handle(kind, a, b, c)
+            if kind == "timer" then
+                local src = DiagCore.where(a)
+                if mine(src) then
+                    st.runs, st.ms = st.runs + 1, st.ms + b
+                    if b > st.max then st.max, st.max_src = b, src end
+                    if b >= SLOW_MS then o.log("slow: %s timer %s took %d ms", o.name, src, b) end
+                elseif o.busy and b >= BUSY_TIMER_MS and o.busy() then
+                    o.log("screen held %d ms by timer %s while %s was busy", b, src, o.name)
+                end
+            elseif kind == "dirty" then
+                if mine(a) then
+                    st.dirty = st.dirty + 1
+                    if FLASH[b] then
+                        st.flashes = st.flashes + 1
+                        o.log("FLASH %s asked by %s", tostring(b), a)
+                    end
+                end
+            elseif kind == "event" then
+                if o.busy and b >= BUSY_EVENT_MS and o.busy() then
+                    o.log("screen held %d ms by a %s while %s was busy", b, a, o.name)
+                end
+            elseif kind == "sleep" then
+                summary(true)
+                local by, n = {}, 0
+                for _i, fn in ipairs(a or {}) do
+                    local src = DiagCore.where(fn)
+                    if mine(src) then by[src] = (by[src] or 0) + 1; n = n + 1 end
+                end
+                if n == 0 then
+                    o.log("going to sleep: no %s timers left waiting", o.name)
+                else
+                    local bits = {}
+                    for src, k in pairs(by) do bits[#bits + 1] = k .. " x " .. src end
+                    table.sort(bits)
+                    o.log("going to sleep: %d %s timers still waiting (!): %s", n, o.name, table.concat(bits, ", "))
+                end
+                return
+            elseif kind == "warn" then
+                -- a = level, b = the file that wrote it, c = the message
+                if o.errors and mine(b) then
+                    o.log("%s from %s: %s", a == "err" and "ERROR" or "warning", b, tostring(c))
+                end
+            end
+            summary(false)
+        end
+        DiagCore.register(client)
+        return client
+    end
+end
+
+-- ShelfSync's own files and the tweaks patch
+DiagCore.client({
+    name = "ShelfSync",
+    targets = { "2-shelfsync-tweaks.lua", "shelfsync.koplugin/" },
+    log = log,
+    on = on,
+    errors = false, -- ShelfSync's own log lines are caught above
+    busy = function() return os.time() <= busy_until end,
+    extra = function()
+        local n = is_active_calls
+        is_active_calls = 0
+        return "isActive() calls " .. n
+    end,
+})
