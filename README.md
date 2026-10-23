@@ -26,8 +26,8 @@ All patches work independently and together. If one fails to attach (for example
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.3 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.10.3 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.13 |
-| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.4 |
-| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.4 |
+| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.5 |
+| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.5 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.3 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.14.3 |
@@ -247,9 +247,13 @@ Adds one top-level menu toggle, **Quests (Enhanced)**.
 "View Quests" shows a live list with a progress bar per quest; tap any quest to see what it needs.
 
 - **Daily** (resets 3 AM): Daily Chapter and Focused Reader are always active, plus one quest rotating in from a pool (Deep Dive, Night Owl, First Light, Literary Lunch Break, Evening Escape).
-- **Weekly** (resets Monday): includes Page Turner, Consistency Engine, Reading Marathon, Iron Reader, tag-based page quests, Genre Explorer and The Final Stretch.
-- **Monthly** (resets the 1st): includes Bibliophile, The Endurance Trial, book-length tiers (Brick Slayer / The Long Haul / Leviathan; only the highest tier a book qualifies for pays out), Change of Scenery and Genre Hopper.
+- **Weekly** (resets Monday): includes Page Turner, Consistency Engine, Reading Marathon, Iron Reader, tag-based page quests, Genre Explorer, The Final Stretch and Second Look.
+- **Monthly** (resets the 1st): includes Bibliophile, The Endurance Trial, book-length tiers (Brick Slayer / The Long Haul / Leviathan; only the highest tier a book qualifies for pays out), Change of Scenery, Genre Hopper and Return Visit.
 - **Seasonal and yearly** quests are included as well.
+- **Second Look** (weekly, 300 XP): go back, set an earlier page as your reading location with Track Reading Location's gesture, and re-read 20 pages up to where you'd been.
+- **Return Visit** (monthly): re-read a book you've finished before and finish it again. Re-reading a book quickly is the rare one, so the sooner you came back the more it pays: 1500 XP within a month, 1000 within 3 months, 700 within 6, 400 after that, for the whole book. Re-reading part of it pays that share (half the book, half the XP); under a quarter doesn't count. A book already marked finished in KOReader counts from that date.
+
+**Page guard (always on):** only pages you haven't read yet count. ReadMastery on its own counts every page turn, back or forward, so paging back and reading forward again paid XP, pages and quest progress twice. Back turns and re-reads now count no pages (the time still counts as reading time), and a turn that's partly new counts just the new pages. Flipping ahead doesn't count either: a new page you leave in under 4 seconds counts nothing and stays unread, so reading it properly later still counts. With Track Reading Location, using **Set Current Page As Reading Location** makes the pages after it unread again, so reading forward from your anchor always pays. It resets each time you open a book, so re-reading a book another day still counts.
 
 Turning it OFF just pauses tracking and keeps progress. To reset quest progress, use ReadMastery's own **Settings → Reset Progress**, which also clears quest state and Quest Stats. This patch never opens or writes ReadMastery's `data.json` directly.
 
