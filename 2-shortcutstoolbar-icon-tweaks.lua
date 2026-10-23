@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.14.3
+Version: 1.15.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -26,7 +26,12 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     button), so you see the icon change. Other actions still close it.
   • Hold the built-in Wi-Fi button: network list (Network Tweaks' picker
     when installed). Hold the built-in Restart or Search button: Restart /
-    Exit KOReader, Reboot, Power off. Tap does what it always did.
+    Exit KOReader, Reboot, Power off. Hold an SSH shortcut: Bluetooth
+    (Kobo plugin): turn it on or off, scan, paired devices. Tap does what
+    it always did.
+  • The Kobo plugin's Bluetooth messages show in Network Tweaks' note style
+    (Banner / Minimal), like its Wi-Fi notes. Each hold action has its own on/off in Icon Tweaks →
+    Hold Actions; off gives the plugin's own hold back.
   • Going to sleep with the top menu open (reader or library, where the
     toolbar lives) closes it first, so you wake up to the page, not the
     menu, and a sleep screen that keeps the page doesn't show it either.
@@ -53,6 +58,17 @@ a D-Bus query), then reuse the answer for redraws. Nothing runs
 in the background or while asleep.
 
 Changelog
+  1.15.0 Hold Actions menu (Icon Tweaks → Hold Actions): each hold action
+         can be turned off, giving the plugin's own hold back (built-ins
+         flash their name, custom shortcuts open their edit dialog). New:
+         hold a custom shortcut that toggles SSH to open Bluetooth from
+         the Kobo plugin (OGKevin/kobo.koplugin): Turn Bluetooth On / Off,
+         Scan For Devices, Paired Devices. Without the Kobo plugin the
+         shortcut's edit dialog opens as before. Bluetooth notes: the Kobo
+         plugin's Bluetooth messages ("Scanning for Bluetooth devices...",
+         "Bluetooth enabled", "Failed to connect to ...") show in Network
+         Tweaks' style (Banner / Minimal) like its Wi-Fi notes; with Normal,
+         or without Network Tweaks, they stay as they are. No setting.
   1.14.3 Follow Bluetooth: falls back to the Kobo plugin's D-Bus helper
          when the plugin itself isn't found (still greyed out on device
          with 1.14.2). Tells diagnostics where Bluetooth was found.
@@ -159,7 +175,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.14.3"
+local PATCH_VERSION = "1.15.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -850,11 +866,104 @@ local function holdPower()
     UIManager:show(dialog)
 end
 
+-- Hold an SSH shortcut: Bluetooth, from the Kobo plugin (OGKevin/kobo.koplugin),
+-- the same actions as its own menu. Returns false when the plugin isn't
+-- there, so the shortcut's own hold (its edit dialog) runs instead.
+local function holdBluetooth()
+    local bt = koboBluetooth()
+    if type(bt) ~= "table" or type(bt.toggleBluetooth) ~= "function"
+            or type(bt.scanAndShowDevices) ~= "function" then
+        return false
+    end
+    if type(bt.isDeviceSupported) == "function" then
+        local ok_s, sup = pcall(bt.isDeviceSupported, bt)
+        if ok_s and not sup then return false end
+    end
+    local _ = require("gettext")
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local ok_e, on = pcall(bt.isBluetoothEnabled, bt)
+    on = ok_e and on and true or false
+    local dialog
+    local function action(text, fn, enabled)
+        return { text = text, enabled = enabled ~= false, callback = function()
+            UIManager:close(dialog)
+            pcall(fn)
+        end }
+    end
+    local buttons = {
+        { action(on and _("Turn Bluetooth Off") or _("Turn Bluetooth On"), function() bt:toggleBluetooth(true) end) },
+        { action(_("Scan For Devices"), function() bt:scanAndShowDevices() end, on),
+          action(_("Paired Devices"), function() bt:showPairedDevices() end,
+              on and type(bt.showPairedDevices) == "function") },
+        { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+    }
+    dialog = ButtonDialog:new{ title = _("Bluetooth"), title_align = "center", buttons = buttons }
+    UIManager:show(dialog)
+end
+
+-- --------------------------------------------------------------------------
+-- Bluetooth notes in Network Tweaks' style
+-- --------------------------------------------------------------------------
+-- The Kobo plugin shows its Bluetooth messages as plain popups that close by
+-- themselves (scanning, enabled / disabled, failed to connect...). Those are
+-- handed to Network Tweaks' shared note instead, so they look like its Wi-Fi
+-- notes. Its style decides: Normal (or no Network Tweaks) leaves the popup as
+-- it is. Only the plugin's Bluetooth files, and only messages with a timeout
+-- (anything it closes itself, or that asks something, stays a popup).
+local function fromKoboBluetooth()
+    -- the caller, past other patches' wrappers of UIManager.show (this one
+    -- is installed first, so it sits under all of them)
+    for level = 3, 16 do
+        local info = debug.getinfo(level, "S")
+        if not info then return false end
+        local src = info.source or ""
+        if src:find(".koplugin/src/lib/bluetooth/", 1, true) or src:find(".koplugin/src/kobo_bluetooth.lua", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+do
+    local orig_show = UIManager.show
+    UIManager.show = function(self, w, ...)
+        if type(w) == "table" and type(w.text) == "string" and type(w.timeout) == "number"
+                and not w.toast and w.ok_callback == nil and w.buttons == nil
+                and fromKoboBluetooth() then
+            local NM = package.loaded["ui/network/manager"]
+            local fn = type(NM) == "table" and NM.__network_tweaks_note
+            if type(fn) == "function" then
+                local ok, handled = pcall(fn, w.text, nil, w.timeout)
+                if ok and handled then return end
+            end
+        end
+        return orig_show(self, w, ...)
+    end
+end
+
+-- Hold actions by id; each has its own on/off (Hold Actions menu, on by default).
 local HOLD = {
     wifi    = holdWifi,
     restart = holdPower,
     search  = holdPower, -- reader search button: tap searches, hold = power
+    ssh     = holdBluetooth,
 }
+local HOLD_BUILTIN = { wifi = "wifi", restart = "restart", search = "search" }
+
+local function holdOn(id)
+    local h = loadSettings().hold
+    return not (type(h) == "table" and h[id] == false)
+end
+
+-- The hold action for a toolbar key, if it has one and it's on.
+local function holdFor(key)
+    local id = HOLD_BUILTIN[key]
+    if not id and type(key) == "string" and key:sub(1, 3) == "cs_" then
+        local sc = shortcutFor(key)
+        if type(sc) == "table" and sc.dispatcher_action == "toggle_ssh_server" then id = "ssh" end
+    end
+    if id and holdOn(id) then return id end
+    return nil
+end
 
 -- Work out which shortcut keys will become IconButtons, in order, so each
 -- captured button can be matched back to its key.
@@ -931,7 +1040,14 @@ local function withCapture(config, fn, ...)
         tweakButton(btn, key)
         local k = keySettings(settings, key)
         if k and k.state then addStateRefresh(btn, key) end
-        if HOLD[key] then btn.hold_callback = HOLD[key] end
+        local hid = holdFor(key)
+        if hid then
+            -- the plugin's own hold stays as the fallback (e.g. no Kobo plugin)
+            local own_hold, fn = btn.hold_callback, HOLD[hid]
+            btn.hold_callback = function(...)
+                if fn() == false and own_hold then return own_hold(...) end
+            end
+        end
         -- Wi-Fi toggles rebuild the image via setIcon(); re-apply after.
         local orig_set = btn.setIcon
         btn.setIcon = function(self, icon)
@@ -1367,6 +1483,34 @@ local function buildMenu()
                 })
             end
             t[#t].separator = true
+            local function holdItem(text, id, help)
+                return {
+                    text = text, help_text = help, keep_menu_open = true,
+                    checked_func = function() return holdOn(id) end,
+                    callback = function()
+                        local s2 = loadSettings()
+                        s2.hold = type(s2.hold) == "table" and s2.hold or {}
+                        if holdOn(id) then s2.hold[id] = false else s2.hold[id] = nil end
+                        if next(s2.hold) == nil then s2.hold = nil end
+                        saveSettings(s2)
+                        refreshViews()
+                    end,
+                }
+            end
+            table.insert(t, {
+                text = _("Hold Actions"),
+                separator = true,
+                sub_item_table = {
+                    holdItem(_("Hold Wi-Fi: Network List"), "wifi",
+                        _("Hold the built-in Wi-Fi button for the network list. Off: the plugin's own hold.")),
+                    holdItem(_("Hold Restart: Power Options"), "restart",
+                        _("Hold the built-in Restart button for Restart / Exit / Reboot / Power Off. Off: the plugin's own hold.")),
+                    holdItem(_("Hold Search: Power Options"), "search",
+                        _("Hold the built-in Search button (reader) for the power options. Tap still searches. Off: the plugin's own hold.")),
+                    holdItem(_("Hold SSH Shortcut: Bluetooth"), "ssh",
+                        _("Hold a custom shortcut that toggles SSH for Bluetooth from the Kobo plugin: turn it on or off, scan, paired devices. Without the Kobo plugin, or off: the shortcut's edit dialog.")),
+                },
+            })
             table.insert(t, {
                 text = _("Reset All Icon Tweaks"),
                 callback = function()
