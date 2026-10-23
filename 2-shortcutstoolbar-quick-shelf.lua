@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.2.1
+Version: 1.2.2
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -22,13 +22,18 @@ Reader only: the library toolbar and the SimpleUI module are unchanged.
 Cost: nothing until you swipe. The strip is built on the first swipe of a
 menu open and reused after that. Covers come from the thumbnails SimpleUI
 (or CoverBrowser) already keeps; a book is never opened to pull its cover
-(a book with no saved thumbnail gets a title tile). A swipe redraws only the
-top row: the menu doesn't resize. No timers.
+(a book with no saved thumbnail gets a title tile), and kept already sized
+between menu opens (up to 10). A swipe redraws only the top row: the menu
+doesn't resize. No timers.
 
 Install: drop in koreader/patches/ and restart KOReader. Loads after
 2-shortcutstoolbar-icon-tweaks.lua (file order), which it works with.
 
 Changelog
+  1.2.2  Covers are kept between menu opens, already sized: the first swipe
+         of a menu open no longer resizes each cover again (about 25 ms a
+         cover on a Clara Colour). Up to 10 covers are kept; a SimpleUI
+         cover that changes is picked up straight away.
   1.2.1  Suspend dismisses the shelf: if the Quick Shelf page is showing
          when the device sleeps, the pager drops back to the book panel.
   1.2.0  Renamed Quick Shelf (was Recent Books: it shows To Be Read too).
@@ -49,7 +54,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.2.1"
+local PATCH_VERSION = "1.2.2"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -160,12 +165,60 @@ local function titleOf(fp)
     return ((fp:match("([^/]+)$") or fp):gsub("%.[^.]+$", ""))
 end
 
+-- Covers already sized for the strip, kept between menu opens (up to
+-- COVER_KEEP, oldest let go first): key "path|WxH" -> entry.
+--   SimpleUI: its cover widget's image, kept with the resized picture it
+--             drew (its own free is held off). Reused while SimpleUI still
+--             hands out the same cover; a changed cover is drawn again.
+--   CoverBrowser: the resized cover itself.
+local COVER_KEEP = 10
+local cover_kept, cover_order = {}, {}
+local function keepCover(key, entry)
+    if not cover_kept[key] then
+        cover_order[#cover_order + 1] = key
+        if #cover_order > COVER_KEEP then
+            local old = table.remove(cover_order, 1)
+            local e = cover_kept[old]
+            cover_kept[old] = nil
+            if e and e.release then pcall(e.release) end
+        end
+    elseif cover_kept[key].release then
+        pcall(cover_kept[key].release)
+    end
+    cover_kept[key] = entry
+end
+
 -- A cached thumbnail only: SimpleUI's covers, else CoverBrowser's cache.
 local function coverWidget(fp, w, h)
+    local key = fp .. "|" .. w .. "x" .. h
     local SH = package.loaded["modules/module_books_shared"]
     if type(SH) == "table" and type(SH.getBookCover) == "function" then
         local ok, wd = pcall(SH.getBookCover, fp, w, h)
-        if ok and wd then return wd end
+        if ok and wd then
+            -- SimpleUI's frame around an image of its own cached cover
+            local img = type(wd) == "table" and wd[1]
+            local src = type(img) == "table" and rawget(img, "image")
+            if src then
+                local e = cover_kept[key]
+                if e and e.src == src and e.img then
+                    wd[1] = e.img -- the one already drawn at this size
+                else
+                    -- kept: closing or freeing the strip mustn't drop its picture
+                    img.free = function() end
+                    img.onCloseWidget = function() end
+                    keepCover(key, { src = src, img = img, release = function()
+                        img.free, img.onCloseWidget = nil, nil
+                        img:free()
+                    end })
+                end
+            end
+            return wd
+        end
+    end
+    local e = cover_kept[key]
+    if e and e.scaled then
+        return require("ui/widget/imagewidget"):new{ image = e.scaled, image_disposable = false,
+            width = e.w, height = e.h }
     end
     local BIM = package.loaded["bookinfomanager"]
     if type(BIM) == "table" and type(BIM.getBookInfo) == "function" then
@@ -180,7 +233,9 @@ local function coverWidget(fp, w, h)
                 return require("ui/renderimage"):scaleBlitBuffer(bb, sw, shh, true)
             end)
             if ok_s and scaled then
-                return require("ui/widget/imagewidget"):new{ image = scaled, width = sw, height = shh }
+                keepCover(key, { scaled = scaled, w = sw, h = shh, release = function() scaled:free() end })
+                return require("ui/widget/imagewidget"):new{ image = scaled, image_disposable = false,
+                    width = sw, height = shh }
             end
         end
     end
