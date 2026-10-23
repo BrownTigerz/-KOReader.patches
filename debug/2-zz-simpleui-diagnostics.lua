@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.10.0
+Version 2.10.1
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -61,6 +61,9 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.10.1 Other patches and Reading Log can ask whether it's logging right
+         now (package.loaded["simpleui_diagnostics"].on), so they skip
+         putting lines together once the 30-minute window has ended.
   2.10.0 Shared perf core: the timer timing (KOReader's timer loop) is now
          the one copy every diagnostic shares, so this and the other
          diagnostics no longer replace each other's. Same lines as before.
@@ -268,17 +271,19 @@ do
         if w then w:write(first, "\n") w:close() end
     end
     if os.difftime(os.time(), first) > EXPIRE_S then
-        write("simpleui diagnostics 2.10.0 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
+        write("simpleui diagnostics 2.10.1 expired (first run " .. os.date("%Y-%m-%d %I:%M %p", first)
             .. "): not watching anything. Delete this patch, or delete simpleui-diagnostics.state for 3 more days.")
         return
     end
 end
 
--- Other SimpleUI patches (SimpleUI Tweaks' Currently Reading swipe) log
--- through this, so their lines follow this diagnostic's window and expiry.
-package.loaded["simpleui_diagnostics"] = { log = log }
+-- Other SimpleUI patches (SimpleUI Tweaks' Currently Reading swipe) and
+-- Reading Log log through this, so their lines follow this diagnostic's
+-- window and expiry. `on` tells them whether it's logging right now, so
+-- they can skip putting a line together when it isn't.
+package.loaded["simpleui_diagnostics"] = { log = log, on = on }
 
-write("==================== simpleui diagnostics 2.10.0 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
+write("==================== simpleui diagnostics 2.10.1 started (logging for " .. WINDOW_MIN .. " minutes) ====================")
 do
     local dir = DataStorage:getDataDir() .. "/patches"
     local names = {}
