@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.2 (2026-10-23)
+2-backup-patches.lua                                     2.4.3 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.3  2026-10-23
+    - Tweaks Menu hide logic: registry probe only, file-existence
+      fallback removed — the file alone can't prove v1.0.6+, and hiding
+      for older versions would lose the updater entry entirely.
   2.4.2  2026-10-23
     - Tweaks Menu detection now probes package.loaded.tweaks_mods
       (active flag + v1.0.6+ version gate) per the Tweaks Menu spec;
@@ -234,7 +238,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.2"
+local VERSION = "2.4.3"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1197,8 +1201,8 @@ mainItems = function()
     })
     -- Tweaks Menu hosts the updater when it's installed (v1.0.6+): hide
     -- our own entry so there's only one. Detection: the tweaks_mods
-    -- registry (set at its load time), falling back to file existence.
-    -- Only hide when its version actually has the replacement entry.
+    -- registry only — no file fallback, since the file alone can't tell
+    -- us the version, and hiding for older versions would lose the entry.
     local tweaks_menu_active = false
     local TM = package.loaded.tweaks_mods
     if type(TM) == "table" and TM.active == true then
@@ -1209,10 +1213,6 @@ mainItems = function()
             tweaks_menu_active = ma > 1 or (ma == 1 and mi > 0)
                 or (ma == 1 and mi == 0 and pa >= 6)
         end
-    end
-    if not tweaks_menu_active then
-        local f = io.open(PATCH_DIR .. "/2-tweaks-menu.lua", "r")
-        if f then f:close() tweaks_menu_active = true end
     end
     if not tweaks_menu_active then
         table.insert(items, {
