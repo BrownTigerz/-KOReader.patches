@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.1 (2026-10-23)
+2-backup-patches.lua                                     2.4.2 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,10 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.2  2026-10-23
+    - Tweaks Menu detection now probes package.loaded.tweaks_mods
+      (active flag + v1.0.6+ version gate) per the Tweaks Menu spec;
+      file-existence remains as fallback.
   2.4.1  2026-10-23
     - Tweaks Menu integration: updater exposed as
       _G.__backup_patches_check_updates() for Tweaks Menu to call; when
@@ -230,7 +234,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.1"
+local VERSION = "2.4.2"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1191,10 +1195,21 @@ mainItems = function()
             })
         end,
     })
-    -- Tweaks Menu hosts the updater when it's installed: hide our own
-    -- entry so there's only one. Detection: its file in patches/, or a
-    -- global if it exposes one.
-    local tweaks_menu_active = _G.__tweaks_menu_active == true
+    -- Tweaks Menu hosts the updater when it's installed (v1.0.6+): hide
+    -- our own entry so there's only one. Detection: the tweaks_mods
+    -- registry (set at its load time), falling back to file existence.
+    -- Only hide when its version actually has the replacement entry.
+    local tweaks_menu_active = false
+    local TM = package.loaded.tweaks_mods
+    if type(TM) == "table" and TM.active == true then
+        local v = tostring(TM.version or "")
+        local ma, mi, pa = v:match("^(%d+)%.(%d+)%.(%d+)$")
+        if ma then
+            ma, mi, pa = tonumber(ma), tonumber(mi), tonumber(pa)
+            tweaks_menu_active = ma > 1 or (ma == 1 and mi > 0)
+                or (ma == 1 and mi == 0 and pa >= 6)
+        end
+    end
     if not tweaks_menu_active then
         local f = io.open(PATCH_DIR .. "/2-tweaks-menu.lua", "r")
         if f then f:close() tweaks_menu_active = true end
