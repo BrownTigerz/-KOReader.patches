@@ -39,7 +39,7 @@ return {
     ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.0.1",
     ["debug/2-zz-readmastery-diagnostics.lua"] = "1.0.9",
     ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.1.0",
-    ["debug/2-zz-shortcutstoolbar-diagnostics-2.lua"] = "1.0.11",
+    ["debug/2-zz-shortcutstoolbar-diagnostics.lua"] = "1.0.11",
     ["debug/2-zz-shortcutstoolbar-quick-shelf-diagnostics.lua"] = "1.1.1",
     ["debug/2-zz-simpleui-diagnostics.lua"] = "2.10.0",
     ["debug/2-zz-sleepscreen-banner-diagnostics.lua"] = "1.0.8",
