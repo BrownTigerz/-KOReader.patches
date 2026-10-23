@@ -18,8 +18,8 @@
 -- duplicate is cleaned up.
 
 return {
-    ["2-ReadMastery-notify.lua"] = "1.0.4",
-    ["2-ReadMastery-quests.lua"] = "1.0.4",
+    ["2-ReadMastery-notify.lua"] = "1.0.5",
+    ["2-ReadMastery-quests.lua"] = "1.0.5",
     ["2-backup-patches.lua"] = "2.4.3",
     ["2-debugging-menu.lua"] = "1.3.3",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.1.3",
@@ -41,7 +41,7 @@ return {
     ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.1.0",
     ["debug/2-zz-shortcutstoolbar-diagnostics.lua"] = "1.0.11",
     ["debug/2-zz-shortcutstoolbar-quick-shelf-diagnostics.lua"] = "1.1.1",
-    ["debug/2-zz-simpleui-diagnostics.lua"] = "2.10.0",
+    ["debug/2-zz-simpleui-diagnostics.lua"] = "2.10.1",
     ["debug/2-zz-sleepscreen-banner-diagnostics.lua"] = "1.0.8",
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.0.6",
