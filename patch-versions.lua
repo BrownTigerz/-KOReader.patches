@@ -18,8 +18,8 @@
 -- duplicate is cleaned up.
 
 return {
-    ["2-ReadMastery-notify.lua"] = "1.0.5",
-    ["2-ReadMastery-quests.lua"] = "1.0.5",
+    ["2-ReadMastery-notify.lua"] = "1.0.6",
+    ["2-ReadMastery-quests.lua"] = "1.0.6",
     ["2-backup-patches.lua"] = "2.4.7",
     ["2-debugging-menu.lua"] = "1.3.5",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.2.1",
