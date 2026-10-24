@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.11.1
+Version: 1.12.0
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -43,8 +43,13 @@ Menu: Settings (gear) → Network → Network Tweaks
                "Connected to <network>". SSH shows what you need to
                connect: "SSH on · 192.168.1.23:2222". Calibre shows the
                server it connected to.
-    Calibre's own "Searching… / Connecting… (tap to cancel)" messages stay:
-    they're how you cancel a Calibre connect. Set a fixed server address
+    Calibre's own messages use the style too: "Looking for calibre… /
+    Connecting to calibre… tap here to cancel" stays up until it connects
+    (tap it to cancel; while it searches, a tap anywhere still cancels),
+    "No calibre server found" / "Can't connect to calibre · <reason>",
+    "Receiving 2/5 · <book>" (one note at a time) then "5 books
+    received", and "Calibre · deleted <book>". Anything with buttons
+    (password, low disk space) stays as it is. Set a fixed server address
     (Calibre → Wireless settings) to skip the search step.
     Popups and the UI freeze are gone in Minimal and Banner. A failed
     Wi-Fi connect always shows a note at the top: tap it to choose a
@@ -96,6 +101,12 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.12.0 Calibre: its own messages use the note style (Minimal / Banner),
+         whichever way you connect (toolbar, gesture, menu): searching and
+         connecting (still tap to cancel), can't find / can't connect with
+         the reason, books received (one note at a time, then a total) and
+         books deleted. Before, only "Calibre connected" and the disconnect
+         did. Normal leaves them all stock.
   1.11.1 Storefront, both parts of 1.11.0 now actually work:
          - Its messages: Storefront shows them with its own toast, not
            KOReader's message box, so they weren't caught. Its self-closing
@@ -211,7 +222,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.11.1"
+local PATCH_VERSION = "1.12.0"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -346,7 +357,8 @@ function CornerNote:onShow()
     table.insert(corner_open, self)
     UIManager:setDirty(self, function() return "ui", self.dimen end)
     self._close = function() UIManager:close(self) end
-    UIManager:scheduleIn(self.timeout, self._close)
+    -- timeout = false: stays until closed (Calibre's "tap to cancel" note)
+    if self.timeout then UIManager:scheduleIn(self.timeout, self._close) end
     return true
 end
 
@@ -707,16 +719,179 @@ local calibre = {
     host = nil, port = nil,
 }
 
--- The plugin's own "connection dropped" popups; replaced by our note.
-local orig_ui_show = UIManager.show
-UIManager.show = function(um, widget, ...)
-    if calibre.connected and type(widget) == "table" and connectStyle() ~= "normal" then
-        local t = widget.text
-        if t == _("Disconnected by calibre") or t == _("Disconnected from calibre (no activity)") then
-            return
+-- Calibre's own messages, in the chosen style (Normal leaves them alone):
+--   "Searching… / Connecting… (tap to cancel)": a note that stays up until
+--     the connect ends; tap it to cancel, exactly like tapping the message.
+--     While it searches, a tap anywhere still cancels (stock).
+--   "Couldn't discover… / Cannot connect…": a note with the reason, 5 s.
+--   "Received file 2/5: …": one note at a time ("Receiving 2/5 · Title"),
+--     then "5 books received". "Deleted file…": a note.
+--   "Disconnected by calibre…": replaced by the disconnect note below.
+-- Anything with buttons (password, low disk space) shows as stock.
+local function prefixOf(fmt)
+    local at = fmt:find("%1", 1, true)
+    return at and fmt:sub(1, at - 1) or fmt
+end
+local cal_text -- built on first use, in the current language
+local function calText()
+    if cal_text then return cal_text end
+    cal_text = {
+        searching  = _("Searching for a calibre server… (tap to cancel)"),
+        connecting = prefixOf(_("Connecting to calibre server at %1 (%2, tap to cancel)")),
+        not_found  = _("Couldn't discover a calibre instance on the local network"),
+        cannot     = prefixOf(_("Cannot connect to calibre server at %1 (%2)")),
+        received   = prefixOf(_("Received file %1/%2: %3")),
+        deleted1   = prefixOf(_("Deleted file: %1")),
+        deletedN   = prefixOf(_("Deleted %1 files in %2:\n %3")),
+        dropped1   = _("Disconnected by calibre"),
+        dropped2   = _("Disconnected from calibre (no activity)"),
+    }
+    return cal_text
+end
+local function startsWith(t, p) return p ~= "" and t:sub(1, #p) == p end
+
+local cal_shown = setmetatable({}, { __mode = "k" }) -- Calibre's message -> our note
+local cal_replaced = setmetatable({}, { __mode = "k" }) -- Calibre's messages never shown
+local cal_last -- the last receive / delete note, replaced by the next one
+
+local function bookName(path)
+    local name = tostring(path or ""):match("([^/]+)$") or tostring(path or "")
+    return (name:gsub("%.[%w]+$", ""))
+end
+
+-- A note that stays up until closed; tapping it runs on_tap. With
+-- `on_other_tap`, a tap anywhere else runs that (the search can be
+-- cancelled with a tap anywhere, which never reaches the note itself).
+local function stayingNote(banner_text, minimal_text, on_tap, on_other_tap)
+    local w
+    if connectStyle() == "banner" then
+        w = Banner:new{ text = banner_text, on_tap = on_tap }
+    else
+        w = CornerNote:new{ text = minimal_text or banner_text, timeout = false, on_tap = on_tap }
+    end
+    if on_other_tap then
+        local own = w.onGesture
+        w.onGesture = function(self, ev)
+            local area = (self.frame and self.frame.dimen) or self.dimen
+            if ev and ev.ges == "tap" and ev.pos and area and not ev.pos:intersectWith(area) then
+                on_other_tap()
+                return false
+            end
+            return own(self, ev)
         end
     end
+    UIManager:show(w)
+    return w
+end
+
+-- One note at a time for files received / deleted.
+local function calNote(banner_text, minimal_text, timeout)
+    if cal_last then UIManager:close(cal_last); cal_last = nil end
+    if note(banner_text, minimal_text, timeout) then
+        cal_last = connectStyle() == "banner" and last_flash or last_corner
+    end
+end
+
+-- Returns true when Calibre's message `widget` was shown our way instead.
+local function calibreMessage(widget)
+    local t = widget.text
+    if type(t) ~= "string" then return false end
+    local C = calText()
+    local in_connect = calibre.co ~= nil and coroutine.running() == calibre.co
+    if not in_connect and widget.is_infomessage and (t == C.searching or startsWith(t, C.connecting)) then
+        logger.info("network-tweaks: calibre message left as is (not in the connect):", t)
+    end
+    if in_connect and widget.is_infomessage then
+        -- Trapper's messages during the connect
+        if t == C.searching or startsWith(t, C.connecting) then
+            local searching = t == C.searching
+            local mine
+            mine = stayingNote(
+                searching and _("Looking for calibre… tap here to cancel") or _("Connecting to calibre… tap here to cancel"),
+                searching and _("Calibre: searching… (tap to cancel)") or _("Calibre: connecting… (tap to cancel)"),
+                function()
+                    cal_shown[widget] = nil
+                    UIManager:close(mine)
+                    local cb = widget.dismiss_callback
+                    if type(cb) == "function" then cb() end
+                end,
+                -- searching: a tap anywhere cancels (stock); the note goes with it
+                searching and function()
+                    cal_shown[widget] = nil
+                    UIManager:close(mine)
+                end or nil)
+            cal_shown[widget] = mine
+            logger.info("network-tweaks: calibre", searching and "searching" or "connecting", "note")
+            return true
+        end
+        if t == C.not_found then
+            note(_("No calibre server found on this network"), _("Calibre: no server found"), 5)
+            return true
+        end
+        if startsWith(t, C.cannot) then
+            local rest = t:sub(#C.cannot + 1)
+            note(_("Can't connect to calibre · ") .. rest, _("Calibre: can't connect"), 5)
+            return true
+        end
+        return false
+    end
+    if widget.is_infomessage or widget.dismiss_callback then return false end
+    if startsWith(t, C.received) then
+        local n, total, path = t:sub(#C.received + 1):match("^(%d+)/(%d+):%s*(.*)$")
+        n, total = tonumber(n), tonumber(total)
+        if n and total then
+            if n >= total then
+                if total == 1 then
+                    calNote(_("Calibre · received ") .. bookName(path), _("Book received"), 3)
+                else
+                    calNote(T(_("Calibre · %1 books received"), total), T(_("%1 books received"), total), 3)
+                end
+            else
+                calNote(T(_("Receiving %1/%2 · %3"), n, total, bookName(path)), T(_("Receiving %1/%2"), n, total), 3)
+            end
+            return true
+        end
+        return false
+    end
+    if startsWith(t, C.deleted1) then
+        calNote(_("Calibre · deleted ") .. bookName(t:sub(#C.deleted1 + 1)), _("Book deleted"), 3)
+        return true
+    end
+    if startsWith(t, C.deletedN) then
+        local n = tonumber(t:sub(#C.deletedN + 1):match("^(%d+)"))
+        if n then
+            calNote(T(_("Calibre · %1 books deleted"), n), T(_("%1 books deleted"), n), 3)
+            return true
+        end
+    end
+    return false
+end
+
+local orig_ui_show = UIManager.show
+UIManager.show = function(um, widget, ...)
+    if type(widget) == "table" and type(widget.text) == "string" and connectStyle() ~= "normal"
+            and (calibre.co ~= nil or calibre.connected) and not Device.screen_saver_mode then
+        local t = widget.text
+        local C = calText()
+        -- the plugin's "connection dropped": our disconnect note says it
+        if calibre.connected and (t == C.dropped1 or t == C.dropped2) then return end
+        local ok, mine = pcall(calibreMessage, widget)
+        if ok and mine then cal_replaced[widget] = true; return end
+    end
     return orig_ui_show(um, widget, ...)
+end
+
+-- Calibre closing its message closes our note in its place.
+local orig_ui_close = UIManager.close
+UIManager.close = function(um, widget, ...)
+    if type(widget) == "table" and cal_replaced[widget] then
+        -- never shown: close our note in its place (if it's still up)
+        local mine = cal_shown[widget]
+        cal_shown[widget] = nil
+        if mine then return orig_ui_close(um, mine, ...) end
+        return
+    end
+    return orig_ui_close(um, widget, ...)
 end
 
 -- The plugin clears its "Connecting…" message right after the handshake.
