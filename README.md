@@ -364,6 +364,8 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art an
 
 ![Quickmenu Toggle](images/quickmenu-toggle.jpg)
 
+![Quickmenu Toggle 2](images/quickmenu-toggle-3.jpg)
+
 When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a checkbox prefix — "✓" when on, "▢" when off (the same glyphs KOReader's own menus use, rendered as text so they always display). The marker goes first on purpose: the popup truncates long labels from the end.
 
 - **Style tweaks:** any `style_tweak_*` toggle action (stock tweaks and custom CSS files) reads its live state from the current book. The `style_tweak_set_*` setter actions are left alone.
@@ -395,6 +397,8 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 ---
 
 ## Screenshot Timer
+
+![Screenshot Timer](images/screenshot-timer.jpg)
 
 `2-screenshot-timer.lua` — tap a menu entry, and 10 seconds later the screen is saved to KOReader's screenshots folder. One shot per tap.
 
