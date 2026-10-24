@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.3 (2026-10-23)
+2-backup-patches.lua                                     2.4.5 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,21 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.5  2026-10-23
+    - Update check with Wi-Fi off: the 60 s connect timeout was left
+      waiting after Wi-Fi connected (and through sleep, if the device
+      slept within that minute). It's cancelled the moment the check
+      gets its answer.
+  2.4.4  2026-10-23
+    - Update status read "2.12.0: 2.12.1 → 2.12.1" (new version twice,
+      old one where the label goes). Now "Update Available (2.12.0 →
+      2.12.1)", same style as "Up to Date (x)".
+    - Update check reads only the first 16 KB of each installed patch
+      for its version (every version line sits well inside it), the
+      whole file only when nothing's found there. Was reading ~1.5 MB
+      across 23 files on every check.
+    - Counts read right when there's one: "1 backup deleted", "Delete
+      the 1 patch backup", "1 icon", and so on.
   2.4.3  2026-10-23
     - Tweaks Menu hide logic: registry probe only, file-existence
       fallback removed — the file alone can't prove v1.0.6+, and hiding
@@ -238,7 +253,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.3"
+local VERSION = "2.4.5"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -246,6 +261,11 @@ local logger = require("logger")
 local util = require("util")
 local _ = require("gettext")
 local T = require("ffi/util").template
+-- "1 backup" / "2 backups": KOReader's ngettext when it has one.
+local function N_(one, many, n)
+    if type(_.ngettext) == "function" then return _.ngettext(one, many, n) end
+    return n == 1 and one or many
+end
 
 local DATA = DataStorage:getDataDir()
 local SETTINGS_DIR = DataStorage:getSettingsDir()
@@ -902,7 +922,7 @@ local function targetMenu(target)
                 if not path then
                     UIManager:show(InfoMessage:new{ text = T(_("Backup failed:\n%1"), tostring(res)) })
                 elseif res > 0 then
-                    styledNote(T(_("Backed up %1 · %2 icons"), target.text, res), _("Backed up"))
+                    styledNote(T(N_("Backed up %1 · %2 icon", "Backed up %1 · %2 icons", res), target.text, res), _("Backed up"))
                 else
                     styledNote(T(_("Backed up %1"), target.text), _("Backed up"))
                 end
@@ -1012,7 +1032,7 @@ local function iconsMenu()
             })
         end
         if total > 0 then
-            UIManager:askForRestart(T(_("Tidied %1 icons.\n\nKOReader needs to restart."), total))
+            UIManager:askForRestart(T(N_("Tidied %1 icon.\n\nKOReader needs to restart.", "Tidied %1 icons.\n\nKOReader needs to restart.", total), total))
         end
     end
 
@@ -1035,11 +1055,11 @@ local function iconsMenu()
 
                 local items = {
                     {
-                        text = T(_("All Targets (%1 Icons)"), total),
+                        text = T(N_("All Targets (%1 Icon)", "All Targets (%1 Icons)", total), total),
                         separator = true,
                         callback = function()
                             UIManager:show(ConfirmBox:new{
-                                text = T(_("Copy %1 icons into each target's own folder and point the settings there?\n\nOriginals stay where they are. Each target is backed up first."), total),
+                                text = T(N_("Copy %1 icon into each target's own folder and point the settings there?\n\nOriginals stay where they are. Each target is backed up first.", "Copy %1 icons into each target's own folder and point the settings there?\n\nOriginals stay where they are. Each target is backed up first.", total), total),
                                 ok_text = _("Tidy"),
                                 ok_callback = function()
                                     local targets = {}
@@ -1082,7 +1102,7 @@ local function iconsMenu()
                         separator = true,
                         callback = function(touchmenu)
                             UIManager:show(ConfirmBox:new{
-                                text = T(_("Delete %1 icons that nothing points to?\n\nThis can't be undone."), #unused),
+                                text = T(N_("Delete %1 icon that nothing points to?\n\nThis can't be undone.", "Delete %1 icons that nothing points to?\n\nThis can't be undone.", #unused), #unused),
                                 ok_text = _("Delete"),
                                 ok_callback = function()
                                     local n = 0
@@ -1090,7 +1110,7 @@ local function iconsMenu()
                                         if removeIcon(e) then n = n + 1 end
                                     end
                                     if touchmenu then touchmenu:backToUpperMenu() end
-                                    styledNote(T(_("Deleted %1 unused icons"), n), T(_("%1 icons deleted"), n))
+                                    styledNote(T(N_("Deleted %1 unused icon", "Deleted %1 unused icons", n), n), T(N_("%1 icon deleted", "%1 icons deleted", n), n))
                                 end,
                             })
                         end,
@@ -1162,14 +1182,16 @@ mainItems = function()
             local ConfirmBox = require("ui/widget/confirmbox")
             local n = backupTotals(Backup.targets)
             UIManager:show(ConfirmBox:new{
-                text = T(_("Delete all %1 patch backups, for every target, safety backups included?\n\nDevice Backup & Restore backups aren't affected. This can't be undone."), n),
+                text = n == 1
+                    and _("Delete the 1 patch backup?\n\nDevice Backup & Restore backups aren't affected. This can't be undone.")
+                    or T(_("Delete all %1 patch backups, for every target, safety backups included?\n\nDevice Backup & Restore backups aren't affected. This can't be undone."), n),
                 ok_text = _("Delete All"),
                 ok_callback = function()
                     local gone = deleteAllBackups(Backup.targets)
                     -- Targets with nothing left drop off this menu: go up so
                     -- it's rebuilt next time.
                     if touchmenu then touchmenu:backToUpperMenu() end
-                    styledNote(T(_("Deleted %1 backups"), gone), T(_("%1 backups deleted"), gone))
+                    styledNote(T(N_("Deleted %1 backup", "Deleted %1 backups", gone), gone), T(N_("%1 backup deleted", "%1 backups deleted", gone), gone))
                 end,
             })
         end,
@@ -1363,11 +1385,18 @@ end
 local function installedVersion(path)
     local f = io.open(path, "r")
     if not f then return nil end
-    local src = f:read("*a") or ""
+    local function pick(src)
+        return src:match('local VERSION%s*=%s*"([^"]+)"')
+            or src:match('VERSION%s*=%s*"([^"]+)"')
+            or src:match("Version%s+([%d%.]+)")
+    end
+    -- The version line sits near the top of every patch: read 16 KB, and
+    -- the rest only if it isn't there.
+    local head = f:read(16384) or ""
+    local v = pick(head)
+    if not v and #head == 16384 then v = pick(head .. (f:read("*a") or "")) end
     f:close()
-    return src:match('local VERSION%s*=%s*"([^"]+)"')
-        or src:match('VERSION%s*=%s*"([^"]+)"')
-        or src:match("Version%s+([%d%.]+)")
+    return v
 end
 
 -- Where a manifest entry lives on this device. A diagnostic can sit in
@@ -1423,7 +1452,7 @@ local function entryStatus(repo_path, available)
     e.installed = installed
     local cmp = compareVersions(installed, available)
     if cmp < 0 then
-        e.status, e.status_text = "update_available", T(_("%1: %2 → %2"), installed, available)
+        e.status, e.status_text = "update_available", T(_("Update Available (%1 → %2)"), installed, available)
     elseif cmp > 0 then
         e.status, e.status_text = "newer", T(_("Installed Is Newer (%1)"), installed)
     else
@@ -1444,15 +1473,18 @@ local function ensureWifi()
     end
     local co = coroutine.running()
     local done = false
+    local timeout
     local function finish(ok)
         if done then return end
         done = true
+        if timeout then UIManager:unschedule(timeout) end
         updaterTrace("wifi", ok and "connected" or "connect timed out after 60s")
         if coroutine.status(co) == "suspended" then
             coroutine.resume(co, ok)
         end
     end
-    UIManager:scheduleIn(60, function() finish(false) end)
+    timeout = function() finish(false) end
+    UIManager:scheduleIn(60, timeout)
     local we_turned_on = not NetworkMgr:isWifiOn()
     updaterTrace("wifi", we_turned_on and "off at check start: turning on automatically"
         or "on but not connected: waiting for connection")
