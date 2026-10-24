@@ -28,6 +28,7 @@ return {
     ["2-quickmenu-toggle-state.lua"] = "1.0.4",
     ["2-readinginsights-tweaks.lua"] = "2.1.0",
     ["2-shelfsync-tweaks.lua"] = "1.11.15",
+    ["2-screenshot-timer.lua"] = "1.0.0",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.15.0",
     ["2-shortcutstoolbar-quick-shelf.lua"] = "1.2.2",
     ["2-simpleui-tweaks.lua"] = "2.12.1",
