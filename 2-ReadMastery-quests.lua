@@ -2,7 +2,7 @@
 ReadMastery - Quests & Tag Engine Patch
 ========================================
 
-Version: 1.0.5
+Version: 1.0.6
 
 Drop this alongside 2-ReadMastery-notify.lua in your KOReader
 `patches/` folder and restart. Independent, optional add-on - if
@@ -136,6 +136,15 @@ author (getProps().authors), which is why Author Explorer is safe
 to have already but a series-based quest isn't.
 
 Changelog:
+  1.0.6 (2026-10-24) - SimpleUI's Critter (via the notify patch's
+    "Critter Reacts" toggle): each completed quest is passed on so the
+    Critter can comment on it, and today's daily quests (title, what
+    they ask, progress) can be read so the Critter can offer one in its
+    chat, and the weekly / monthly / seasonal quests still open, with the
+    days left, so it can nudge near the end of the week or month.
+    Read-only: nothing here changes quest progress, XP or what
+    counts. Without the notify patch (or with the toggle off) nothing
+    changes.
   1.0.5 (2026-10-22) - Page guard: only pages you haven't read yet
     this sitting count. ReadMastery counted every turn by distance in
     both directions, so paging back and forward again (or a short
@@ -200,7 +209,7 @@ local logger      = require("logger")
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.5"
+local PATCH_VERSION = "1.0.6"
 
 -- =================================================================
 -- Settings / state (own file - ReadMastery's own data.json is
@@ -437,6 +446,73 @@ local function findQuest(list, id)
     return QUEST_BY_ID[id]
 end
 
+-- Forward-declared: ensurePeriod is defined further down (period keys).
+local ensurePeriod
+
+-- Read-only view for other patches (the notify patch's Critter bridge):
+-- whether quests are on, and today's daily quests with their progress.
+-- Nothing here changes progress, XP or what counts. Minutes are shown
+-- in minutes (progress keeps seconds).
+local MINUTE_TYPES = { minutes = true, time_window_minutes = true, single_session_minutes = true }
+_G.ReadMasteryQuests = {
+    version = "1.0.6",
+    enabled = function() return Quest.enabled == true end,
+    -- { { id, title, type, need, have, unit, done, reward_xp, from?, to? }, ... }
+    -- (the two always-on dailies, then today's rotating one)
+    daily = function()
+        if not Quest.enabled then return {} end
+        ensurePeriod()
+        local d = Quest.state.daily
+        local list = {}
+        local defs = { DAILY_ALWAYS[1], DAILY_ALWAYS[2], QUEST_BY_ID[d.rotate_id] }
+        for _, q in ipairs(defs) do
+            if q then
+                local p = d.progress[q.id]
+                local raw = p and tonumber(p.value) or 0
+                local mins = MINUTE_TYPES[q.type]
+                list[#list + 1] = {
+                    id = q.id, title = q.title, type = q.type, need = q.target,
+                    have = mins and math.floor(raw / 60) or raw,
+                    unit = mins and "minutes" or "pages",
+                    done = p and p.completed == true or false,
+                    reward_xp = q.reward_xp, from = q.from, to = q.to,
+                    day = d.key,
+                }
+            end
+        end
+        return list
+    end,
+    -- Weekly, monthly and this month's seasonal quests still open, with
+    -- the days left in their period (today included: 1 = last day).
+    -- { { id, title, type, period, need, have, unit, days_left, tag_groups? }, ... }
+    open = function()
+        if not Quest.enabled then return {} end
+        local now_t = ensurePeriod()
+        local wday = (now_t.wday == 1) and 7 or (now_t.wday - 1)        -- Monday 1 .. Sunday 7
+        local last_day = os.date("*t", os.time{ year = now_t.year, month = now_t.month + 1, day = 0, hour = 12 }).day
+        local month_left = last_day - now_t.day + 1
+        local list = {}
+        local function add(q, period, progress, days_left)
+            local p = progress[q.id]
+            if p and p.completed then return end
+            local raw = p and tonumber(p.value) or 0
+            local mins = MINUTE_TYPES[q.type]
+            list[#list + 1] = {
+                id = q.id, title = q.title, type = q.type, period = period, need = q.target,
+                have = mins and math.floor(raw / 60) or raw,
+                unit = mins and "minutes" or (q.type == "pages" and "pages" or "count"),
+                days_left = days_left, tag_groups = q.tag_groups,
+            }
+        end
+        for _, q in ipairs(WEEKLY_QUESTS) do add(q, "weekly", Quest.state.weekly.progress, 8 - wday) end
+        for _, q in ipairs(MONTHLY_QUESTS) do add(q, "monthly", Quest.state.monthly.progress, month_left) end
+        for _, q in ipairs(SEASONAL_QUESTS) do
+            if q.active_month == now_t.month then add(q, "seasonal", Quest.state.seasonal.progress, month_left) end
+        end
+        return list
+    end,
+}
+
 -- Plain-English "how to complete this" text, for the tap-to-detail
 -- popup in View Quests.
 local function describeQuest(quest)
@@ -546,7 +622,7 @@ end
 -- same instant again. Only the Monday-of-the-week calculation still
 -- needs its own os.date call, since simple day-of-month subtraction
 -- can't safely cross a month/year boundary on its own.
-local function ensurePeriod()
+ensurePeriod = function()
     local now = os.time()
     local now_t = os.date("*t", now) -- TRUE current time - seasonal month/year, week-day math, and returned for inTimeWindow
     local quest_day_t = os.date("*t", now - QUEST_DAY_SHIFT_SECONDS) -- shifted, daily key/rotation only
@@ -1063,6 +1139,11 @@ local function patchReadMastery(plugin)
                 local title = Icons.TARGET .. " QUEST COMPLETE " .. Icons.TARGET
                 local text = quest.title .. "\n+" .. quest.reward_xp .. " XP"
                 local bridge = _G.ReadMasteryNotify
+                -- SimpleUI's Critter comments on it (notify patch decides
+                -- whether; never affects the quest itself)
+                if bridge and type(bridge.onQuestComplete) == "function" then
+                    pcall(bridge.onQuestComplete, quest)
+                end
                 if bridge and bridge.render then
                     bridge.render(title, text)
                 else
