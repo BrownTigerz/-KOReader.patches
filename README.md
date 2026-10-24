@@ -80,6 +80,14 @@ Colours are picked as they should look on screen; Night Mode inversion is handle
 
 ---
 
+### Tiny Critters
+
+Custom pixel art critters for SimpleUI's Tiny Critter feature — Donny (tabby), Blu (Siamese), and both together. All 12 moods included.
+
+![Critters](images/critters-showcase.png)
+
+Download: [critters.zip](critters.zip) — extract to `koreader/settings/simpleui/sui_critters/` on your Kobo.
+
 ## Add-ons menu
 
 ![Addons Menu](images/addons-menu.png)
