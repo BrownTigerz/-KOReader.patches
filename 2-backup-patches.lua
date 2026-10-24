@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.5 (2026-10-23)
+2-backup-patches.lua                                     2.4.6 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,23 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.6  2026-10-23
+    - Update check with Wi-Fi off showed "Couldn't Connect to Wi-Fi." a
+      second after you'd connected from the network list. It was waiting
+      on a connectivity check that the network list's own connect clears
+      (KOReader cancels every pending one at once), so it never heard
+      the connection and ran out its 60 s. It now checks the connection
+      itself once a second while it waits (only during a check, nothing
+      otherwise), and goes ahead the moment Wi-Fi is up, however it
+      connected.
+    - It also stops waiting when the connect gives up (Wi-Fi back off,
+      nothing connecting), instead of a full minute; with Network Tweaks
+      that one already shows "no known network · tap to choose one", so
+      there's no second popup. Without it, the failure is a short note,
+      not a popup you have to close.
+    - Tapping Check for Patch Updates again while one is still waiting
+      for Wi-Fi is ignored (each tap started its own wait and its own
+      "Couldn't Connect" a minute later: two at once at 11:55 AM).
   2.4.5  2026-10-23
     - Update check with Wi-Fi off: the 60 s connect timeout was left
       waiting after Wi-Fi connected (and through sleep, if the device
@@ -253,7 +270,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.5"
+local VERSION = "2.4.6"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1463,28 +1480,49 @@ end
 
 -- Makes sure we're online. Turns Wi-Fi on automatically when it's off and
 -- waits for the connection (up to 60s). Wi-Fi is left on afterwards.
--- Returns true when connected.
+-- Returns true when connected, or false plus why ("gave up" / "timed out").
+--
+-- While it waits it checks the connection itself, once a second: a
+-- connectivity check of its own isn't safe to wait on, because KOReader
+-- cancels every pending one at once (the network list's connect does
+-- that), and then this never heard that Wi-Fi came up. One timer, only
+-- during an update check.
+local WIFI_WAIT_S = 60
 local function ensureWifi()
     local NetworkMgr = require("ui/network/manager")
     local UIManager = require("ui/uimanager")
     if NetworkMgr:isConnected() then
         updaterTrace("wifi", "already connected")
-        return true, false
+        return true
     end
     local co = coroutine.running()
+    local started = os.time()
     local done = false
-    local timeout
-    local function finish(ok)
+    local tick
+    local function finish(ok, why)
         if done then return end
         done = true
-        if timeout then UIManager:unschedule(timeout) end
-        updaterTrace("wifi", ok and "connected" or "connect timed out after 60s")
+        UIManager:unschedule(tick)
+        updaterTrace("wifi", "%s", ok and "connected" or why)
         if coroutine.status(co) == "suspended" then
-            coroutine.resume(co, ok)
+            coroutine.resume(co, ok, why)
         end
     end
-    timeout = function() finish(false) end
-    UIManager:scheduleIn(60, timeout)
+    tick = function()
+        if done then return end
+        local ok_c, connected = pcall(NetworkMgr.isConnected, NetworkMgr)
+        if ok_c and connected then return finish(true) end
+        local waited = os.difftime(os.time(), started)
+        if waited >= WIFI_WAIT_S then
+            return finish(false, "connect timed out after 60s")
+        end
+        -- The connect gave up (Network Tweaks' "no known network" note, or
+        -- KOReader's own): Wi-Fi back off and nothing connecting.
+        if waited >= 3 and not NetworkMgr:isWifiOn() and not NetworkMgr.pending_connection then
+            return finish(false, "gave up: Wi-Fi is off and nothing is connecting")
+        end
+        UIManager:scheduleIn(1, tick)
+    end
     local we_turned_on = not NetworkMgr:isWifiOn()
     updaterTrace("wifi", we_turned_on and "off at check start: turning on automatically"
         or "on but not connected: waiting for connection")
@@ -1493,14 +1531,11 @@ local function ensureWifi()
         -- every other user-facing note in this patch.
         styledNote(_("Connecting to Wi-Fi…"), _("Connecting…"), 4)
     end
-    NetworkMgr:requestToTurnOnWifi(function()
-        NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
-    end, false)
-    -- Belt and braces: also watch for the connection ourselves, in case the
-    -- backend never forwards the callback.
-    NetworkMgr:scheduleConnectivityCheck(function() finish(true) end)
-    local ok = coroutine.yield()
-    return ok
+    -- (the callback is only there so KOReader's own flow doesn't add a
+    -- "retry the action" message; the check below is what we wait on)
+    NetworkMgr:requestToTurnOnWifi(function() end, false)
+    UIManager:scheduleIn(1, tick)
+    return coroutine.yield()
 end
 
 -- Downloads and installs the given entries. The caller only passes
@@ -1602,9 +1637,19 @@ end
 
 -- Exposed on Backup (like tidyIcons) so the menu can reach it: the updater
 -- is defined after the Menu section, where styledNote lives.
+local update_check_running = false
+
 function Backup.checkForPatchUpdates()
+    -- One at a time: a second tap while the first waits for Wi-Fi started
+    -- its own wait (and its own failure note a minute later).
+    if update_check_running then
+        updaterTrace("run", "already running, tap ignored")
+        return
+    end
+    update_check_running = true
     local Trapper = require("ui/trapper")
     Trapper:wrap(function()
+      local ok_run, err_run = pcall(function()
         local UIManager = require("ui/uimanager")
         local InfoMessage = require("ui/widget/infomessage")
         local ConfirmBox = require("ui/widget/confirmbox")
@@ -1614,7 +1659,14 @@ function Backup.checkForPatchUpdates()
         updaterTrace("run", "check started")
         if not ensureWifi() then
             updaterTrace("wifi", "giving up: no connection")
-            UIManager:show(InfoMessage:new{ text = _("Couldn't Connect to Wi-Fi.") })
+            -- Network Tweaks' background connect already said so ("no known
+            -- network · tap to choose one"); otherwise a short note.
+            local nt = G_reader_settings:readSetting("network_tweaks") or {}
+            local nt_said_it = NetworkMgr.__network_tweaks_note ~= nil
+                and (nt.connect_style or "banner") ~= "normal"
+            if not nt_said_it then
+                styledNote(_("Couldn't connect to Wi-Fi"), _("Wi-Fi failed"), 3)
+            end
             return
         end
 
@@ -1830,6 +1882,11 @@ function Backup.checkForPatchUpdates()
             item_table = items,
         }
         UIManager:show(status_menu)
+      end)
+      update_check_running = false
+      if not ok_run then
+          logger.warn("backup_patches: update check failed:", err_run)
+      end
     end)
 end
 
