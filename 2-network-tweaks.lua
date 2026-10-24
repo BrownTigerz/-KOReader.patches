@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.10.4
+Version: 1.10.8
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -21,6 +21,8 @@ Menu: Settings (gear) → Network → Network Tweaks
     Scans (tap the scanning message to cancel) and lists networks:
     Connected, Saved, Saved · away (saved, not in range) or Open. Tap one
     for Reconnect / Edit password / Forget, or Disconnect when connected.
+    Forget (and Forget all) ask KOReader Only or Device + KOReader when the
+    device has the network saved too.
     Forget all saved, Rescan and Close at the bottom. Never connects by
     itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and
     closing the list without picking puts Wi-Fi back off. "Saved" here is
@@ -80,6 +82,38 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.10.8 Something asking for Wi-Fi in the background (the Backup
+         updater's Check for Patch Updates & co.) with nothing saved on the
+         device fell back to KOReader's flow: the screen froze 5.6 s and
+         then nothing connected. It now fails straight away with the same
+         tappable "no known network · tap to choose one" note as a failed
+         background connect (tap it for the network list), and the
+         caller's "Connecting…" note is closed instead of staying 4 s next
+         to it.
+  1.10.7 The network list instead of KOReader's frozen flow now also
+         covers the toolbar Wi-Fi button and the menu toggle (1.10.6 only
+         caught the Wi-Fi gesture; the toolbar went through another door
+         and still froze ~5.5 s). A connect with an action waiting on it
+         keeps KOReader's flow, which runs the action after.
+  1.10.6 With nothing saved on the device, tapping Wi-Fi opened KOReader's
+         own flow: ~5 s with the screen frozen ("Turning on Wi-Fi…", a
+         blocking scan) and its raw popups (one was a wpa_supplicant
+         "CTRL-EVENT-REGDOM-CHANGE" line). It now opens Network Tweaks'
+         network list instead. And a network you connect to from that list
+         is saved on the device too (if it isn't already), so background
+         reconnects work for it again.
+  1.10.5 Forget / Forget all can also forget on the device. KOReader's
+         saved list isn't the only one: the device keeps its own (on
+         Kobo, the stock reader's wpa_supplicant.conf), and that's what
+         background reconnects use, so a "forgotten" network still came
+         back without a password. When the device has it too, Forget and
+         Forget all ask: KOReader Only, or Device + KOReader. Device +
+         KOReader removes it from the device's list as well (the old file
+         is kept as wpa_supplicant.conf.bak; the new one is written to a
+         temporary file first and swapped in, so a failed write can't
+         leave it half done) and from the running Wi-Fi, so it doesn't
+         reconnect now either. The device's list is only read when the
+         network list is open, and only written when you pick that.
   1.10.4 Opening the network list while it's already scanning (tapping a
          "no known network" note again, or holding Wi-Fi twice) started
          a second scan next to the first. The two fought over
@@ -147,7 +181,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.10.4"
+local PATCH_VERSION = "1.10.8"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -170,6 +204,7 @@ local ffiutil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local util = require("util")
+local T = require("ffi/util").template
 local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
@@ -293,8 +328,14 @@ function CornerNote:onCloseWidget()
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
+-- Most recent corner note, so a failure right after it (nothing saved on
+-- the device) can close the caller's "Connecting…" instead of showing next
+-- to it.
+local last_corner, last_corner_at
 local function corner(text, timeout)
-    UIManager:show(CornerNote:new{ text = text, timeout = timeout or 2 })
+    last_corner = CornerNote:new{ text = text, timeout = timeout or 2 }
+    last_corner_at = os.time()
+    UIManager:show(last_corner)
 end
 
 -- One call per event: Banner text, Minimal text (falls back to the Banner
@@ -1160,12 +1201,28 @@ userpatch.registerPatchPluginFunc("kobo", hookKoboPlugin)
 -- Renamed folder: catch it when menus are built (before the plugin adds
 -- its entries) instead. See NetworkMgr.getMenuTable below.
 
+-- Nothing saved on the device: a background connect has nothing to join,
+-- and KOReader's own flow freezes the screen ~5 s (a blocking scan) before
+-- its list, with raw popups. Open Network Tweaks' list instead.
+local function listInsteadOfStock()
+    if connectStyle() == "normal" or not quietSupported() or hasKnownNetworks() then return false end
+    local choose = NetworkMgr.__network_tweaks_choose_network
+    if type(choose) ~= "function" then return false end
+    logger.info("network-tweaks: nothing saved on the device, opening the network list")
+    UIManager:nextTick(choose)
+    return true
+end
+
 -- Menu toggle and the "Turn on Wi-Fi?" prompt. Long-press keeps the list.
 local orig_toggle_on = NetworkMgr.toggleWifiOn
 NetworkMgr.toggleWifiOn = function(self, complete_callback, long_press, interactive)
     markUserConnect()
     if quiet or (not long_press and not self:isWifiOn() and canQuiet()) then
         if quietConnect(complete_callback) then return end
+    end
+    -- (only without a callback: the list can't run one after connecting)
+    if not long_press and not complete_callback and not self:isWifiOn() and listInsteadOfStock() then
+        return
     end
     return orig_toggle_on(self, complete_callback, long_press, interactive)
 end
@@ -1186,6 +1243,8 @@ NetworkMgr.turnOnWifiAndWaitForConnection = function(self, callback)
     if quiet or (not self:isWifiOn() and canQuiet()) then
         if quietConnect(callback) then return end
     end
+    -- Toolbar Wi-Fi button & co. with nothing saved on the device.
+    if not callback and not self:isWifiOn() and listInsteadOfStock() then return end
     if connectStyle() == "normal" then return orig_wait(self, callback) end
     -- Styled mode: swap the stock "Connecting to Wi-Fi…" popup for one
     -- contract notification. Otherwise the caller's own contract note
@@ -1231,6 +1290,22 @@ if orig_request then
     NetworkMgr.requestToTurnOnWifi = function(self, wifi_cb, interactive)
         if connectStyle() == "normal" or interactive then
             return orig_request(self, wifi_cb, interactive)
+        end
+        -- Nothing saved on the device: KOReader's flow would freeze the
+        -- screen ~5 s and still not connect. Say so straight away instead.
+        if not self:isWifiOn() and not quiet and quietSupported() and not hasKnownNetworks()
+                and not self.pending_connection then
+            logger.info("network-tweaks: Wi-Fi asked for, nothing saved on the device")
+            -- the caller's "Connecting…" goes; the failure note says it all
+            if last_flash and os.difftime(os.time(), last_flash_at or 0) <= 2 then
+                UIManager:close(last_flash)
+            end
+            if last_corner and os.difftime(os.time(), last_corner_at or 0) <= 2 then
+                UIManager:close(last_corner)
+            end
+            last_flash, last_corner = nil, nil
+            failureNote()
+            return false
         end
         if not self:isWifiOn() and canQuiet() then
             if quietConnect(wifi_cb) then
@@ -1285,6 +1360,7 @@ if ok_nl and type(NetworkListener) == "table" then
             if not NetworkMgr:isWifiOn() then
                 markUserConnect()
                 if canQuiet() and quietConnect() then return end
+                if listInsteadOfStock() then return end
             elseif halfOn() and canQuiet() then
                 reconnectFromHalfOn()
                 return
@@ -1302,6 +1378,7 @@ if ok_nl and type(NetworkListener) == "table" then
             if quiet then return end
             markUserConnect()
             if not NetworkMgr:isWifiOn() and canQuiet() and quietConnect() then return end
+            if not NetworkMgr:isWifiOn() and listInsteadOfStock() then return end
             if halfOn() and canQuiet() then reconnectFromHalfOn() return end
             return orig_info_on(self, ...)
         end
@@ -1585,6 +1662,7 @@ local function asyncIPSupported()
 end
 
 local connectedTo -- below connectTo
+local deviceRemember -- below, with the device list helpers
 
 local function obtainIPAsync(state, nw)
     local attempt = { started = os.time() }
@@ -1688,6 +1766,9 @@ end
 connectedTo = function(state, nw)
     nw.connected = true
     state.picked = true
+    -- saved on the device too, so background reconnects can use it
+    local ok_r, err_r = pcall(deviceRemember, nw)
+    if not ok_r then logger.warn("network-tweaks: saving on the device failed:", err_r) end
     logger.info("network-tweaks: connected to", nw.ssid, "from the network list")
     -- Announce it like any other connect, so the toolbar, "SSH follows
     -- Wi-Fi" and auto-restore on wake see it.
@@ -1740,6 +1821,182 @@ local function forget(nw)
     nw.password, nw.psk = nil, nil
 end
 
+-- The device's own Wi-Fi list (Kobo: the stock reader's
+-- wpa_supplicant.conf, the first of KOBO_WPA_CONFS that exists, like
+-- enable-wifi.sh). Background reconnects use it, so a network KOReader has
+-- forgotten still reconnects while it's in there. Read only while the
+-- network list is open; written only when you pick "Device + KOReader".
+local function deviceConf()
+    if not Device:isKobo() then return nil end
+    for _i, path in ipairs(KOBO_WPA_CONFS) do
+        if lfs.attributes(path, "mode") == "file" then return path end
+    end
+end
+
+local function readAll(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local s = f:read("*a")
+    f:close()
+    return s
+end
+
+-- ssid= is "quoted text" or, for names that aren't plain text, hex.
+local function confSSID(body)
+    local v = ("\n" .. body):match("\n%s*ssid%s*=%s*([^\n]*)")
+    if not v then return nil end
+    v = v:gsub("%s+$", "")
+    local quoted = v:match('^"(.*)"$')
+    if quoted then return quoted end
+    if #v % 2 == 0 and v:match("^%x+$") then
+        return (v:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end))
+    end
+    return v
+end
+
+local NETWORK_BLOCK = "[ \t]*network%s*=%s*{(.-)\n%s*}[ \t]*\n?"
+
+-- SSIDs saved on the device, as a set.
+local function deviceSaved()
+    local set = {}
+    local path = deviceConf()
+    local s = path and readAll(path)
+    if not s then return set end
+    for body in s:gmatch(NETWORK_BLOCK) do
+        local id = confSSID(body)
+        if id then set[id] = true end
+    end
+    return set
+end
+
+-- Removes networks from the device's list: ssids is a set, or true for
+-- all. Only network={...} blocks go; everything else in the file stays as
+-- it was. Then the running Wi-Fi forgets them too (in memory; the file
+-- is already right). Returns true, or nil + why.
+local function deviceForget(ssids)
+    local path = deviceConf()
+    if not path then return true end
+    local s = readAll(path)
+    if not s then return nil, _("couldn't read the device's Wi-Fi list") end
+    local removed = 0
+    local out = s:gsub(NETWORK_BLOCK, function(body)
+        local id = confSSID(body)
+        if ssids == true or (id and ssids[id]) then
+            removed = removed + 1
+            return ""
+        end
+        return nil -- keep this one as it is
+    end)
+    if removed > 0 then
+        local tmp, bak = path .. ".tmp", path .. ".bak"
+        local f = io.open(tmp, "wb")
+        if not f then return nil, _("couldn't write the device's Wi-Fi list") end
+        local ok_w = f:write(out)
+        f:close()
+        if not ok_w or readAll(tmp) ~= out then
+            os.remove(tmp)
+            return nil, _("couldn't write the device's Wi-Fi list")
+        end
+        local b = io.open(bak, "wb")
+        if b then b:write(s); b:close() end
+        if not os.rename(tmp, path) then
+            os.remove(tmp)
+            return nil, _("couldn't replace the device's Wi-Fi list")
+        end
+        os.execute("sync")
+        logger.info("network-tweaks: removed", removed, "network(s) from", path)
+    end
+    -- The running wpa_supplicant still has them in memory.
+    if wpaCtrl() and NetworkMgr:isWifiOn() then
+        local iface = wpaIface()
+        if ssids == true then
+            os.execute("wpa_cli -i " .. iface .. " remove_network all >/dev/null 2>&1")
+        else
+            local p = io.popen("wpa_cli -i " .. iface .. " list_networks 2>/dev/null")
+            local listing = p and p:read("*a") or ""
+            if p then p:close() end
+            for id, name in listing:gmatch("\n(%d+)\t([^\t\n]*)") do
+                if ssids[name] or ssids[decodeSSID(name)] then
+                    os.execute("wpa_cli -i " .. iface .. " remove_network " .. id .. " >/dev/null 2>&1")
+                end
+            end
+        end
+    end
+    return true
+end
+
+-- Adds a network you connected to from the list to the device's list,
+-- when it isn't there yet: ssid, and the password (or the hashed key KOReader
+-- saved), or key_mgmt=NONE for an open network. Appended as its own block;
+-- the rest of the file is left as it was. Same temp file + swap + .bak as
+-- deviceForget. Skipped when there's nothing safe to write (a password
+-- with a quote or line break in it can't be written as plain text).
+deviceRemember = function(nw)
+    local path = deviceConf()
+    if not path or not nw or type(nw.ssid) ~= "string" or nw.ssid == "" then return end
+    if deviceSaved()[nw.ssid] then return end
+    local s = readAll(path)
+    if not s then return end
+    local ssid_line
+    if nw.ssid:find('["%c]') then
+        ssid_line = "ssid=" .. (nw.ssid:gsub(".", function(c) return string.format("%02x", c:byte()) end))
+    else
+        ssid_line = 'ssid="' .. nw.ssid .. '"'
+    end
+    local key_line
+    local flags = nw.flags or ""
+    if not flags:find("WPA") and not flags:find("RSN") and (nw.password or "") == "" then
+        key_line = "key_mgmt=NONE"
+    elseif type(nw.psk) == "string" and nw.psk:match("^%x+$") and #nw.psk == 64 then
+        key_line = "psk=" .. nw.psk
+    elseif type(nw.password) == "string" and #nw.password >= 8 and #nw.password <= 63
+            and not nw.password:find('["%c]') then
+        key_line = 'psk="' .. nw.password .. '"'
+    else
+        logger.info("network-tweaks: not saving", nw.ssid, "on the device (no key it can store)")
+        return
+    end
+    local out = s
+    if out ~= "" and not out:find("\n$") then out = out .. "\n" end
+    out = out .. "\nnetwork={\n\t" .. ssid_line .. "\n\t" .. key_line .. "\n}\n"
+    local tmp, bak = path .. ".tmp", path .. ".bak"
+    local f = io.open(tmp, "wb")
+    if not f then return end
+    local ok_w = f:write(out)
+    f:close()
+    if not ok_w or readAll(tmp) ~= out then os.remove(tmp) return end
+    local b = io.open(bak, "wb")
+    if b then b:write(s); b:close() end
+    if not os.rename(tmp, path) then os.remove(tmp) return end
+    os.execute("sync")
+    logger.info("network-tweaks: saved", nw.ssid, "on the device too:", path)
+end
+
+-- Asks KOReader Only / Device + KOReader when the device has it too;
+-- otherwise just does the KOReader part. on_done(device_too) runs after.
+local function askForgetWhere(text, on_device, koreader_part, device_set, on_done)
+    local function finish(device_too)
+        koreader_part()
+        if device_too then
+            local ok, err = deviceForget(device_set)
+            if not ok then
+                logger.warn("network-tweaks: device forget failed:", err)
+                note(T(_("Forgot in KOReader only: %1"), err), _("Device list unchanged"), 4)
+            end
+        end
+        on_done(device_too)
+    end
+    if not on_device then return finish(false) end
+    local MultiConfirmBox = require("ui/widget/multiconfirmbox")
+    UIManager:show(MultiConfirmBox:new{
+        text = text .. "\n\n" .. _("The device keeps its own list, and reconnects to what's in it."),
+        choice1_text = _("KOReader Only"),
+        choice1_callback = function() finish(false) end,
+        choice2_text = _("Device + KOReader"),
+        choice2_callback = function() finish(true) end,
+    })
+end
+
 -- Per-network actions.
 local function networkActions(state, nw)
     local saved = savedNetworks()[nw.ssid] ~= nil
@@ -1780,15 +2037,27 @@ local function networkActions(state, nw)
             return askPassword(state, nw, false)
         end
     end
-    if saved then
+    local on_device = deviceSaved()[nw.ssid] == true
+    if saved or on_device then
         table.insert(buttons, row(_("Forget"), function()
-            forget(nw)
-            if nw.away then
-                for i, other in ipairs(state.list) do
-                    if other == nw then table.remove(state.list, i) break end
-                end
-            end
-            showPicker(state)
+            askForgetWhere(T(_("Forget %1?"), nw.display or nw.ssid), on_device,
+                function() if saved then forget(nw) end end,
+                { [nw.ssid] = true },
+                function(device_too)
+                    if device_too and nw.connected and not NetworkMgr:isConnected() then
+                        -- forgetting it on the device dropped the connection
+                        pcall(NetworkMgr.releaseIP, NetworkMgr)
+                        nw.connected = nil
+                        state.disconnected = true
+                        stateChanged()
+                    end
+                    if nw.away then -- listed only because KOReader had it saved
+                        for i, other in ipairs(state.list) do
+                            if other == nw then table.remove(state.list, i) break end
+                        end
+                    end
+                    showPicker(state)
+                end)
         end))
     end
     table.insert(buttons, {{ text = _("Back"), callback = back }})
@@ -1836,25 +2105,43 @@ showPicker = function(state)
     if #buttons == 0 then
         table.insert(buttons, {{ text = _("No networks found"), enabled = false }})
     end
-    if next(saved) then
+    local on_device = next(deviceSaved()) ~= nil
+    if next(saved) or on_device then
         table.insert(buttons, {{ text = _("Forget all saved networks"), callback = function()
-            UIManager:show(ConfirmBox:new{
-                text = _("Forget all saved networks?"),
-                ok_text = _("Forget all"),
-                ok_callback = function()
-                    local ok, nws = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
-                    if ok and nws then
-                        for ssid in pairs(savedNetworks()) do nws:delSetting(ssid) end
-                        nws:flush()
+            local function koreaderPart()
+                local ok, nws = pcall(NetworkMgr.getAllSavedNetworks, NetworkMgr)
+                if ok and nws then
+                    for ssid in pairs(savedNetworks()) do nws:delSetting(ssid) end
+                    nws:flush()
+                end
+            end
+            local function after(device_too)
+                if device_too and not NetworkMgr:isConnected() then
+                    for _i, nw in ipairs(state.list) do
+                        if nw.connected then
+                            pcall(NetworkMgr.releaseIP, NetworkMgr)
+                            nw.connected = nil
+                            state.disconnected = true
+                            stateChanged()
+                        end
                     end
-                    for i = #state.list, 1, -1 do
-                        local nw = state.list[i]
-                        nw.password, nw.psk = nil, nil
-                        if nw.away then table.remove(state.list, i) end
-                    end
-                    showPicker(state)
-                end,
-            })
+                end
+                for i = #state.list, 1, -1 do
+                    local nw = state.list[i]
+                    nw.password, nw.psk = nil, nil
+                    if nw.away then table.remove(state.list, i) end
+                end
+                showPicker(state)
+            end
+            if on_device then
+                askForgetWhere(_("Forget all saved networks?"), true, koreaderPart, true, after)
+            else
+                UIManager:show(ConfirmBox:new{
+                    text = _("Forget all saved networks?"),
+                    ok_text = _("Forget all"),
+                    ok_callback = function() koreaderPart(); after(false) end,
+                })
+            end
         end }})
     end
     table.insert(buttons, {
