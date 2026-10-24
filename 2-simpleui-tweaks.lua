@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.13.4
+Version 2.13.8
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,23 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.13.8 Critter Bubble Max removed. To Be Read side panel: Side Panel
+         Swipe Zone (Modules) - Narrow (default, 1/14 of the screen) or
+         Edge Only (1/24): the swipe has to start nearer the edge, so page
+         swipes don't open it by accident. Wide is the old 1/8.
+  2.13.7 Page Turn Flash (SimpleUI Tweaks menu): SimpleUI turns home
+         pages with a quiet update, so the old page ghosts through. Normal
+         adds a quick flash to each turn, Strong a full refresh (dark pages
+         and night mode). Off (default) as before.
+  2.13.6 Critter text in night mode: the module text colours (Text Colour
+         / Night Text Colour, made for text on the page or wallpaper) no
+         longer reach inside the critter's bubble, which has its own
+         background; in night mode they made the text the same colour as
+         the bubble. Auto now keeps SimpleUI's ink (white on the dark
+         bubble at night); White / Black are as they look, night included.
+  2.13.5 Critter Text Colour (Modules): Auto writes the critter's speech
+         in white when its bubble is dark (a dark SimpleUI look), White /
+         Black always; its outline follows. Reading Log's critter too.
   2.13.4 Critter Position (Modules): Left, Right, or Left or right (never
          the middle) for the critter and its bubble in their row, so the
          middle of the row stays clear; works with or without Critter
@@ -288,7 +305,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.13.4"
+local VERSION = "2.13.8"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -330,12 +347,14 @@ local DEFAULTS = {
     tbr_panel_colls  = {},          --   more KOReader collections shown as panel views, in order: { "Book Club", ... }
     critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own, -1 = dynamic)
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
-    critter_row      = 100,
+    critter_row      = 100,         -- Tiny Critter row height, % of SimpleUI's
     critter_insights = true,        -- remarks from your reading history (Critter Insights)
     critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
     critter_wander_side = "random", -- critter "left" / "right" of its bubble, or SimpleUI's ("random" while wandering)
+    page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
+    critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
-    critter_bubble_max = 100,       -- Full Row / Dynamic: % of the room the bubble may take         -- Tiny Critter row height, % of SimpleUI's
+    tbr_edge         = "narrow",    -- To Be Read panel swipe zone: "wide" (1/8, KOReader's) / "narrow" (1/14) / "edge" (1/24)
 }
 
 local userpatch  = require("userpatch")
@@ -1409,32 +1428,71 @@ local function wholeAt(Bubble, UI, o, w)
     return used <= o.h
 end
 
-local function bubbleMaxPct()
-    local v = tonumber(cfg.critter_bubble_max) or 100
-    return (v >= 50 and v <= 100) and v or 100
+
+-- Critter Text Colour: the ink of the speech bubble's text. The bubble has
+-- its own background, so the text colours set for modules (Text Colour /
+-- Night Text Colour, made for text on the page or wallpaper) don't apply
+-- inside it: in night mode they could turn it the same as the bubble.
+-- Auto: SimpleUI's ink, which always stands out on the bubble (white on a
+-- dark bubble, e.g. in night mode); White / Black: as it should LOOK, so in
+-- night mode (where the screen is inverted) the paint is swapped.
+local function critterInk()
+    local mode = cfg.critter_text or "auto"
+    if (mode == "white" or mode == "black") and Screen.night_mode then
+        mode = (mode == "white") and "black" or "white"
+    end
+    if mode == "black" then return Blitbuffer.COLOR_BLACK, Blitbuffer.COLOR_DARK_GRAY end
+    if mode == "white" then return Blitbuffer.COLOR_WHITE, Blitbuffer.COLOR_LIGHT_GRAY end
+    local S = package.loaded["features/sui_style"]
+    local ok, v = pcall(function() return S.COLOR.surface:getColor8().a end)
+    if ok and type(v) == "number" and v < 128 then return Blitbuffer.COLOR_WHITE, Blitbuffer.COLOR_LIGHT_GRAY end
+    return nil
 end
--- Full Row and Dynamic only: the other widths are already their own size.
-local function bubbleCapped()
-    local w = tonumber(cfg.critter_bubble) or 0
-    return w < 0 or w >= 2000
+-- Runs fn with no module text colour applied (Tweaks' recolouring off).
+local function ownInk(fn, ...)
+    local prev_c, prev_k = cur_color, keep_own
+    cur_color, keep_own, suspended = nil, keep_own + 1, suspended + 1
+    local res = pack(pcall(fn, ...))
+    cur_color, keep_own, suspended = prev_c, prev_k, suspended - 1
+    if not res[1] then error(res[2], 0) end
+    return unpack(res, 2, res.n)
+end
+local function withCritterInk(fn, ...)
+    local S, U = package.loaded["features/sui_style"], package.loaded["infra/sui_core"]
+    local ink, sub = critterInk()
+    -- the module text colours stay out of the bubble
+    if not ink or type(S) ~= "table" or type(S.COLOR) ~= "table" then return ownInk(fn, ...) end
+    local old_ink = rawget(S.COLOR, "text_primary")
+    local old_sub = type(U) == "table" and rawget(U, "CLR_TEXT_SUB") or nil
+    rawset(S.COLOR, "text_primary", ink)
+    if type(U) == "table" then rawset(U, "CLR_TEXT_SUB", sub) end
+    local res = { pcall(ownInk, fn, ...) }
+    rawset(S.COLOR, "text_primary", old_ink)
+    if type(U) == "table" then rawset(U, "CLR_TEXT_SUB", old_sub) end
+    if not res[1] then error(res[2], 0) end
+    return unpack(res, 2, table.maxn(res))
 end
 
 local patchCritterBubbleBuild = function(Bubble)
     if type(Bubble) ~= "table" or type(Bubble.build) ~= "function" or type(Bubble.metrics) ~= "function" then return false end
     if ours[Bubble.build] then return true end
     local orig = Bubble.build
+    local narrow
     Bubble.build = mine(function(o, ...)
+        -- who's building it: the home screen critter (narrowing applies) or
+        -- another (Reading Log's critter: ink only)
+        local info = debug.getinfo(2, "S")
+        local from_home = ((info and info.source) or ""):find("modules/critter/module_critter", 1, true) ~= nil
+        return withCritterInk(narrow, from_home, o, ...)
+    end)
+    narrow = function(from_home, o, ...)
         local dynamic = (tonumber(cfg.critter_bubble) or 0) < 0
-        local cap = bubbleCapped() and bubbleMaxPct() < 100
-        if (dynamic or cap) and critter_bubble and type(o) == "table"
+        if dynamic and critter_bubble and type(o) == "table"
                 and type(o.w) == "number" and type(o.message) == "string" then
-            local info = debug.getinfo(2, "S")
-            local src = info and info.source or ""
-            if src:find("modules/critter/module_critter", 1, true) then
+            if from_home then
                 local UI = package.loaded["infra/sui_core"]
                 local base = math.floor(Screen:scaleBySize(critter_bubble.stock) * (o.scale or 1))
                 local top = o.w
-                if cap then top = math.max(math.min(base, o.w), math.floor(o.w * bubbleMaxPct() / 100)) end
                 if dynamic and type(UI) == "table" and type(UI.makeTextBox) == "function" and top > base then
                     local pick = top
                     local steps = 6
@@ -1453,7 +1511,7 @@ local patchCritterBubbleBuild = function(Bubble)
             end
         end
         return orig(o, ...)
-    end)
+    end
     return true
 end
 
@@ -2610,6 +2668,28 @@ local function homeUnderOpenMenu()
     return false
 end
 
+-- Page Turn Flash: SimpleUI turns home screen pages with a quiet "ui"
+-- update, which leaves the old page ghosting through. Normal adds KOReader's
+-- UI flash to the turn, Strong a full refresh (clears dark pages too).
+local function hookPageFlash(w)
+    local owner = getmetatable(w)
+    for _i = 1, 8 do
+        if type(owner) ~= "table" or rawget(owner, "_setPage") ~= nil then break end
+        owner = getmetatable(owner)
+    end
+    if type(owner) ~= "table" or type(rawget(owner, "_setPage")) ~= "function" or ours[owner._setPage] then return end
+    local orig = owner._setPage
+    owner._setPage = mine(function(self, page, ...)
+        local before = self._current_page
+        local res = pack(orig(self, page, ...))
+        local mode = cfg.page_flash
+        if (mode == "normal" or mode == "strong") and before ~= self._current_page then
+            orig_require("ui/uimanager"):setDirty(self, mode == "strong" and "full" or "flashui")
+        end
+        return unpack(res, 1, res.n)
+    end)
+end
+
 do
     local UIManager = orig_require("ui/uimanager")
     local orig_show = UIManager.show
@@ -2618,6 +2698,8 @@ do
             if type(w) == "table" and w.name == "homescreen" then
                 local ok, err = pcall(hookHomeEdgeSwipe, w)
                 if not ok then logger.warn(TAG, "edge swipe hook:", err) end
+                local ok2, err2 = pcall(hookPageFlash, w)
+                if not ok2 then logger.warn(TAG, "page flash hook:", err2) end
             end
             if type(w) == "table" and w.covers_fullscreen and w.name ~= "homescreen"
                     and w.name ~= "ReaderUI" and not w._sui_keep_homescreen then
@@ -2640,7 +2722,11 @@ end
 -- the chosen edge, on the home screen. Built only when opened.
 local TBR_COLL = "To Be Read"
 local TBR_ROWS = 5
-local EDGE_RATIO = 1 / 8   -- same width as KOReader's edge gesture zones
+-- How far in from the edge a swipe may start: Wide is KOReader's own edge
+-- zone (1/8 of the screen); Narrow and Edge Only leave more room for page
+-- swipes and only open the panel from right at the edge.
+local EDGE_RATIOS = { wide = 1 / 8, narrow = 1 / 14, edge = 1 / 24 }
+local function edgeRatio() return EDGE_RATIOS[cfg.tbr_edge] or EDGE_RATIOS.narrow end
 
 local function tbrList()
     local okm, TBR = pcall(require, "modules/module_tbr")
@@ -3194,7 +3280,7 @@ hookHomeEdgeSwipe = function(hs)
         if side ~= "off" and type(ges) == "table" and ges.pos then
             local sw = Screen:getWidth()
             local dir = ges.direction
-            local edge = math.floor(sw * EDGE_RATIO)
+            local edge = math.floor(sw * edgeRatio())
             if (side == "left" and dir == "east" and ges.pos.x <= edge)
                     or (side ~= "left" and dir == "west" and ges.pos.x >= sw - edge) then
                 local ok, err = pcall(openTBRPanel, self)
@@ -3886,21 +3972,6 @@ local function buildMenu()
                           return items
                       end,
                       separator = true },
-                    { text_func = function()
-                          local p = bubbleMaxPct()
-                          return string.format(_("Critter Bubble Max: %s"), p == 100 and _("Full") or (p .. "%"))
-                      end,
-                      help_text = _("For Critter Bubble Width > Full Row and Dynamic: how much of the row's room the bubble may take. 90% or 80% keeps a long bubble from running to the edge."),
-                      enabled_func = function() return critter_bubble ~= nil and bubbleCapped() end,
-                      sub_item_table_func = function()
-                          local items = {}
-                          for _i, opt in ipairs({ { 100, _("Full") }, { 90, "90%" }, { 80, "80%" } }) do
-                              items[#items + 1] = { text = opt[2], radio = true,
-                                  checked_func = function() return bubbleMaxPct() == opt[1] end,
-                                  callback = function() setHome("critter_bubble_max", opt[1]) end }
-                          end
-                          return items
-                      end },
                     { text = _("Critter Insights"),
                       help_text = _("The Tiny Critter remarks on your reading history: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
                       checked_func = function() return cfg.critter_insights ~= false end,
@@ -3910,6 +3981,21 @@ local function buildMenu()
                       enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
                       checked_func = function() return cfg.critter_wander ~= false end,
                       callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
+                    { text_func = function()
+                          local names = { auto = _("Auto"), white = _("White"), black = _("Black") }
+                          return string.format(_("Critter Text Colour: %s"), names[cfg.critter_text] or names.auto)
+                      end,
+                      help_text = _("Colour of the Tiny Critter's speech text (and its bubble outline). Auto writes in white when the bubble is dark, as with a dark SimpleUI look, and leaves it as SimpleUI draws it otherwise. White or Black always. Reading Log's critter follows too."),
+                      enabled_func = function() return critter_bubble ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "auto", _("Auto (white on a dark bubble)") }, { "white", _("White") }, { "black", _("Black") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.critter_text or "auto") == opt[1] end,
+                                  callback = function() setHome("critter_text", opt[1]) end }
+                          end
+                          return items
+                      end },
                     { text_func = function()
                           local names = { wander = _("SimpleUI's / wanders"), left = _("Left"), right = _("Right"), edges = _("Left or right") }
                           return string.format(_("Critter Position: %s"), names[cfg.critter_pos] or names.wander)
@@ -3992,6 +4078,21 @@ local function buildMenu()
                             callback = function() cfg.tbr_panel = "off" saveConfig() end },
                       } },
                     { text_func = function()
+                          local names = { wide = _("Wide"), narrow = _("Narrow"), edge = _("Edge Only") }
+                          return string.format(_("Side Panel Swipe Zone: %s"), names[cfg.tbr_edge] or names.narrow)
+                      end,
+                      help_text = _("How close to the screen edge a swipe has to start to open the To Be Read panel. Wide is KOReader's edge zone (an eighth of the screen); Narrow and Edge Only need the swipe to start nearer the edge, so ordinary swipes don't open it by accident."),
+                      enabled_func = function() return cfg.tbr_panel ~= "off" end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "wide", _("Wide (an eighth of the screen)") }, { "narrow", _("Narrow") }, { "edge", _("Edge Only") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.tbr_edge or "narrow") == opt[1] end,
+                                  callback = function() cfg.tbr_edge = opt[1]; saveConfig() end }
+                          end
+                          return items
+                      end },
+                    { text_func = function()
                           local n = #(cfg.tbr_panel_colls or {})
                           return n > 0 and string.format(_("Collections In Panel: %d"), n) or _("Collections In Panel")
                       end,
@@ -4045,6 +4146,22 @@ local function buildMenu()
                           return items
                       end },
                 },
+            },
+            {
+                text_func = function()
+                    local names = { off = _("Off"), normal = _("Normal"), strong = _("Strong") }
+                    return string.format(_("Page Turn Flash: %s"), names[cfg.page_flash] or names.off)
+                end,
+                help_text = _("SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. Normal adds a quick flash to each turn; Strong a full refresh, which also clears dark pages and night mode. Off keeps turns as fast as they are now."),
+                sub_item_table_func = function()
+                    local items = {}
+                    for _i, opt in ipairs({ { "off", _("Off (fastest)") }, { "normal", _("Normal (quick flash)") }, { "strong", _("Strong (full refresh)") } }) do
+                        items[#items + 1] = { text = opt[2], radio = true,
+                            checked_func = function() return (cfg.page_flash or "off") == opt[1] end,
+                            callback = function() cfg.page_flash = opt[1]; saveConfig() end }
+                    end
+                    return items
+                end,
             },
             {
                 text = _("Section Titles"),
