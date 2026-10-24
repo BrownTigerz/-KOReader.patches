@@ -23,9 +23,9 @@ All patches work independently and together. If one fails to attach (for example
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.12.1 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.6 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.7 |
-| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.3 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.10.8 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.13 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.5 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.11.1 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.15 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.5 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.5 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.1 |
@@ -36,7 +36,6 @@ All patches work independently and together. If one fails to attach (for example
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
-| [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -177,6 +176,7 @@ Wi-Fi, SSH and Calibre behaviour in one place. Menu: Settings (gear) → Network
 - **Choose Network…:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved · away, or Open. Tap one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
 - **Forget on the device too:** the device keeps its own Wi-Fi list (on Kobo, the stock reader's), and background reconnects use it, so a network forgotten only in KOReader still comes back. When the device has it too, Forget and Forget all ask **KOReader Only** or **Device + KOReader**. The device's old list is kept as `wpa_supplicant.conf.bak`. A network you connect to from the list is saved on the device too, so background reconnects work for it; with nothing saved on the device, tapping Wi-Fi opens the list instead of KOReader's slower flow.
 - **Bluetooth…** (only with kobo.koplugin, on devices it supports): the plugin's Bluetooth menu — on/off, scan, paired devices, settings — moved here from Settings → Network. On MTK Kobos Bluetooth shares the Wi-Fi chip, so the patch also keeps the hand-off sane: one Wi-Fi restore at a time, and Wi-Fi on/off taps during Bluetooth start-up are applied once it's up.
+- **Storefront** (no menu, only with storefront.koplugin): its short self-closing messages use the note style above (Normal leaves them as they are; progress messages like "Checking plugin updates…" and anything with buttons stay as Storefront shows them), and its sleep step skips the full memory clean-ups it runs (four per sleep, about 0.85 s).
 - **Notifications** (default Banner): one style for Wi-Fi on/off, SSH on/off and the Calibre wireless connection, however you trigger them.
   - **Normal:** stock KOReader popups; Wi-Fi waits until connected.
   - **Minimal:** Wi-Fi connects in the background, with small corner notes (top right) like "Wi-Fi connected", "SSH on", "Calibre connected".
@@ -364,8 +364,6 @@ Enhances Reading Insights and the built-in Statistics calendar with cover art an
 
 ![Quickmenu Toggle](images/quickmenu-toggle.jpg)
 
-![Quickmenu Toggle 2](images/quickmenu-toggle-3.jpg)
-
 When a multi-action gesture is set to "Show as QuickMenu", toggle actions get a checkbox prefix — "✓" when on, "▢" when off (the same glyphs KOReader's own menus use, rendered as text so they always display). The marker goes first on purpose: the popup truncates long labels from the end.
 
 - **Style tweaks:** any `style_tweak_*` toggle action (stock tweaks and custom CSS files) reads its live state from the current book. The `style_tweak_set_*` setter actions are left alone.
@@ -393,20 +391,6 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 2. In the module's settings, set Source → Custom and pick the file.
 
 `Famous Quotes.txt` is a separate file for the sleep screen banner's quote fallback (see above).
-
----
-
-## Screenshot Timer
-
-![Screenshot Timer](images/screenshot-timer.jpg)
-
-`2-screenshot-timer.lua` — tap a menu entry, and 10 seconds later the screen is saved to KOReader's screenshots folder. One shot per tap.
-
-- **Menu:** Tools → Add-ons → Screenshot in 10 s (or Tools → Screenshot in 10 s without the Tweaks Menu).
-- Tap it and the menu closes. 10 seconds later the screen is saved as `Screenshot_YYYY-MM-DD_HHMMSS.png`.
-- Tap it again before the 10 s are up to cancel (shows a check mark while waiting).
-- Going to sleep cancels it, so no timer waits through sleep.
-- Nothing runs until you tap it. Temporary helper — delete the file when you're done.
 
 ---
 
