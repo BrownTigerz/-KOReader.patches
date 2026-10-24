@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.10.8
+Version: 1.11.1
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -67,6 +67,20 @@ Bluetooth…  (only with kobo.koplugin on a device it supports)
   moved here from Settings → Network, so it's reachable with the Network
   menu hidden. Not shown without the plugin.
 
+Storefront (storefront.koplugin)
+  No menu: works on its own when the plugin is installed.
+  - Its short messages that close themselves ("Update check was
+    cancelled.", "No cached entries yet", "README download failed: …")
+    show in this patch's note style. Normal leaves them as they are; so
+    do its progress messages ("Checking plugin updates…", which it
+    updates and closes itself), anything with buttons, and long or
+    multi-line text.
+  - Sleep: its sleep step ends with two full memory clean-ups, and it
+    runs twice per sleep: four clean-ups, ~0.85 s on every sleep
+    (measured: 185-310 ms each). Those clean-ups are skipped; the rest of
+    its sleep step runs as before. Harmless once Storefront drops them
+    itself.
+
 Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   No menu: works on its own when the plugin is installed. On MTK Kobos
   Bluetooth shares the Wi-Fi chip, so the plugin powers Wi-Fi up to turn
@@ -82,6 +96,22 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.11.1 Storefront, both parts of 1.11.0 now actually work:
+         - Its messages: Storefront shows them with its own toast, not
+           KOReader's message box, so they weren't caught. Its self-closing
+           toasts now use the note style too.
+         - Sleep: its sleep step reaches Storefront without going through
+           the plugin, so the 1.11.0 skip never ran (all four clean-ups,
+           ~0.85 s, still ran every sleep). Now a full clean-up asked for
+           by Storefront's sleep step is skipped however it gets called.
+  1.11.0 Storefront: its short self-closing messages use this patch's note
+         style, and its sleep step no longer runs two full memory
+         clean-ups per open copy (every sleep took ~0.8-1 s, nearly all of
+         it Storefront's). No menu; nothing happens without Storefront.
+  1.10.9 A corner note (Minimal style) still up when the device went to
+         sleep left its close timer waiting through sleep, and the note on
+         the screen after waking. Corner notes close when the device goes
+         to sleep.
   1.10.8 Something asking for Wi-Fi in the background (the Backup
          updater's Check for Patch Updates & co.) with nothing saved on the
          device fell back to KOReader's flow: the screen froze 5.6 s and
@@ -181,7 +211,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.10.8"
+local PATCH_VERSION = "1.11.1"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -1198,6 +1228,111 @@ end
 
 -- KOReader names a plugin after its folder: kobo.koplugin -> "kobo".
 userpatch.registerPatchPluginFunc("kobo", hookKoboPlugin)
+
+---------------------------------------------------------------------------
+-- Storefront (ultimatejimmy/storefront.koplugin)
+---------------------------------------------------------------------------
+
+-- Its short messages that close themselves show in this patch's note style.
+-- Normal leaves them alone; so does anything without a timeout (progress
+-- messages it closes itself), anything with a dismiss action, and long or
+-- multi-line text (a note is one line). Storefront shows them two ways:
+-- KOReader's InfoMessage (older versions) and its own toast
+-- (storefront_toast.lua: StorefrontToast.show(text, timeout)). Its progress
+-- toasts (Toast.new + :show/:setText/:close) are left alone: only toasts
+-- shown by StorefrontToast.show itself are taken.
+local function fromStorefront()
+    -- the caller, past other patches' wrappers of UIManager.show
+    for level = 3, 12 do
+        local info = debug.getinfo(level, "S")
+        if not info then return false end
+        if (info.source or ""):find("storefront.koplugin/", 1, true) then return true end
+    end
+    return false
+end
+local function fromStorefrontToastShow()
+    local ST = package.loaded["storefront_toast"]
+    local fn = type(ST) == "table" and ST.show
+    if type(fn) ~= "function" then return false end
+    for level = 3, 10 do
+        local info = debug.getinfo(level, "f")
+        if not info then return false end
+        if info.func == fn then return true end
+    end
+    return false
+end
+local function shortText(text)
+    return type(text) == "string" and text ~= "" and #text <= 100 and not text:find("\n", 1, true)
+end
+do
+    local orig_show = UIManager.show
+    UIManager.show = function(self, w, ...)
+        if type(w) == "table" and type(w.timeout) == "number" and w.timeout > 0
+                and w.dismiss_callback == nil and shortText(w.text)
+                and connectStyle() ~= "normal" and not Device.screen_saver_mode then
+            if getmetatable(w) == InfoMessage and fromStorefront() then
+                note(w.text, w.text, w.timeout)
+                return
+            end
+            if w.buildCard and w.setText and fromStorefrontToastShow() then
+                -- its own close timer was set when it was made: drop it
+                if w._timer then pcall(UIManager.unschedule, UIManager, w._timer) w._timer = nil end
+                note(w.text, w.text, w.timeout)
+                return
+            end
+        end
+        return orig_show(self, w, ...)
+    end
+end
+
+-- Its sleep step ends with two full garbage collections, and it runs twice
+-- per sleep (measured 185-310 ms each, ~0.85 s in all). Its own work
+-- (cancelling fetches, dropping caches) still runs; only the full
+-- collections are skipped. Nothing needs them before sleeping.
+-- Storefront's sleep step is reached through its own hooks (a copy of the
+-- plugin loaded earlier, Device.intoScreenSaver, the event hook), so
+-- wrapping the plugin's method misses it (1.11.0). Instead, a full
+-- collection whose caller is Storefront's onSuspend is skipped, however it
+-- got there. Other wrappers (diagnostics) between it and here are passed
+-- over. Every other caller, and every other collectgarbage option, goes
+-- straight through.
+local sf_suspend -- { source, linedefined } of Storefront's onSuspend
+userpatch.registerPatchPluginFunc("storefront", function(plugin)
+    if sf_suspend or type(plugin) ~= "table" or type(plugin.onSuspend) ~= "function" then return end
+    local info = debug.getinfo(plugin.onSuspend, "S")
+    if info and info.source then sf_suspend = { source = info.source, line = info.linedefined } end
+end)
+do
+    local real_gc = collectgarbage
+    local said
+    local function fromStorefrontSleep()
+        for level = 3, 7 do
+            local info = debug.getinfo(level, "S")
+            if not info then return false end
+            local src = info.source or ""
+            if not src:find("/patches/", 1, true) then
+                if sf_suspend then
+                    return src == sf_suspend.source and info.linedefined == sf_suspend.line
+                end
+                -- not caught at load yet: Storefront's main.lua while the
+                -- sleep screen is up
+                return src:find("storefront.koplugin/main.lua", 1, true) ~= nil
+                    and Device.screen_saver_mode == true
+            end
+        end
+        return false
+    end
+    collectgarbage = function(opt, ...)
+        if (opt == nil or opt == "collect") and fromStorefrontSleep() then
+            if not said then
+                said = true
+                logger.info("network-tweaks: skipping Storefront's full memory clean-ups on sleep")
+            end
+            return 0
+        end
+        return real_gc(opt, ...)
+    end
+end
 -- Renamed folder: catch it when menus are built (before the plugin adds
 -- its entries) instead. See NetworkMgr.getMenuTable below.
 
@@ -2439,6 +2574,13 @@ local orig_broadcast = UIManager.broadcastEvent
 UIManager.broadcastEvent = function(self, event, ...)
     local handler = type(event) == "table" and event.handler
     if handler == "onSuspend" then
+        -- Corner notes still up: close them (their close timer would sit
+        -- through sleep, and the note would still be there on wake)
+        if #corner_open > 0 then
+            local open = {}
+            for i, n in ipairs(corner_open) do open[i] = n end
+            for _i, n in ipairs(open) do pcall(UIManager.close, UIManager, n) end
+        end
         -- an address still being fetched for the network list: stop
         -- checking (sleep turns Wi-Fi off and ends the script)
         if list_ip then pcall(list_ip.stop) end
