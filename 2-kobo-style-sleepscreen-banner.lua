@@ -2,7 +2,7 @@
 --redesigns the inbuilt 'banner' type sleep screen message to
 --make it look like the kobo lockscreen tag.
 
---Version: 1.2.0
+--Version: 1.2.1
 
 --VERSIONING
 --1.0.x = fixes (e.g. adapting to a ShelfSync token rename)
@@ -10,6 +10,10 @@
 --2.0.0 = changes that affect how existing backups work
 
 --CHANGELOG
+--1.2.1 - Screenshot Next Sleep Screen didn't show up: KOReader's menu
+--         sorter takes the Sleep screen entry out of the menu's item list
+--         while it builds the menu, so it was gone by the time this looked
+--         for it. It's now found in the finished menu instead.
 --1.2.0 - Screenshot Next Sleep Screen: a one-shot toggle at the end of
 --         Settings > Screen > Sleep screen. On the next sleep, the sleep
 --         screen is saved to KOReader's screenshots folder (the one set in
@@ -134,7 +138,7 @@ local util = require("util")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 
-local PATCH_VERSION = "1.2.0"	--bump this on every change; it's the only
+local PATCH_VERSION = "1.2.1"	--bump this on every change; it's the only
 								--number that needs to change -- the header's
 								--Version line and changelog are kept in sync
 								--by hand, this constant is what actually
@@ -707,8 +711,18 @@ local function addShotItem(menu_module)
 	local og = M.setUpdateItemTable
 	M.setUpdateItemTable = function(self, ...)
 		local res = { og(self, ...) }
+		-- the sorter moves menu_items.screensaver into the finished menu
+		-- (and clears it from menu_items), so look for it there
 		local ss = self.menu_items and self.menu_items.screensaver
-		if ss and type(ss.sub_item_table) == "table" then
+		if not ss and type(self.tab_item_table) == "table" then
+			local ok_s, MenuSorter = pcall(require, "ui/menusorter")
+			if ok_s then
+				local ok_f, found = pcall(MenuSorter.findById, MenuSorter, self.tab_item_table, "screensaver")
+				if ok_f then ss = found end
+			end
+		end
+		if type(ss) == "table" and type(ss.sub_item_table) == "table" and not ss.sub_item_table.__shot_item then
+			ss.sub_item_table.__shot_item = true
 			table.insert(ss.sub_item_table, shotMenuItem())
 		end
 		return unpack(res)
