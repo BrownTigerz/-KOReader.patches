@@ -1,6 +1,6 @@
 --[[
 2-debugging-menu.lua
-Version 1.3.3
+Version 1.3.5
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
@@ -35,6 +35,17 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.3.5  1.3.4 only reached Delete Log on one diagnostic: Delete All Logs
+       gathers its own list and still skipped those files (the log after
+       Delete All Logs showed none of them deleted). It now takes every
+       file each diagnostic owns, the same list Delete Log uses.
+1.3.4  Delete All Logs (and Delete Log on one diagnostic) now also take the
+       files a diagnostic names after itself, not only after its log:
+       sleepscreen-banner-diagnostics.log.firstload, tweaks-menu-
+       diagnostics.stamp, readmastery-diagnostics-meta.lua. Since those
+       diagnostics moved to the shared log, nothing pointed at them, so
+       they were left behind and their time windows never restarted (the
+       Sleep Screen Banner diagnostic stayed expired after Delete All Logs).
 1.3.3  Menu items use title case (first letter of every word capitalized).
 1.3.2  Combine moved to the very bottom of the menu and renamed to
        "Combine Crash And Diagnostics Log For Review" so its purpose
@@ -64,7 +75,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.3.3"
+local VERSION = "1.3.5"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -218,6 +229,12 @@ local function scan()
         -- .log, .log.old, .log.firstload, .stamp, .state, -meta.lua ...
         d.prefixes = {}
         for _j, n in ipairs(d.logs) do d.prefixes[#d.prefixes + 1] = n:gsub("%.log$", "") end
+        -- and every file named after the diagnostic itself (its markers and
+        -- stamps outlive its own log name once it writes to the shared log)
+        local own = d.base:gsub("^%d+%-", ""):gsub("^zz%-", "")
+        local have = false
+        for _j, p in ipairs(d.prefixes) do if p == own then have = true break end end
+        if not have then d.prefixes[#d.prefixes + 1] = own end
     end
     table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
     return list
@@ -475,6 +492,9 @@ local function allLeftovers()
                 if lfs.attributes(p, "mode") == "file" then add(p) end
             end
         end
+        -- and everything else it owns (markers, stamps, -meta files named
+        -- after it): the same files Delete Log takes for one diagnostic
+        for _j, p in ipairs(filesOf(d)) do add(p) end
     end
     for _i, dir in ipairs({ DATA, SETTINGS_DIR }) do
         pcall(function()
