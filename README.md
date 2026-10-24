@@ -2,6 +2,8 @@
 
 User patches for KOReader, mostly tested for Kobo Clara Color. Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
+If these patches are useful to you, you can [support my work on Ko-fi](https://ko-fi.com/browntigerz).
+
 ## Install
 
 Copy the `2-*.lua` files you want into KOReader's patches folder and restart KOReader.
@@ -20,13 +22,13 @@ All patches work independently and together. If one fails to attach (for example
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.12.1 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.6 |
-| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.5 |
+| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.6 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.3 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.10.3 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.10.4 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.13 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.5 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.5 |
-| [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.1.3 |
+| [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.0 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.15.0 |
 | [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.2 |
@@ -268,6 +270,7 @@ Redesigns KOReader's banner-type sleep screen message to look like the Kobo lock
 - **Seeded randomness:** picks stay varied across restarts.
 - **Live quote file:** edits to the quote file are picked up without restarting.
 - **Lighter sleep:** it only reads highlights, so there's no settings flush on every sleep.
+- **Screenshot Next Sleep Screen:** a one-shot toggle at the end of Settings → Screen → Sleep screen. The next sleep screen is saved to KOReader's screenshots folder, then the toggle turns itself off.
 
 Title, stats and highlight fonts, sizes, border, margin and max width are configurable in the settings tables at the top of the file.
 
