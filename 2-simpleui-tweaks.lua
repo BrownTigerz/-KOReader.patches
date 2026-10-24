@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.2
+Version 2.12.3
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,11 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.12.3 Tiny Critter (SimpleUI 3.0): Modules > Critter Bubble Width
+         makes its speech bubble wider (SimpleUI's is fixed), so longer
+         lines fit on fewer rows. Its chat answers follow the bubble.
+         The bubble still gives way to decorations and never leaves the
+         row.
   2.12.2 SimpleUI 3.0:
          - Reading Stats takes the module colours again (it showed
            SimpleUI's own white in Night Mode). SimpleUI 3.0 moved it to
@@ -210,7 +215,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.2"
+local VERSION = "2.12.3"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -250,6 +255,7 @@ local DEFAULTS = {
     tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
     tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "coll:<name>" / "new" / "history" / "last"
     tbr_panel_colls  = {},          --   more KOReader collections shown as panel views, in order: { "Book Club", ... }
+    critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own)
 }
 
 local userpatch  = require("userpatch")
@@ -1180,6 +1186,25 @@ end
 
 local patchNewBooksModule   -- New Books (SimpleUI 2.7.5): defined below
 
+-- Tiny Critter (SimpleUI 3.0): its bubble width is a constant in the module
+-- (BUBBLE_DP, dp at 100% scale), shared by every function of the file. The
+-- chosen width replaces it; 0 puts SimpleUI's own back. The module still
+-- shrinks the bubble for decorations and to fit the row.
+local critter_bubble = nil   -- { fn, idx, stock }
+local function applyCritterBubble()
+    local cb = critter_bubble
+    if not cb then return end
+    local want = tonumber(cfg.critter_bubble) or 0
+    debug.setupvalue(cb.fn, cb.idx, want > 0 and want or cb.stock)
+end
+local function patchCritterBubble(build)
+    if critter_bubble then return end
+    local v, idx = findUpvalue(build, "BUBBLE_DP")
+    if type(v) ~= "number" or not idx then return end
+    critter_bubble = { fn = build, idx = idx, stock = v }
+    applyCritterBubble()
+end
+
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
     local file_id = name:match("/module_([^/]+)$")
@@ -1199,6 +1224,7 @@ local function patchModule(name, M)
     if file_id == "quote" then quietQuoteBuild(M) end
     if file_id == "currently" then patchCurrentlySwipe(M) end
     if file_id == "new_books" and orig then pcall(patchNewBooksModule, orig) end
+    if file_id == "critter" and orig then pcall(patchCritterBubble, orig) end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
@@ -2982,6 +3008,27 @@ local function buildMenu()
                               items[#items + 1] = { text = tostring(k), radio = true,
                                   checked_func = function() return cfg.currently_books == k end,
                                   callback = function() setHome("currently_books", k) end }
+                          end
+                          return items
+                      end,
+                      separator = true },
+                    { text_func = function()
+                          local w = tonumber(cfg.critter_bubble) or 0
+                          local names = { [0] = _("Default"), [360] = _("Wide"), [440] = _("Wider"), [2000] = _("Full Row") }
+                          return string.format(_("Critter Bubble Width: %s"), names[w] or tostring(w))
+                      end,
+                      help_text = _("Width of the Tiny Critter's speech bubble (SimpleUI 3.0). Wider fits longer lines on fewer rows; its chat answers follow. Full Row takes all the room the critter and decorations leave."),
+                      enabled_func = function() return critter_bubble ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { 0, _("Default") }, { 360, _("Wide") }, { 440, _("Wider") }, { 2000, _("Full Row") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (tonumber(cfg.critter_bubble) or 0) == opt[1] end,
+                                  callback = function()
+                                      cfg.critter_bubble = opt[1]
+                                      applyCritterBubble()
+                                      setHome("critter_bubble", opt[1])
+                                  end }
                           end
                           return items
                       end,
