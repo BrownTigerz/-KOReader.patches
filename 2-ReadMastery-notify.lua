@@ -2,7 +2,7 @@
 ReadMastery - Notification Style Patch
 =======================================
 
-Version: 1.0.5
+Version: 1.0.6
 
 Drop this file, unmodified plugin included, into your KOReader
 `patches/` folder:
@@ -22,7 +22,7 @@ files whose name starts with a supported priority number (0, 1, 2,
 8, or 9) - "2-" is the one that runs after the UI is ready, which
 is what these patches need. Keep the "2-" prefix.
 
-Two top-level toggles above the settings menu:
+Three top-level toggles above the settings menu:
   * Notifications             - master ON/OFF for everything below
   * Nudges                    - 80%/90% "almost there" notices from
                                  the quest patch (informational only,
@@ -30,6 +30,20 @@ Two top-level toggles above the settings menu:
                                  Notifications is off, since nudges
                                  are delivered through the same
                                  render pipeline.
+  * Critter Reacts (SimpleUI) - SimpleUI 3.0's Critter (home screen
+                                 module) comments on level ups,
+                                 achievements, streak milestones and
+                                 completed quests the next time it's
+                                 on screen, gets a little happier for
+                                 each, and can offer one of today's
+                                 daily quests in its chat (quest
+                                 patch 1.0.6+, Quests (Enhanced) on).
+                                 Near the end of the week / month it
+                                 nudges toward a quest still in reach
+                                 (finish your closest-to-done book,
+                                 pages or minutes to go).
+                                 Default ON; does nothing without the
+                                 Critter. Independent of Notifications.
 
 Everything else lives under ReadMastery -> Settings -> Notification
 Settings (greyed out while "Notifications" above it is off):
@@ -76,6 +90,23 @@ All settings are stored in their own file
 ReadMastery's own data file.
 
 Changelog:
+  1.0.6 (2026-10-24) - SimpleUI Critter: new "Critter Reacts (SimpleUI)"
+    toggle (default ON). Level ups, achievements (tier ups too), streak
+    milestones and completed quests wait for SimpleUI 3.0's Critter,
+    which comments on the most important one the next time the home
+    screen shows it (a finished book still comes first) and gets a
+    little happier. In its chat the Critter
+    can offer one of today's daily quests ("I'll do it" / "Not today" /
+    "What's in it for me?") and later ask how it's going; finishing a
+    quest you said you'd do gets its own line. Near the end of the week
+    (last 2 days), month (last 5) or a seasonal quest's month (last 7),
+    it nudges once a day toward a quest still in reach: a "finish N
+    books" quest one book short with your closest-to-done book named
+    ("4 days left for Bibliophile. The Hobbit is 91% done."), the
+    seasonal book quest, or pages / minutes still to go - in its bubble
+    and as a chat ("Let's finish it" / "Which book?" / "Not this
+    time"). Uses SimpleUI's own
+    critter files, nothing on a timer. ReadMastery's popups unchanged.
   1.0.5 (2026-10-22) - A tap on a Banner toast itself now only dismisses
     it. It also reached whatever was underneath: with the toast in the
     top-right corner, dismissing a quest toast fired the reader's
@@ -137,7 +168,7 @@ local Screen = Device.screen
 -- header comment above is for humans reading the file; this is what
 -- the menu's version line and the startup log entry below both
 -- display, so they can never drift out of sync with each other.
-local PATCH_VERSION = "1.0.5"
+local PATCH_VERSION = "1.0.6"
 
 -- =================================================================
 -- Settings (own file - ReadMastery's own data.json is never touched)
@@ -704,6 +735,489 @@ _G.ReadMasteryNotify.nudgesEnabled = function() return Notify.enabled and Notify
 _G.ReadMasteryNotify.clearQueue = clearQueue
 
 -- =================================================================
+-- SimpleUI Critter bridge (SimpleUI 3.0's "Tiny Critter Companion")
+--
+-- With "Critter Reacts" on (top of ReadMastery's menu, default ON):
+--   * Level ups, achievements (and tier ups), streak milestones and
+--     completed quests (quest patch 1.0.6+) wait for the Critter, which
+--     comments on the most important one the next time the home screen
+--     shows it - the same way it comments on a finished book. Each also
+--     lifts the Critter's mood a little.
+--   * In the Critter's chat it can offer one of today's daily quests
+--     (quest patch on, Quests (Enhanced) on), and ask how a quest you
+--     said you'd do is going. Doing a promised quest gets a special line.
+-- Uses SimpleUI's own critter files (reactions, lines, chat, mood) and
+-- adds to them in memory; their saved data keeps SimpleUI's format.
+-- Nothing here runs on a timer. Without SimpleUI 3.0's Critter it does
+-- nothing; the ReadMastery popups are not affected either way.
+-- =================================================================
+
+Notify.critter = settings:nilOrTrue("critter_enabled")
+
+local CRITTER_MODS = {
+    ["modules/critter/reactions"] = true,
+    ["modules/critter/reaction_lines"] = true,
+    ["modules/critter/dialog"] = true,
+}
+
+-- Priority of the waiting reaction (SimpleUI: book finished 8, its own
+-- challenge 7, a reading session 6): the Critter keeps one, the higher.
+local RM_PRIORITY = { rm_level = 7.5, rm_achievement = 6.8, rm_streak = 6.6, rm_quest = 6.4, rm_deadline = 4.5 }
+
+-- Mood lift for each (SimpleUI's own challenge gives about this much).
+local RM_REWARD = { rm_level = 5, rm_achievement = 3, rm_streak = 4, quest_daily = 2, quest_big = 4, quest_promised = 4 }
+
+local critter_done = {}
+
+-- ---- end of the week / month: nudge toward a quest still in reach ----
+-- Weekly quests in their last 2 days, monthly in their last 5, this
+-- month's seasonal in its last 7. Kept to what one push can still do:
+--   book     a "finish N books" quest one book short, and a book of yours
+--            at least half read (the closest to done of your 10 latest)
+--   seasonal this month's seasonal "finish a tagged book" quest
+--   pages    a page total started and within ~60 pages a day
+--   minutes  a minutes total started and within ~90 minutes a day
+-- Looked up at most every 10 minutes, and again after a quest completes
+-- (up to 10 sidecar reads, only when a book quest is in its window).
+local NUDGE_WINDOW = { weekly = 2, monthly = 5, seasonal = 7 }
+local NUDGE_RANK   = { book = 1, seasonal = 2, pages = 3, minutes = 4 }
+local nudge_cache  = { at = 0, value = nil }
+
+local function closestBook()
+    local okh, RH = pcall(require, "readhistory")
+    local okd, DS = pcall(require, "docsettings")
+    if not (okh and okd and type(RH) == "table" and type(RH.hist) == "table" and type(DS) == "table") then return nil end
+    local best
+    for i, e in ipairs(RH.hist) do
+        if i > 10 then break end
+        if type(e) == "table" and type(e.file) == "string" and not e.dim then
+            local ok, ds = pcall(DS.open, DS, e.file)
+            if ok and ds then
+                local pct = ds:readSetting("percent_finished")
+                local summary = ds:readSetting("summary")
+                local props = ds:readSetting("doc_props")
+                local done = type(summary) == "table" and summary.status == "complete"
+                if type(pct) == "number" and pct >= 0.5 and pct < 1 and not done and (not best or pct > best.pct) then
+                    local title = type(props) == "table" and type(props.title) == "string" and props.title ~= "" and props.title
+                        or e.file:match("([^/]+)%.[^./]+$") or e.file
+                    best = { pct = pct, title = title, file = e.file }
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function findNudge()
+    local Q = _G.ReadMasteryQuests
+    if type(Q) ~= "table" or type(Q.open) ~= "function" or not Q.enabled() then return nil end
+    local ok, list = pcall(Q.open)
+    if not ok or type(list) ~= "table" then return nil end
+    local book, book_looked
+    local best
+    for _, q in ipairs(list) do
+        local window = NUDGE_WINDOW[q.period]
+        if window and q.days_left >= 1 and q.days_left <= window then
+            local rem = q.need - q.have
+            local cand
+            if q.type == "books_finished" and rem == 1 then
+                if not book_looked then book_looked, book = true, closestBook() end
+                if book then cand = { kind = "book", q = q, book = book } end
+            elseif q.type == "tag_book_finish" and q.period == "seasonal" then
+                cand = { kind = "seasonal", q = q }
+            elseif q.type == "pages" and q.have > 0 and rem > 0 and rem <= 60 * q.days_left then
+                cand = { kind = "pages", q = q, rem = rem }
+            elseif q.type == "minutes" and q.have > 0 and rem > 0 and rem <= 90 * q.days_left then
+                cand = { kind = "minutes", q = q, rem = rem }
+            end
+            if cand and (not best or NUDGE_RANK[cand.kind] < NUDGE_RANK[best.kind]
+                    or (NUDGE_RANK[cand.kind] == NUDGE_RANK[best.kind] and q.days_left < best.q.days_left)) then
+                best = cand
+            end
+        end
+    end
+    return best
+end
+
+local function currentNudge()
+    if not Notify.critter then return nil end
+    local now = os.time()
+    if now - nudge_cache.at < 10 * 60 and nudge_cache.day == os.date("%Y-%m-%d") then return nudge_cache.value end
+    local ok, v = pcall(findNudge)
+    nudge_cache.at, nudge_cache.day, nudge_cache.value = now, os.date("%Y-%m-%d"), ok and v or nil
+    return nudge_cache.value
+end
+
+local function nudgeData(n)
+    return {
+        title = n.q.title, days = n.q.days_left, kind = n.kind,
+        which = n.book and n.book.title or nil,                   -- the book to finish
+        capacity = n.book and math.floor(n.book.pct * 100) or nil, -- how far into it, %
+        minutes = n.rem,                                          -- pages or minutes still to go
+    }
+end
+
+local function rmLines(L)
+    local function add(kind, group, when, line)
+        line.kind, line.group, line.when = kind, group, when
+        L.LINES[#L.LINES + 1] = line
+    end
+    local function t(fmt) return function(d) return string.format(fmt, d.title) end end
+    local function n(fmt) return function(d) return string.format(fmt, d.days) end end
+    local function s(text) return function() return text end end
+    local has_title = function(d) return d.title ~= nil end
+    local has_days  = function(d) return d.days ~= nil end
+
+    -- Level up
+    add("rm_level", "level", has_title, { id = "rm_lv1", mood = "party",
+        text = t("Level %s!"), sub = s("Shiny new number. I approve."),
+        by_tier = {
+            grumpy  = { mood = "grumpy", text = t("Level %s. Fine. That's impressive.") },
+            radiant = { mood = "party",  text = t("LEVEL %s! Bow before the reader!") },
+        } })
+    add("rm_level", "level", has_title, { id = "rm_lv2", mood = "cheer",
+        text = t("You hit level %s."), sub = s("Pages really do add up.") })
+    add("rm_level", "level", has_title, { id = "rm_lv3", mood = "love",
+        text = t("Level %s. Look at you."), sub = s("I knew you had it in you."),
+        by_tier = { meh = { mood = "sleepy", text = t("Level %s. Wake me for the next one.") } } })
+    add("rm_level", "level", has_title, { id = "rm_lv4", mood = "surprised",
+        text = t("Level %s already?"), sub = s("Slow down, I can't keep up.") })
+
+    -- Achievement (or a tier up of one)
+    add("rm_achievement", "unlocked", has_title, { id = "rm_ac1", mood = "party",
+        text = t("%s, unlocked!"), sub = s("Framing it. In my head.") })
+    add("rm_achievement", "unlocked", has_title, { id = "rm_ac2", mood = "cheer",
+        text = t("You got %s."), sub = s("Another badge for the shelf."),
+        by_tier = { grumpy = { mood = "grumpy", text = t("%s. Show-off.") } } })
+    add("rm_achievement", "unlocked", has_title, { id = "rm_ac3", mood = "curious",
+        text = t("%s? How'd you do that?"), sub = s("It looked hard. Was it hard?") })
+    add("rm_achievement", "unlocked", has_title, { id = "rm_ac4", mood = "love",
+        text = t("%s! I'm so proud."),
+        by_tier = { radiant = { mood = "party", text = t("%s! Is there anything you can't do?") } } })
+
+    -- Streak milestone
+    add("rm_streak", "days", has_days, { id = "rm_st1", mood = "party",
+        text = n("%d days in a row!"), sub = s("That's a real habit now.") })
+    add("rm_streak", "days", has_days, { id = "rm_st2", mood = "cheer",
+        text = n("A %d-day streak!"), sub = s("Don't you dare stop now."),
+        by_tier = { grumpy = { mood = "grumpy", text = n("%d days. Fine, that's impressive.") } } })
+    add("rm_streak", "days", has_days, { id = "rm_st3", mood = "love",
+        text = n("%d days of reading."), sub = s("Same time tomorrow?") })
+
+    -- Quest done: one you told the Critter you'd do, a daily, a bigger one
+    local promised = function(d) return d.kind == "promised" and d.title ~= nil end
+    local daily    = function(d) return d.kind == "daily" and d.title ~= nil end
+    local big      = function(d) return d.title ~= nil and d.kind ~= nil and d.kind ~= "promised" and d.kind ~= "daily" end
+    add("rm_quest", "promised", promised, { id = "rm_qp1", mood = "party",
+        text = t("You said you'd do %s. You did!"), sub = s("A critter remembers these things.") })
+    add("rm_quest", "promised", promised, { id = "rm_qp2", mood = "love",
+        text = t("%s, done, like you promised."), sub = s("I'm writing this down."),
+        by_tier = { grumpy = { mood = "grumpy", text = t("%s. You kept your word. Hmph.") } } })
+    add("rm_quest", "daily", daily, { id = "rm_qd1", mood = "cheer",
+        text = t("Quest done: %s."), sub = s("Easy for you."),
+        by_tier = {
+            grumpy  = { mood = "grumpy", text = t("%s. Done. Big deal.") },
+            radiant = { mood = "party",  text = t("Quest done: %s! Legendary!") },
+        } })
+    add("rm_quest", "daily", daily, { id = "rm_qd2", mood = "happy",
+        text = t("%s, complete!"), sub = s("XP looks good on you.") })
+    add("rm_quest", "daily", daily, { id = "rm_qd3", mood = "playful",
+        text = t("Another quest down: %s."), sub = s("What's next, dragons?") })
+    add("rm_quest", "big", big, { id = "rm_qb1", mood = "party",
+        text = t("%s! That's a big one."), sub = s("That took real work.") })
+    add("rm_quest", "big", big, { id = "rm_qb2", mood = "surprised",
+        text = t("You finished %s?!"), sub = s("I need to sit down.") })
+
+    -- End of the week / month (see findNudge)
+    local function left(d) return d.days == 1 and "Last day" or string.format("%d days left", d.days) end
+    local nb = function(d) return d.kind == "book" and d.title and d.which and d.days end
+    local ns = function(d) return d.kind == "seasonal" and d.title and d.days end
+    local np = function(d) return d.kind == "pages" and d.title and d.minutes and d.days end
+    local nm = function(d) return d.kind == "minutes" and d.title and d.minutes and d.days end
+    add("rm_deadline", "book", nb, { id = "rm_nb1", mood = "curious",
+        text = function(d) return string.format("%s for %s.", left(d), d.title) end,
+        sub  = function(d) return string.format("\u{201C}%s\u{201D} is %d%% done. Finish it?", d.which, d.capacity or 0) end })
+    add("rm_deadline", "book", nb, { id = "rm_nb2", mood = "playful",
+        text = function(d) return string.format("\u{201C}%s\u{201D} is so close.", d.which) end,
+        sub  = function(d) return string.format("%d%% done. %s for %s.", d.capacity or 0, left(d), d.title) end,
+        by_tier = { grumpy = { mood = "grumpy", text = function(d) return string.format("Just finish \u{201C}%s\u{201D} already.", d.which) end } } })
+    add("rm_deadline", "seasonal", ns, { id = "rm_ns1", mood = "curious",
+        text = function(d) return string.format("%s for %s.", left(d), d.title) end,
+        sub  = s("Got a book for it going?") })
+    add("rm_deadline", "seasonal", ns, { id = "rm_ns2", mood = "playful",
+        text = function(d) return string.format("%s is almost over.", d.title) end,
+        sub  = function(d) return string.format("%s. One book does it.", left(d)) end })
+    add("rm_deadline", "pages", np, { id = "rm_np1", mood = "cheer",
+        text = function(d) return string.format("%d pages to go for %s.", d.minutes, d.title) end,
+        sub  = function(d) return string.format("%s. Very doable.", left(d)) end })
+    add("rm_deadline", "minutes", nm, { id = "rm_nm1", mood = "cheer",
+        text = function(d) return string.format("%d minutes to go for %s.", d.minutes, d.title) end,
+        sub  = function(d) return string.format("%s. A couple of sessions.", left(d)) end })
+end
+
+-- ---- chat: offer one of today's daily quests ---------------------
+
+local FOCUS_KEY = "critter_focus"   -- { day, id }: the daily quest you said you'd do
+
+local function readFocus(day)
+    local f = settings:readSetting(FOCUS_KEY)
+    if type(f) == "table" and f.day == day and type(f.id) == "string" then return f.id end
+    return nil
+end
+
+local function questOffer()
+    if not Notify.critter then return nil end
+    local Q = _G.ReadMasteryQuests
+    if type(Q) ~= "table" or type(Q.daily) ~= "function" or not Q.enabled() then return nil end
+    local ok, list = pcall(Q.daily)
+    if not ok or type(list) ~= "table" or #list == 0 then return nil end
+    local focus = readFocus(list[1].day)
+    if focus then
+        for _, q in ipairs(list) do
+            -- done: offer another of today's (below)
+            if q.id == focus and not q.done then return { mode = "active", q = q } end
+        end
+    end
+    -- today's rotating one first, else the first still open; a time-window
+    -- quest whose window is over for today (First Light after 9:00) isn't
+    -- offered. The quest day ends at 3 AM, so a window past midnight
+    -- (Night Owl) is never over before then.
+    local function over(q)
+        if not (q.from and q.to) then return false end
+        local fh, fm = q.from:match("(%d+):(%d+)")
+        local th, tm = q.to:match("(%d+):(%d+)")
+        if not (fh and th) then return false end
+        local from_m, to_m = tonumber(fh) * 60 + tonumber(fm), tonumber(th) * 60 + tonumber(tm)
+        if from_m > to_m then return false end
+        local t = os.date("*t")
+        local now_m = t.hour * 60 + t.min
+        -- before 3 AM it's still yesterday's quest day, its window long gone
+        return now_m >= to_m or now_m < 3 * 60
+    end
+    local pick
+    for i = #list, 1, -1 do
+        if not list[i].done and not over(list[i]) then pick = list[i] break end
+    end
+    if not pick then return nil end
+    return { mode = "offer", q = pick }
+end
+
+local function unitText(q, n)
+    if q.unit == "minutes" then return n == 1 and "minute" or "minutes" end
+    return n == 1 and "page" or "pages"
+end
+
+local function offerText(q)
+    if q.have > 0 then
+        return string.format("%s: %d of %d %s so far. Finish it today?", q.title, q.have, q.need, unitText(q, q.need))
+    end
+    if q.type == "single_session_minutes" then
+        return string.format("Today's quest: %s. %d minutes in one sitting?", q.title, q.need)
+    elseif q.type == "time_window_minutes" and q.from and q.to then
+        return string.format("Today's quest: %s. %d minutes between %s and %s?", q.title, q.need, q.from, q.to)
+    end
+    return string.format("Today's quest: %s. Read %d %s?", q.title, q.need, unitText(q, q.need))
+end
+
+local function rmExchanges(D)
+    local function s(text) return function() return text end end
+    -- `f` (the Critter's facts) carries the quest from when() to the replies
+    local function offer(f) return f.rm_quest_offer end
+    local function accepting(text)
+        return function(f)
+            local o = offer(f)
+            if o then
+                settings:saveSetting(FOCUS_KEY, { day = o.q.day, id = o.q.id })
+                settings:flush()
+            end
+            return text
+        end
+    end
+    D.EXCHANGES[#D.EXCHANGES + 1] = {
+        id = "rm_quest_offer",
+        when = function(f)
+            local ok, o = pcall(questOffer)
+            f.rm_quest_offer = ok and o or nil
+            return f.rm_quest_offer ~= nil and f.rm_quest_offer.mode == "offer"
+        end,
+        opener = function(f) return offerText(offer(f).q) end,
+        options = {
+            { id = "rm_accept", delta = 1,
+              text = s("I'll do it"),
+              reply = { mood = "cheer", text = accepting("Deal. I'll keep an eye on it."),
+                        sub = function(f) return string.format("+%d XP is waiting.", offer(f).q.reward_xp or 0) end } },
+            { id = "rm_later", delta = 0,
+              text = s("Not today"),
+              reply = { mood = "playful", text = s("Fair. It's there until 3 AM."),
+                        by_tier = { grumpy = { mood = "grumpy", text = s("Of course not.") } } } },
+            { id = "rm_xp", delta = 0,
+              text = s("What's in it for me?"),
+              reply = { mood = "curious",
+                        text = function(f) return string.format("%d XP. And my respect.", offer(f).q.reward_xp or 0) end } },
+        },
+    }
+    D.EXCHANGES[#D.EXCHANGES + 1] = {
+        id = "rm_quest_active",
+        when = function(f)
+            local ok, o = pcall(questOffer)
+            f.rm_quest_offer = ok and o or nil
+            return f.rm_quest_offer ~= nil and f.rm_quest_offer.mode == "active"
+        end,
+        opener = function(f)
+            local q = offer(f).q
+            return string.format("%s: %d of %d %s. How's it going?", q.title, q.have, q.need, unitText(q, q.need))
+        end,
+        options = {
+            { id = "rm_on_it", delta = 1,
+              text = s("On it!"),
+              reply = { mood = "cheer", text = s("Go get it. I'll be cheering."),
+                        by_tier = { radiant = { mood = "party", text = s("Unstoppable! I can feel it!") } } } },
+            { id = "rm_tough", delta = 0,
+              text = s("Tough one…"),
+              reply = { mood = "curious", text = s("A little now, a little later. It adds up.") } },
+        },
+    }
+    -- End of the week / month (see findNudge)
+    local function nudge(f) return f.rm_nudge end
+    local function leftText(q) return q.days_left == 1 and "Last day" or string.format("%d days left", q.days_left) end
+    local function hasBook(f) return nudge(f) ~= nil and nudge(f).book ~= nil end
+    D.EXCHANGES[#D.EXCHANGES + 1] = {
+        id = "rm_deadline",
+        when = function(f)
+            local ok, n = pcall(currentNudge)
+            f.rm_nudge = ok and n or nil
+            return f.rm_nudge ~= nil
+        end,
+        opener = function(f)
+            local n = nudge(f)
+            local q = n.q
+            if n.kind == "book" then
+                return string.format("%s for %s. \u{201C}%s\u{201D} is %d%% done.", leftText(q), q.title, n.book.title, math.floor(n.book.pct * 100))
+            elseif n.kind == "pages" then
+                return string.format("%s: %d pages to go. %s.", q.title, n.rem, leftText(q))
+            elseif n.kind == "minutes" then
+                return string.format("%s: %d minutes to go. %s.", q.title, n.rem, leftText(q))
+            end
+            return string.format("%s for %s. Got a book for it?", leftText(q), q.title)
+        end,
+        options = {
+            { id = "rm_go", delta = 1,
+              text = function(f) return nudge(f).kind == "book" and "Let's finish it" or "Let's do it" end,
+              reply = { mood = "cheer",
+                        text = function(f) return nudge(f).kind == "book" and "That's the spirit. Open it and go." or "I'll be cheering from here." end,
+                        by_tier = { radiant = { mood = "party", text = s("Yes! Finish line, here we come!") } } } },
+            { id = "rm_which", delta = 0, when = function(f) return hasBook(f) end,
+              text = s("Which book?"),
+              reply = { mood = "curious",
+                        text = function(f) return string.format("\u{201C}%s\u{201D}. It's the closest to the end.", nudge(f).book.title) end } },
+            { id = "rm_not_now", delta = 0,
+              text = s("Not this time"),
+              reply = { mood = "playful",
+                        text = function(f)
+                            local period = nudge(f).q.period
+                            if period == "weekly" then return "Next week, then. I'll remember." end
+                            if period == "seasonal" then return "Next year, then. It comes back." end
+                            return "Next month, then. I'll remember."
+                        end,
+                        by_tier = { grumpy = { mood = "grumpy", text = s("Sure. I'll pretend I didn't ask.") } } } },
+        },
+    }
+end
+
+local function installCritter()
+    local R = package.loaded["modules/critter/reactions"]
+    if not critter_done.R and type(R) == "table" and type(R.PRIORITY) == "table" then
+        critter_done.R = true
+        for k, v in pairs(RM_PRIORITY) do R.PRIORITY[k] = v end
+        -- Each home screen visit: once a day, an end-of-week/month nudge
+        -- waits for the Critter (kept only if nothing more important
+        -- waits; tried again on a later visit).
+        if type(R.observe) == "function" then
+            local orig_observe = R.observe
+            R.observe = function(...)
+                local res = { orig_observe(...) }
+                pcall(function()
+                    local today = os.date("%Y-%m-%d")
+                    if settings:readSetting("critter_nudge_day") == today then return end
+                    local n = currentNudge()
+                    if not n then return end
+                    R.record("rm_deadline", nudgeData(n))
+                    local pending = R.read().pending
+                    if pending and pending.kind == "rm_deadline" then
+                        settings:saveSetting("critter_nudge_day", today)
+                        settings:flush()
+                    end
+                end)
+                return unpack(res)
+            end
+        end
+    end
+    local L = package.loaded["modules/critter/reaction_lines"]
+    if not critter_done.L and type(L) == "table" and type(L.LINES) == "table" then
+        critter_done.L = true
+        local ok, err = pcall(rmLines, L)
+        if not ok then logger.warn("ReadMastery notify: critter lines failed:", err) end
+    end
+    local D = package.loaded["modules/critter/dialog"]
+    if not critter_done.D and type(D) == "table" and type(D.EXCHANGES) == "table" then
+        critter_done.D = true
+        local ok, err = pcall(rmExchanges, D)
+        if not ok then logger.warn("ReadMastery notify: critter chat failed:", err) end
+    end
+end
+
+-- SimpleUI loads the critter files with its home screen: catch them as
+-- they load (no-op for every other require).
+installCritter()
+do
+    local orig_require = require
+    _G.require = function(name, ...)
+        local mod = orig_require(name, ...)
+        if CRITTER_MODS[name] and not (critter_done.R and critter_done.L and critter_done.D) then
+            pcall(installCritter)
+        end
+        return mod
+    end
+end
+
+-- Leaves `kind` waiting for the Critter and lifts its mood by `reward`.
+local function critterRecord(kind, data, reward)
+    if not Notify.critter then return end
+    installCritter()
+    if not critter_done.R then return end   -- no SimpleUI 3.0 Critter
+    local R = package.loaded["modules/critter/reactions"]
+    R.record(kind, data)
+    local M = package.loaded["modules/critter/mood"]
+    if reward and type(M) == "table" and type(M.reward) == "function" then
+        M.write(M.reward(M.read(), reward))
+    end
+end
+
+local function questKind(id)
+    local p = type(id) == "string" and id:sub(1, 2) or ""
+    return ({ d_ = "daily", w_ = "weekly", m_ = "monthly", s_ = "seasonal", y_ = "yearly" })[p] or "quest"
+end
+
+-- Called by the quest patch (1.0.6+) for each completed quest.
+_G.ReadMasteryNotify.onQuestComplete = function(quest)
+    nudge_cache.at = 0   -- what's left to nudge about changed
+    if not Notify.critter or type(quest) ~= "table" or type(quest.title) ~= "string" then return end
+    local kind = questKind(quest.id)
+    local Q = _G.ReadMasteryQuests
+    local day
+    if type(Q) == "table" and type(Q.daily) == "function" then
+        local ok, list = pcall(Q.daily)
+        day = ok and type(list) == "table" and list[1] and list[1].day or nil
+    end
+    if kind == "daily" and day and readFocus(day) == quest.id then
+        critterRecord("rm_quest", { title = quest.title, kind = "promised" }, RM_REWARD.quest_promised)
+    else
+        critterRecord("rm_quest", { title = quest.title, kind = kind },
+            kind == "daily" and RM_REWARD.quest_daily or RM_REWARD.quest_big)
+    end
+end
+
+-- =================================================================
 -- Patch the plugin (runs once per plugin-instantiation; guarded so
 -- the actual class-level monkey-patch only happens once per session)
 -- =================================================================
@@ -862,6 +1376,37 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
         render(title, text)
     end
 
+    -- SimpleUI Critter: comments on these next time it's on the home
+    -- screen (whatever the notification settings; Preview doesn't come
+    -- through here).
+    do
+        local function hook(name, fn)
+            local inner = Notifications[name]
+            Notifications[name] = function(self, ...)
+                pcall(fn, ...)
+                return inner(self, ...)
+            end
+        end
+        hook("showLevelUp", function(level)
+            if level then critterRecord("rm_level", { title = tostring(level) }, RM_REWARD.rm_level) end
+        end)
+        hook("showAchievement", function(achievement)
+            if type(achievement) == "table" and type(achievement.name) == "string" then
+                critterRecord("rm_achievement", { title = achievement.name }, RM_REWARD.rm_achievement)
+            end
+        end)
+        hook("showTierUp", function(_id, achievement, tier_info)
+            if type(achievement) == "table" and type(achievement.name) == "string" then
+                local tier = type(tier_info) == "table" and tier_info.name
+                local title = tier and (achievement.name .. " (" .. tostring(tier) .. ")") or achievement.name
+                critterRecord("rm_achievement", { title = title }, RM_REWARD.rm_achievement)
+            end
+        end)
+        hook("showStreakMilestone", function(days)
+            if tonumber(days) then critterRecord("rm_streak", { days = tonumber(days) }, RM_REWARD.rm_streak) end
+        end)
+    end
+
     -- ---------------------------------------------------------------
     -- Preview = a real achievement notification (Early Bird), built
     -- from current settings, so style / font / position / duration
@@ -1013,6 +1558,18 @@ userpatch.registerPatchPluginFunc("ReadMastery", function(plugin)
                 callback = function()
                     Notify.nudges_enabled = not Notify.nudges_enabled
                     saveSetting("nudges_enabled", Notify.nudges_enabled)
+                end,
+                keep_menu_open = true,
+            },
+            {
+                text = "Critter Reacts (SimpleUI)",
+                help_text = "SimpleUI's Critter comments on level ups, achievements, streak milestones "
+                    .. "and completed quests next time it's on the home screen, and can offer "
+                    .. "today's daily quests in its chat. Needs SimpleUI 3.0 with the Critter module.",
+                checked_func = function() return Notify.critter end,
+                callback = function()
+                    Notify.critter = not Notify.critter
+                    saveSetting("critter_enabled", Notify.critter)
                 end,
                 keep_menu_open = true,
             },
