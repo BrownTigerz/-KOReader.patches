@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.3
+Version 2.12.4
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.12.4 Tiny Critter: Modules > Critter Size. SimpleUI draws the critter
+         at the largest whole pixel step that fits the row, which often
+         leaves it well short of its speech bubble. Fill Height scales it
+         to the bubble's height (still sharp pixels, each a little
+         uneven); Smaller takes it one pixel step down. Its moods, and
+         decorations next to it, follow. Default is SimpleUI's own.
   2.12.3 Tiny Critter (SimpleUI 3.0): Modules > Critter Bubble Width
          makes its speech bubble wider (SimpleUI's is fixed), so longer
          lines fit on fewer rows. Its chat answers follow the bubble.
@@ -215,7 +221,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.3"
+local VERSION = "2.12.4"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -256,6 +262,7 @@ local DEFAULTS = {
     tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "coll:<name>" / "new" / "history" / "last"
     tbr_panel_colls  = {},          --   more KOReader collections shown as panel views, in order: { "Book Club", ... }
     critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own)
+    critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
 }
 
 local userpatch  = require("userpatch")
@@ -1197,6 +1204,69 @@ local function applyCritterBubble()
     local want = tonumber(cfg.critter_bubble) or 0
     debug.setupvalue(cb.fn, cb.idx, want > 0 and want or cb.stock)
 end
+-- Tiny Critter size (SimpleUI 3.0, modules/critter/sprite). SimpleUI enlarges
+-- pixel art by the largest whole factor that fits the row, so the critter is
+-- often well short of the bubble. Only the critter's own images are touched
+-- (decorations are made with a max_pixel and keep sharing its pixel size):
+--   smaller  one whole step down
+--   fill     scaled by nearest neighbour to the bubble's height (or the width
+--            the module allows), cached like SimpleUI's own images
+local critter_sprite_on = false
+local patchCritterSprite = function(Sprite)
+    if type(Sprite) ~= "table" or type(Sprite.init) ~= "function" or type(Sprite._entry) ~= "function" then return false end
+    if ours[Sprite.init] then return true end
+    local RC = package.loaded["infra/sui_raster_cache"]
+    if type(RC) ~= "table" or type(RC.get) ~= "function" then return false end
+    local orig_init, orig_entry = Sprite.init, Sprite._entry
+
+    local function fillFactor(self, e)
+        local opaque = e.h - (e.foot or 0)
+        if not e.bb or opaque <= 0 or e.w <= 0 then return nil end
+        local f = math.min(self.max_h / opaque, self.max_w / e.w)
+        return f > 1.02 and f or nil
+    end
+    local function buildFill(self)
+        local e = orig_entry(self)
+        local f = fillFactor(self, e)
+        if not f then return { w = e.w, h = e.h, foot = e.foot or 0 } end
+        local nw, nh = math.floor(e.w * f), math.floor(e.h * f)
+        local bb = e.bb:scale(nw, nh)
+        return { bb = bb, w = nw, h = nh, foot = math.floor((e.foot or 0) * f),
+                 straight = e.straight, pixel = e.pixel }
+    end
+
+    Sprite.init = mine(function(self, ...)
+        local mode = cfg.critter_size
+        if self.max_pixel ~= nil or (mode ~= "smaller" and mode ~= "fill") then
+            return orig_init(self, ...)
+        end
+        orig_init(self, ...)
+        if not self.pixel then return end   -- not pixel art: SimpleUI's own scaling
+        if mode == "smaller" then
+            if self.pixel > 1 then
+                self.max_pixel = self.pixel - 1
+                return orig_init(self, ...)
+            end
+            return
+        end
+        local e = orig_entry(self)
+        if not fillFactor(self, e) then return end
+        self._tw_fill_key = self.key .. "|tweaks_fill"
+        local fe = self:_entry()
+        if fe.bb then
+            self.dimen.w, self.dimen.h = fe.w, fe.h - fe.foot
+        else
+            self._tw_fill_key = nil
+        end
+    end)
+    Sprite._entry = mine(function(self)
+        if not self._tw_fill_key then return orig_entry(self) end
+        return RC.get("critter", self._tw_fill_key, buildFill, self)
+    end)
+    critter_sprite_on = true
+    return true
+end
+
 local function patchCritterBubble(build)
     if critter_bubble then return end
     local v, idx = findUpvalue(build, "BUBBLE_DP")
@@ -1601,6 +1671,7 @@ patchNewBooksModule = function(build)
 end
 
 local function patcherFor(name)
+    if name == "modules/critter/sprite" then return patchCritterSprite end
     if name == "engines/sui_book_sources" then return patchBookSources end
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
@@ -3029,6 +3100,22 @@ local function buildMenu()
                                       applyCritterBubble()
                                       setHome("critter_bubble", opt[1])
                                   end }
+                          end
+                          return items
+                      end,
+                      separator = true },
+                    { text_func = function()
+                          local names = { default = _("Default"), fill = _("Fill Height"), smaller = _("Smaller") }
+                          return string.format(_("Critter Size: %s"), names[cfg.critter_size] or names.default)
+                      end,
+                      help_text = _("Size of the Tiny Critter (SimpleUI 3.0). Default is SimpleUI's: the largest whole pixel step that fits, often shorter than the bubble. Fill Height matches the bubble's height. Smaller is one step down. Decorations next to it follow."),
+                      enabled_func = function() return critter_sprite_on end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "default", _("Default") }, { "fill", _("Fill Height") }, { "smaller", _("Smaller") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.critter_size or "default") == opt[1] end,
+                                  callback = function() setHome("critter_size", opt[1]) end }
                           end
                           return items
                       end,
