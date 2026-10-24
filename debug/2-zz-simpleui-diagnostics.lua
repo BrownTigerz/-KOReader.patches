@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.12.0
+Version 2.12.1
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -68,6 +68,8 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.12.1 Ghosting check found KOReader's refresh table through the
+         patches that wrap the screen redraw (2.12.0 said "not found").
   2.12.0 Ghosting check: every screen update compared with what was on
          screen before it (a 48 x 64 sample grid, as you see it, night
          mode included). A big change (a quarter of the screen or more,
@@ -286,7 +288,7 @@ local function where(fn)
 end
 
 -- Hard expiry: first run kept in the state file.
-local DIAG_VERSION = "2.12.0"
+local DIAG_VERSION = "2.12.1"
 do
     -- version on line 1, first run on line 2: another version (or an
     -- older state file with just a time) starts a new 3 days
@@ -1710,7 +1712,31 @@ if ok_ui and type(UIManager) == "table" and type(UIManager._repaint) == "functio
             end
         end
     end
-    local methods = upv(UIManager._repaint, "refresh_methods")
+    -- KOReader keeps its refresh table as a local used by _repaint; other
+    -- patches (this one included) wrap _repaint, so look through the
+    -- wrappers' upvalues too.
+    local function findMethods()
+        local seen_fn, queue, head = {}, { { UIManager._repaint, 0 } }, 1
+        while head <= #queue do
+            local fn, depth = queue[head][1], queue[head][2]
+            head = head + 1
+            if type(fn) == "function" and not seen_fn[fn] then
+                seen_fn[fn] = true
+                local t = upv(fn, "refresh_methods")
+                if type(t) == "table" then return t end
+                if depth < 5 then
+                    local i = 1
+                    while true do
+                        local n, v = debug.getupvalue(fn, i)
+                        if n == nil then break end
+                        if type(v) == "function" then queue[#queue + 1] = { v, depth + 1 } end
+                        i = i + 1
+                    end
+                end
+            end
+        end
+    end
+    local methods = findMethods()
     if type(methods) == "table" then
         for mode, fn in pairs(methods) do
             if type(fn) == "function" then
@@ -1722,7 +1748,21 @@ if ok_ui and type(UIManager) == "table" and type(UIManager._repaint) == "functio
         end
         log("ghosting check: watching %s screen update kinds", (function() local n = 0 for _k in pairs(methods) do n = n + 1 end return n end)())
     else
-        log("ghosting check: KOReader's refresh table not found, check off")
+        -- older KOReader: _repaint calls the screen's refresh methods by name
+        local names = { refreshUI = "ui", refreshPartial = "partial", refreshFast = "fast", refreshA2 = "a2",
+                        refreshFlashUI = "flashui", refreshFlashPartial = "flashpartial", refreshFull = "full" }
+        local n = 0
+        for name, mode in pairs(names) do
+            local fn = Screen[name]
+            if type(fn) == "function" then
+                Screen[name] = function(S, x, y, w, h, ...)
+                    if on() then pcall(check, mode, x, y, w, h) end
+                    return fn(S, x, y, w, h, ...)
+                end
+                n = n + 1
+            end
+        end
+        log("ghosting check: refresh table not found; watching the screen's %d refresh calls instead", n)
     end
     SUMMARY_EXTRA[#SUMMARY_EXTRA + 1] = function()
         local list = {}
