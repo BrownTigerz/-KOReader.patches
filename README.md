@@ -2,8 +2,6 @@
 
 User patches for KOReader, mostly tested for Kobo Clara Color. Each one is a single file that patches KOReader or a plugin in memory. Nothing on disk is modified, so deleting a file and restarting fully reverts it.
 
-If these patches are useful to you, you can [support my work on Ko-fi](https://ko-fi.com/browntigerz).
-
 ## Install
 
 Copy the `2-*.lua` files you want into KOReader's patches folder and restart KOReader.
