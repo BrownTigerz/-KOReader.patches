@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.6 (2026-10-23)
+2-backup-patches.lua                                     2.4.7 (2026-10-23)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,12 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.7  2026-10-23
+    - Update check right after it turned Wi-Fi on: "Couldn't Fetch the
+      Version List. host or service not provided". Wi-Fi reports
+      connected a moment before the address lookup (DNS) is ready, and
+      the fetch went out in that gap. When this check just connected,
+      a failed fetch is tried again up to twice, 2 s apart.
   2.4.6  2026-10-23
     - Update check with Wi-Fi off showed "Couldn't Connect to Wi-Fi." a
       second after you'd connected from the network list. It was waiting
@@ -270,7 +276,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.6"
+local VERSION = "2.4.7"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1657,6 +1663,7 @@ function Backup.checkForPatchUpdates()
         local Menu = require("ui/widget/menu")
 
         updaterTrace("run", "check started")
+        local was_online = NetworkMgr:isConnected()
         if not ensureWifi() then
             updaterTrace("wifi", "giving up: no connection")
             -- Network Tweaks' background connect already said so ("no known
@@ -1672,6 +1679,19 @@ function Backup.checkForPatchUpdates()
 
         local manifest_url = updaterUrl(UPDATER_MANIFEST)
         local body, err, code = fetchUrl(manifest_url)
+        -- Just connected: the address lookup can lag a moment behind
+        -- "connected" ("host or service not provided"). Try again.
+        local tries = 1
+        while not body and not was_online and type(code) ~= "number" and tries < 3 do
+            updaterTrace("manifest", "fetch failed right after connecting (%s), trying again in 2s", tostring(err))
+            local co = coroutine.running()
+            UIManager:scheduleIn(2, function()
+                if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+            end)
+            coroutine.yield()
+            tries = tries + 1
+            body, err, code = fetchUrl(manifest_url)
+        end
         if not body then
             updaterTrace("manifest", "fetch FAILED %s (HTTP %s): %s",
                 manifest_url, tostring(code or "?"), tostring(err))
