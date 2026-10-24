@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.0
+Version 1.2.1
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -59,6 +59,10 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.2.1 (2026-10-23) - Same rule as Debugging menu 1.3.4: files named after
+                       a diagnostic itself (.log.firstload, .stamp, -meta.lua)
+                       belong to it, so they're no longer flagged ORPHAN and
+                       its delete checks expect them to go.
   1.2.0 (2026-10-23) - Shared perf core (the same block as the other
                        diagnostics): Debugging menu timers that hold the
                        screen 80 ms+, flashes it asks for, timers left
@@ -107,7 +111,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.2.0"
+local DIAG_VERSION = "1.2.1"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -342,6 +346,11 @@ local function collect()
         if d.guessed then d.logs = { (b:gsub("^%d+%-", ""):gsub("^zz%-", "")) .. ".log" } end
         d.prefixes = {}
         for _j, n in ipairs(d.logs) do d.prefixes[#d.prefixes + 1] = (n:gsub("%.log$", "")) end
+        -- files named after the diagnostic itself (menu 1.3.4)
+        local own = (b:gsub("^%d+%-", ""):gsub("^zz%-", ""))
+        local have = false
+        for _j, p in ipairs(d.prefixes) do if p == own then have = true break end end
+        if not have then d.prefixes[#d.prefixes + 1] = own end
         d.states = sourceStates(d.on and on_path or d.copies[1])
     end
     return diags, order, hidden, stray
