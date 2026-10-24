@@ -2,7 +2,7 @@
 --redesigns the inbuilt 'banner' type sleep screen message to
 --make it look like the kobo lockscreen tag.
 
---Version: 1.1.3
+--Version: 1.2.0
 
 --VERSIONING
 --1.0.x = fixes (e.g. adapting to a ShelfSync token rename)
@@ -10,6 +10,12 @@
 --2.0.0 = changes that affect how existing backups work
 
 --CHANGELOG
+--1.2.0 - Screenshot Next Sleep Screen: a one-shot toggle at the end of
+--         Settings > Screen > Sleep screen. On the next sleep, the sleep
+--         screen is saved to KOReader's screenshots folder (the one set in
+--         Screenshot settings, or koreader/screenshots), then the toggle
+--         turns itself off. Off, it costs nothing: one setting check per
+--         sleep.
 --1.1.3 - expose HL_SETT.allowed_hl_styles + QUOTE_SETT.file_path as
 --         _G.__sleepscreen_banner_settings for the diagnostics patch
 --         (it was duplicating them and drifting)
@@ -128,7 +134,7 @@ local util = require("util")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 
-local PATCH_VERSION = "1.1.3"	--bump this on every change; it's the only
+local PATCH_VERSION = "1.2.0"	--bump this on every change; it's the only
 								--number that needs to change -- the header's
 								--Version line and changelog are kept in sync
 								--by hand, this constant is what actually
@@ -634,3 +640,79 @@ function UIManager:show(widget, ...)
 
 	return og_uiMan_show(self, widget, ...)
 end
+
+--SCREENSHOT NEXT SLEEP SCREEN
+--one-shot: the toggle is cleared before the shot is taken, so even a
+--failed shot can't repeat on every sleep. No timers, no hooks while asleep.
+local SHOT_KEY = "sleepscreen_banner_shot_next"
+local SHOT_LAST_KEY = "sleepscreen_banner_shot_last"
+
+local function shotDir()
+	local dir = G_reader_settings:readSetting("screenshot_dir")
+	if dir and util.makePath(dir) then return (dir:gsub("/$", "")) end
+	dir = require("datastorage"):getFullDataDir() .. "/screenshots"
+	util.makePath(dir)
+	return dir
+end
+
+local Screensaver = require("ui/screensaver")
+local og_ss_show = Screensaver.show
+
+function Screensaver:show(...)
+	og_ss_show(self, ...)
+	if not G_reader_settings:isTrue(SHOT_KEY) then return end
+	G_reader_settings:delSetting(SHOT_KEY)
+	local ok, err = pcall(function()
+		-- the device paints right after show() anyway; doing it here first
+		-- puts the finished sleep screen in the framebuffer for the shot,
+		-- and the device's own repaint then has nothing left to do
+		UIManager:forceRePaint()
+		local path = os.date(shotDir() .. "/SleepScreen_%Y-%m-%d_%H%M%S.png")
+		local shot_ok, shot_err = Screen:shot(path)
+		if not shot_ok and lfs.attributes(path, "mode") ~= "file" then
+			error(shot_err or "screenshot failed", 0)
+		end
+		G_reader_settings:saveSetting(SHOT_LAST_KEY, path)
+		logger.info(TAG, "sleep screen saved to", path)
+	end)
+	if not ok then logger.warn(TAG, "sleep screen screenshot failed:", err) end
+end
+
+local function shotMenuItem()
+	local _ = require("gettext")
+	return {
+		text = _("Screenshot Next Sleep Screen"),
+		help_text_func = function()
+			local last = G_reader_settings:readSetting(SHOT_LAST_KEY)
+			return _("On the next sleep, the sleep screen is saved to the screenshots folder, then this turns itself off.")
+				.. (last and ("\n\n" .. _("Last one:") .. "\n" .. last) or "")
+		end,
+		checked_func = function() return G_reader_settings:isTrue(SHOT_KEY) end,
+		callback = function()
+			if G_reader_settings:isTrue(SHOT_KEY) then
+				G_reader_settings:delSetting(SHOT_KEY)
+			else
+				G_reader_settings:makeTrue(SHOT_KEY)
+			end
+		end,
+	}
+end
+
+--adds the toggle to the end of the Sleep screen menu in both the reader and
+--the file browser (KOReader rebuilds that menu each time, so it's added
+--after each build)
+local function addShotItem(menu_module)
+	local ok, M = pcall(require, menu_module)
+	if not ok or type(M) ~= "table" or type(M.setUpdateItemTable) ~= "function" then return end
+	local og = M.setUpdateItemTable
+	M.setUpdateItemTable = function(self, ...)
+		local res = { og(self, ...) }
+		local ss = self.menu_items and self.menu_items.screensaver
+		if ss and type(ss.sub_item_table) == "table" then
+			table.insert(ss.sub_item_table, shotMenuItem())
+		end
+		return unpack(res)
+	end
+end
+addShotItem("apps/reader/modules/readermenu")
+addShotItem("apps/filemanager/filemanagermenu")
