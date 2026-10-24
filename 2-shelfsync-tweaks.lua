@@ -1,7 +1,26 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.13
+-- Version 1.11.15
 -- Changelog:
+--   1.11.15  Two more of this patch's timers no longer sit through sleep.
+--            (1) The autolink retry 5 s after Wi-Fi connects (one per
+--            provider): cancelled on sleep (it checked for sleep when it
+--            fired anyway; the next connect schedules it again). (2) A sync
+--            still waiting for Wi-Fi to settle when the device sleeps: its
+--            wait is stopped and the sync abandoned there and then, Wi-Fi
+--            lease released, instead of after waking (where it stopped
+--            anyway). The device turns Wi-Fi off for sleep itself, so it
+--            isn't switched off a second time.
+--   1.11.14  Nothing of ShelfSync's left waiting through sleep that sleep
+--            was meant to stop. (1) ShelfSync's retry scheduler: on sleep it
+--            "clears" its retries, but never recorded them, so a book-info
+--            retry (scheduler.lua) stayed queued and ran after waking with
+--            Wi-Fi off. Retries are now recorded and really cancelled when
+--            it clears. (2) This patch's own "Retrying ·" pass (5 s after a
+--            failed sync): put to sleep in that gap, the timer sat in the
+--            queue through sleep. It's cancelled on sleep now, and the
+--            update's Wi-Fi is released on wake, as before. Found by the
+--            ShelfSync diagnostics' sleep check.
 --   1.11.13  Updates and syncs no longer leave their 2-minute Wi-Fi safety
 --            timer waiting after they finish normally (it did nothing when
 --            it fired, but sat in the queue, through sleep). Found by the
@@ -44,7 +63,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.13"
+local PATCH_VERSION = "1.11.15"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -62,6 +81,10 @@ local CACHE = {
     net_ours = false, -- Wi-Fi is on because this patch turned it on
     ss_restore = nil, -- ShelfSync's pending Wi-Fi restore check (see AutoWifi hook)
     sleep_gen = 0, -- bumped on every sleep
+    retry = nil, -- the pending "Retrying" pass: { fn, done }, cancelled on sleep
+    after_wake = {}, -- updates to finish on wake (their retry was cancelled)
+    relink_timers = {}, -- [fn] = true: autolink retries after a connect
+    net_waits = {}, -- [token] = stop fn: syncs waiting for Wi-Fi, stopped on sleep
 }
 -- Login: single attempt (no hidden 2s/4s sleep-and-retry that freezes the
 -- screen), 10s socket timeout instead of 15. Saved login = one tap to retry.
@@ -808,6 +831,45 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         LibraryThing = "hide_librarything",
     }
 
+    -- ShelfSync's retry scheduler clears its retries on sleep (and when a
+    -- book closes), but never records the retry it schedules, so the clear
+    -- does nothing and a retry stays queued through sleep. Record each one
+    -- here and cancel it for real when it clears.
+    local ok_sch, Scheduler = pcall(require, "shelfsync/lib/common/scheduler")
+    if ok_sch and type(Scheduler) == "table" and type(Scheduler.withRetries) == "function"
+            and type(Scheduler.clear) == "function" and not Scheduler.__ss_clear_patched then
+        Scheduler.__ss_clear_patched = true
+        local live = {}
+        local orig_withRetries = Scheduler.withRetries
+        Scheduler.withRetries = function(sched, limit, time_exponent, callback, success_callback, fail_callback)
+            local token = {}
+            local function forget() live[token] = nil end
+            local cancel = orig_withRetries(sched, limit, time_exponent, callback,
+                function(...)
+                    forget()
+                    if success_callback then return success_callback(...) end
+                end,
+                function(...)
+                    forget()
+                    if fail_callback then return fail_callback(...) end
+                end)
+            if type(cancel) ~= "function" then return cancel end
+            live[token] = cancel
+            return function(...)
+                forget()
+                return cancel(...)
+            end
+        end
+        local orig_clear = Scheduler.clear
+        Scheduler.clear = function(sched, ...)
+            for token, cancel in pairs(live) do
+                live[token] = nil
+                pcall(cancel)
+            end
+            return orig_clear(sched, ...)
+        end
+    end
+
     -- Hidden providers: never active, and left out of the Providers menu
     local ok_se, SyncEngine = pcall(require, "shelfsync/lib/common/sync_engine")
     if ok_se and SyncEngine and not SyncEngine.__ss_hide_patched then
@@ -818,9 +880,50 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         if type(orig_onSuspend) == "function" then
             SyncEngine.onSuspend = function(self, ...)
                 CACHE.sleep_gen = CACHE.sleep_gen + 1
+                -- A "Retrying" pass waiting to run: don't leave it in the
+                -- queue through sleep; finish that update on wake instead
+                -- (it would have stopped there anyway, see shouldStop).
+                local r = CACHE.retry
+                if r then
+                    CACHE.retry = nil
+                    UIManager:unschedule(r.fn)
+                    CACHE.after_wake[#CACHE.after_wake + 1] = r.done
+                end
+                -- Autolink retries after a connect: they'd find the device
+                -- asleep anyway; the next connect schedules them again.
+                for fn in pairs(CACHE.relink_timers) do
+                    UIManager:unschedule(fn)
+                    CACHE.relink_timers[fn] = nil
+                end
+                -- Syncs still waiting for Wi-Fi: stop waiting, give up now
+                local waits = CACHE.net_waits
+                CACHE.net_waits = {}
+                for _t, stop in pairs(waits) do
+                    local ok_w, err_w = pcall(stop)
+                    if not ok_w then
+                        require("logger").warn("ShelfSync tweaks: stopping a Wi-Fi wait for sleep failed: " .. tostring(err_w))
+                    end
+                end
                 return orig_onSuspend(self, ...)
             end
         end
+        local orig_onResume = SyncEngine.onResume
+        if type(orig_onResume) == "function" then
+            SyncEngine.onResume = function(self, ...)
+                local list = CACHE.after_wake
+                if #list > 0 then
+                    CACHE.after_wake = {}
+                    for _i, d in ipairs(list) do
+                        local ok_d, err_d = pcall(d)
+                        if not ok_d then
+                            require("logger").warn("ShelfSync tweaks: finishing an update after wake failed: " .. tostring(err_d))
+                        end
+                    end
+                end
+                return orig_onResume(self, ...)
+            end
+        end
+
         local orig_isActive = SyncEngine.isActive
         SyncEngine.isActive = function(self)
             -- Back-reference so an api can find ITS engine (per book/instance;
@@ -879,7 +982,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
             -- Short delay: let the connection settle and ShelfSync's own
             -- on-connect work start first
-            UIManager:scheduleIn(RELINK_DELAY, function()
+            local relink_fn
+            relink_fn = function()
+                CACHE.relink_timers[relink_fn] = nil
                 local NetworkMgr = require("ui/network/manager")
                 if require("device").screen_saver_mode then return end
                 if not NetworkMgr:isConnected() then return end
@@ -906,7 +1011,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     require("logger").warn("ShelfSync tweaks: autolink retry failed for "
                         .. tostring(engine.label) .. ": " .. tostring(err))
                 end
-            end)
+            end
+            CACHE.relink_timers[relink_fn] = true -- cancelled on sleep
+            UIManager:scheduleIn(RELINK_DELAY, relink_fn)
             return ret
         end
     end
@@ -1192,7 +1299,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             for _i, f in ipairs(failed) do retry[#retry + 1] = f.entry end
             if shouldStop() then return done() end
             styledNote(_("Retrying · ") .. names(retry), _("Retrying"), { timeout = 2 })
-            UIManager:scheduleIn(RETRY_DELAY, function()
+            local retry_fn
+            retry_fn = function()
+                if CACHE.retry and CACHE.retry.fn == retry_fn then CACHE.retry = nil end
                 -- Asleep, or book closed (or another opened) in the meantime:
                 -- no retry, no stale "failed" note.
                 if shouldStop() then return done() end
@@ -1202,7 +1311,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     summary(synced, failed2)
                     done()
                 end)
-            end)
+            end
+            -- (cancelled on sleep; see SyncEngine.onSuspend above)
+            CACHE.retry = { fn = retry_fn, done = done }
+            UIManager:scheduleIn(RETRY_DELAY, retry_fn)
         end)
     end
 
@@ -1270,9 +1382,23 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local NetworkMgr = require("ui/network/manager")
         local finished = false
         local release_lease
+        -- Timers this call waits on (poll, settle, DNS wait, join wait), so
+        -- they can be stopped together: when the run starts, when it's done,
+        -- or when the device goes to sleep (see SyncEngine.onSuspend).
+        local waits, token = {}, {}
+        local function later(delay, fn)
+            waits[#waits + 1] = fn
+            UIManager:scheduleIn(delay, fn)
+        end
+        local function stopWaiting()
+            CACHE.net_waits[token] = nil
+            for _i, fn in ipairs(waits) do UIManager:unschedule(fn) end
+            waits = {}
+        end
         local function finish()
             if finished then return end -- runs once: normal finish OR safety timeout
             finished = true
+            stopWaiting()
             -- the safety-net timer has nothing left to do: don't leave it
             -- waiting (it would sit in the queue, through sleep, for 2 min)
             UIManager:unschedule(finish)
@@ -1305,9 +1431,20 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             if not was_on then CACHE.net_ours = true end
         end
         local started_run = false
+        -- Asleep before the run started: give up now (Wi-Fi's already going
+        -- off for sleep, so it isn't switched off again here).
+        CACHE.net_waits[token] = function()
+            stopWaiting()
+            if started_run then return end
+            started_run = true
+            CACHE.net_ours = false
+            finish()
+            if on_abort then on_abort() end
+        end
         local function go()
             if started_run then return end
             started_run = true
+            stopWaiting()
             -- A ShelfSync restore orphaned by this connect would otherwise
             -- time out mid-update and switch Wi-Fi off; finish it and hold a
             -- lease on it like in the already-connected case.
@@ -1328,14 +1465,14 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local function waitOnline(deadline)
             local ok, online = pcall(NetworkMgr.isOnline, NetworkMgr)
             if (ok and online) or os.time() >= deadline then return go() end
-            UIManager:scheduleIn(1, function() waitOnline(deadline) end)
+            later(1, function() waitOnline(deadline) end)
         end
         local connect_started = os.time()
         local saw_radio_on = was_on
         local function poll()
             if started_run then return end
             if NetworkMgr:isConnected() then
-                UIManager:scheduleIn(WIFI_SETTLE, function()
+                later(WIFI_SETTLE, function()
                     waitOnline(os.time() + WIFI_ONLINE_WAIT)
                 end)
                 return
@@ -1362,7 +1499,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 if on_abort then on_abort() end
                 return
             end
-            UIManager:scheduleIn(1, poll)
+            later(1, poll)
         end
         -- Callback not relied on: a connect already in progress (or a
         -- background connect from Network Tweaks) may never call it.
@@ -1374,14 +1511,14 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             -- it, with a note in the same style. Only if it's still not
             -- connected after a while, ask KOReader to connect.
             styledNote(_("Connecting to Wi-Fi…"), _("Connecting Wi-Fi"), { timeout = 3 })
-            UIManager:scheduleIn(WIFI_JOIN_WAIT, function()
+            later(WIFI_JOIN_WAIT, function()
                 if started_run or NetworkMgr:isConnected() then return end
                 NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
             end)
         else
             NetworkMgr:turnOnWifiAndWaitForConnection(function() end)
         end
-        UIManager:scheduleIn(1, poll)
+        later(1, poll)
     end
 
     local function hubRootItems(app)
