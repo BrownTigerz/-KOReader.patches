@@ -36,6 +36,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.0 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
+| [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -390,6 +391,18 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 2. In the module's settings, set Source → Custom and pick the file.
 
 `Famous Quotes.txt` is a separate file for the sleep screen banner's quote fallback (see above).
+
+---
+
+## Screenshot Timer
+
+`2-screenshot-timer.lua` — tap a menu entry, and 10 seconds later the screen is saved to KOReader's screenshots folder. One shot per tap.
+
+- **Menu:** Tools → Add-ons → Screenshot in 10 s (or Tools → Screenshot in 10 s without the Tweaks Menu).
+- Tap it and the menu closes. 10 seconds later the screen is saved as `Screenshot_YYYY-MM-DD_HHMMSS.png`.
+- Tap it again before the 10 s are up to cancel (shows a check mark while waiting).
+- Going to sleep cancels it, so no timer waits through sleep.
+- Nothing runs until you tap it. Temporary helper — delete the file when you're done.
 
 ---
 
