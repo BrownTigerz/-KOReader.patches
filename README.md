@@ -26,8 +26,8 @@ All patches work independently and together. If one fails to attach (for example
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.5 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.11.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.15 |
-| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.5 |
-| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.5 |
+| [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
+| [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.1 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.15.0 |
@@ -221,9 +221,10 @@ Checked against ShelfSync 1.7.0; the bundled Goodreads login code is a goodreads
 
 A customizable notification system for ReadMastery: XP, quests, level-ups and reading progress. Designed to feel rewarding without getting in the way while reading. Doesn't edit any ReadMastery file; settings live in their own file (`settings/ReadMastery_notify.lua`).
 
-Two top-level toggles above the settings menu:
+Three top-level toggles above the settings menu:
 - **Notifications:** master ON/OFF for everything below.
 - **Nudges:** 80%/90% "almost there" notices from the quest patch (informational only, no XP). Greyed out whenever Notifications is off.
+- **Critter Reacts (SimpleUI):** see below. Default ON; works whether Notifications is on or off.
 
 Everything else lives under ReadMastery → Settings → Notification Settings:
 - **Style:** Full is ReadMastery's original popup (tap to dismiss). Compact is a small centered box, auto-dismiss or tap, that can mix your chosen font with a monospace font for achievement art. Banner is a corner or full-width toast that auto-dismisses and never blocks reading or page turns.
@@ -233,6 +234,12 @@ Everything else lives under ReadMastery → Settings → Notification Settings:
 - **Preview Notification:** fires a real Level 1 level-up using your current settings, so you can check changes without waiting for a real one.
 
 Level-ups show a cosmetic title badge at certain milestone levels (for example "Established Reader" at 10). Achievements show their own pixel-art icon in Compact and Banner. Several notifications close together queue and show one at a time.
+
+**SimpleUI Critter (SimpleUI 3.0's Tiny Critter Companion):**
+- **Reactions:** level-ups, achievements (tier-ups too), streak milestones and completed quests wait for the Critter, which comments on the most important one the next time the home screen shows it ("Level 12!", "Quest done: Deep Dive."). A finished book still comes first; a level-up comes before the Critter's own daily challenge. Each one also makes the Critter a little happier.
+- **Daily quests in its chat** (needs ReadMastery Quests 1.0.6+ with Quests (Enhanced) on): the Critter can offer one of today's daily quests, with your progress so far: **I'll Do It**, **Not Today**, or **What's In It For Me?** (the XP). Once you've said yes, it asks how that quest is going, and finishing it gets its own line. Time-window quests whose window is over for the day aren't offered.
+- **End of the week / month:** in the last 2 days of the week, last 5 of the month, or last 7 of a seasonal quest's month, the Critter nudges once a day toward a quest still in reach: a "finish N books" quest one book short, naming your closest-to-done book ("4 days left for Bibliophile. “The Hobbit” is 91% done. Finish it?"), the seasonal book quest, or pages / minutes still to go. It shows in its bubble and as a chat: **Let's Finish It**, **Which Book?**, **Not This Time**.
+- Uses SimpleUI's own Critter reactions, lines, chat and mood, so the Critter's own toggles (reactions on/off per screen) still apply. Nothing runs on a timer. Without the Critter it does nothing, and ReadMastery's popups are the same either way.
 
 ---
 
