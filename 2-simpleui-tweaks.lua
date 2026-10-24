@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.13.8
+Version 2.14.2
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,30 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.2 Critter Mix (Modules): tick two or more critters (say Donny, Blu
+         and Donny & Blu) and they take turns: the next one shows each
+         time the critter has something new to say. Reading Log's
+         critter takes turns too (a new remark or a tap there moves it on).
+         Off (fewer than two ticked): SimpleUI's own pick.
+  2.14.1 More critter moods: reading, proud, hungry, cozy, sipping,
+         dreamy, festive and spooky (Donny and Blu have them in
+         critters.zip). The phrase bank uses them; a critter without one
+         shows the pose it's drawn from (reading = neutral, proud =
+         cheer...), not plain neutral. Party is festive in December and
+         spooky in the last week of October, when the critter has those.
+         A pep-talk line can carry its own mood ({ "Snack break?",
+         mood = "hungry" }).
+  2.14.0 Critter phrase bank: Critter Insights and Critter Pep Talk read
+         their lines from koreader/patches/critter-phrases.lua when it's
+         there (several times the lines, a bit sassier; edit it freely).
+         Missing or broken, the built-in lines are used as before. Same
+         triggers, limits and steps (pep talk adds 90-119 min and 50-99
+         pages). Reading Log reads the same file.
+  2.13.9 Critter Pep Talk (Modules, on by default): SimpleUI's "minutes
+         read today" and "pages turned today" lines grow with your
+         reading. 1 minute gets a nudge, 15 a groove, an hour a party,
+         and within 10 minutes of your daily goal it counts you in.
+         Moves up a step on the next home screen draw as you read.
   2.13.8 Critter Bubble Max removed. To Be Read side panel: Side Panel
          Swipe Zone (Modules) - Narrow (default, 1/14 of the screen) or
          Edge Only (1/24): the swipe has to start nearer the edge, so page
@@ -305,7 +329,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.13.8"
+local VERSION = "2.14.2"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -349,6 +373,8 @@ local DEFAULTS = {
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
     critter_row      = 100,         -- Tiny Critter row height, % of SimpleUI's
     critter_insights = true,        -- remarks from your reading history (Critter Insights)
+    critter_pep      = true,        -- "minutes / pages today" lines that grow with your reading (Critter Pep Talk)
+    critter_mix      = {},          -- critters taking turns (ids of SimpleUI's critter folders); fewer than 2 = off
     critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
     critter_wander_side = "random", -- critter "left" / "right" of its bubble, or SimpleUI's ("random" while wandering)
     page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
@@ -1680,6 +1706,72 @@ end
 -- a day, and only when the data backs it (enough days read, real minutes).
 -- The history is one statistics query per day; nothing runs on a timer.
 -- Also: in the critter's chat, a book offered once today isn't offered again.
+-- Critter phrase bank: koreader/patches/critter-phrases.lua (next to this
+-- patch; no leading number, so KOReader doesn't run it as a patch). It
+-- returns { insights = { tw_* = { lines } }, minutes = { steps },
+-- pages = { steps } }. Loaded once, with nothing but string and math in
+-- reach; anything missing or malformed keeps the built-in lines.
+-- CF: the critter extras (bank, pep), one table to stay under Lua's
+-- 200 locals.
+local CF = {}
+do
+local bank, tried
+local function lineOk(l)
+    return type(l) == "table" and type(l.text) == "function" and (l.sub == nil or type(l.sub) == "function")
+        and type(l.mood) == "string"
+end
+local function stepsOk(st)
+    if type(st) ~= "table" or #st == 0 then return false end
+    local prev = 0
+    for _i, x in ipairs(st) do
+        if type(x) ~= "table" or type(x.upto) ~= "number" or x.upto <= prev or type(x.text) ~= "function"
+            or type(x.subs) ~= "table" or #x.subs == 0 or type(x.mood) ~= "string" then return false end
+        prev = x.upto
+    end
+    return prev == math.huge
+end
+local function bankPath()
+    local src = debug.getinfo(1, "S").source or ""
+    local dir = src:match("^@(.*)/[^/]*$")
+    if dir then return dir .. "/critter-phrases.lua" end
+    local ok, DS = pcall(require, "datastorage")
+    return ok and DS:getDataDir() .. "/patches/critter-phrases.lua" or nil
+end
+function CF.bank()
+    if tried then return bank end
+    tried = true
+    local path = bankPath()
+    local f = path and loadfile(path)
+    if not f then
+        logger.info(TAG, "critter phrases: no critter-phrases.lua, built-in lines")
+        return nil
+    end
+    setfenv(f, { string = string, math = math, tostring = tostring, tonumber = tonumber,
+                 type = type, ipairs = ipairs, pairs = pairs, select = select })
+    local ok, b = pcall(f)
+    if not ok or type(b) ~= "table" then
+        logger.warn(TAG, "critter phrases: critter-phrases.lua failed, built-in lines:", b)
+        return nil
+    end
+    local out, n = { insights = {} }, 0
+    if type(b.insights) == "table" then
+        for kind, list in pairs(b.insights) do
+            if type(kind) == "string" and kind:match("^tw_") and type(list) == "table" then
+                local good = {}
+                for _i, l in ipairs(list) do if lineOk(l) then good[#good + 1] = l end end
+                if #good > 0 then out.insights[kind] = good; n = n + #good end
+            end
+        end
+    end
+    if stepsOk(b.minutes) then out.minutes = b.minutes end
+    if stepsOk(b.pages) then out.pages = b.pages end
+    logger.info(TAG, string.format("critter phrases: %d insight lines, minutes %s, pages %s from %s",
+        n, out.minutes and "yes" or "built-in", out.pages and "yes" or "built-in", path))
+    bank = out
+    return bank
+end
+end
+
 local patchCritterInsights
 do
 local KEY = "simpleui_tweaks_insights"
@@ -2061,6 +2153,8 @@ local function install()
     local L = package.loaded["modules/critter/reaction_lines"]
     if not done.L and type(L) == "table" and type(L.LINES) == "table" then
         done.L = true
+        local b = CF.bank()
+        if b then for kind, list in pairs(b.insights) do if LINES[kind] then LINES[kind] = list end end end
         for kind, list in pairs(LINES) do
             for n, line in ipairs(list) do
                 line.id, line.kind, line.group = kind .. "_" .. n, kind, "tw"
@@ -2110,6 +2204,193 @@ function patchCritterInsights(M)
 end
 end
 
+-- Critter Pep Talk (SimpleUI 3.0 Tiny Critter): SimpleUI's "N minutes read
+-- today! Nice work." and "N pages turned today!" say the same thing at 1
+-- minute and at 2 hours. These steps make them grow with the day's reading.
+-- The line is reworded where SimpleUI renders it (Phrases.pick for a new
+-- phrase, Phrases.refresh when it rewrites the one on show with fresh
+-- numbers), so a step up shows on the next home screen draw: no timers.
+-- The wording holds for one phrase (until SimpleUI picks the next one).
+do
+local pep_n = 0 -- bumped per new phrase: the next phrase gets the next wording
+local salt = 0  -- the wording of the phrase being worded (kept with it)
+
+local function plural(n, one, many) return string.format(n == 1 and one or many, n) end
+local function vary(list, i) return list[(salt + i) % #list + 1] end
+
+local MIN_STEPS = {
+    { upto = 4, mood = "curious",
+      text = function(m) return plural(m, "%d minute read today.", "%d minutes read today.") end,
+      subs = { "A start is a start.", "Five more and you're warmed up.",
+               "The first page is the hardest one.", "Tiny reads still count." } },
+    { upto = 14, mood = "happy",
+      text = function(m) return string.format("%d minutes read today.", m) end,
+      subs = { "Warming up nicely.", "Ten more? Just saying.", "The story's getting going." } },
+    { upto = 29, mood = "happy",
+      text = function(m) return string.format("%d minutes read today!", m) end,
+      subs = { "Now that's a groove.", "Half an hour is right there.", "Proper reading time." } },
+    { upto = 59, mood = "cheer",
+      text = function(m) return string.format("%d minutes read today!", m) end,
+      subs = { "A real session. Nice.", "The hour mark is calling.", "Look at you go." } },
+    { upto = 89, mood = "party",
+      text = function(m) return string.format("%d minutes read today!", m) end,
+      subs = { "An hour plus! Snack break?", "That's a serious read.", "The book is winning today." } },
+    { upto = math.huge, mood = "party",
+      text = function(m) return string.format("%.1f hours read today!", m / 60) end,
+      subs = { "Marathon mode.", "Did you even blink?", "Okay, bookworm." } },
+}
+
+local PAGE_STEPS = {
+    { upto = 4, mood = "curious",
+      text = function(p) return plural(p, "%d page turned today.", "%d pages turned today.") end,
+      subs = { "Every page counts.", "A few more? The story won't mind." } },
+    { upto = 19, mood = "happy",
+      text = function(p) return string.format("%d pages turned today!", p) end,
+      subs = { "One page at a time.", "Chapter's end is near, maybe." } },
+    { upto = 49, mood = "cheer",
+      text = function(p) return string.format("%d pages turned today!", p) end,
+      subs = { "Turning pages like a pro.", "That's a chunk of book." } },
+    { upto = math.huge, mood = "party",
+      text = function(p) return string.format("%d pages today!", p) end,
+      subs = { "That's a chapter or three.", "Your thumb needs a rest." } },
+}
+
+local function step(steps, v)
+    for i, st in ipairs(steps) do if v <= st.upto then return st, i end end
+end
+local function bankSteps(kind, own)
+    local b = CF.bank()
+    return b and b[kind] or own
+end
+
+-- SimpleUI's line, reworded for the step reached; nil leaves it as it is.
+local function pep(res, f)
+    if cfg.critter_pep == false or type(res) ~= "table" or type(f) ~= "table" then return nil end
+    local id = type(res.source) == "table" and res.source.id
+    if id == "minutes" then
+        local secs = tonumber(f.today_secs) or 0
+        local m = math.floor(secs / 60)
+        if m < 1 then return nil end
+        local st, i = step(bankSteps("minutes", MIN_STEPS), m)
+        local goal = tonumber(f.daily_goal_secs) or 0
+        local sub = vary(st.subs, i)
+        local mood = st.mood
+        if type(sub) == "table" then sub, mood = tostring(sub[1] or ""), sub.mood or mood end
+        if goal > 0 and secs < goal then
+            local left = math.ceil((goal - secs) / 60)
+            if left <= 10 then
+                sub, mood = plural(left, "Just %d minute to your daily goal!", "Just %d minutes to your daily goal!"), "cheer"
+            elseif (salt + i) % 2 == 0 then
+                sub = string.format("%d minutes to your daily goal.", left)
+            end
+        end
+        return { text = st.text(m), sub = sub, mood = mood, source = res.source }
+    elseif id == "pages" then
+        local p = tonumber(f.today_pages) or 0
+        if p < 1 then return nil end
+        local st, i = step(bankSteps("pages", PAGE_STEPS), p)
+        local sub, mood = vary(st.subs, i), st.mood
+        if type(sub) == "table" then sub, mood = tostring(sub[1] or ""), sub.mood or mood end
+        return { text = st.text(p), sub = sub, mood = mood, source = res.source }
+    end
+end
+
+-- Moods past SimpleUI's twelve, and the pose each falls back to for a
+-- critter without its picture (SimpleUI's own fallback is neutral).
+CF.MOOD_BASE = { reading = "neutral", proud = "cheer", hungry = "curious", cozy = "sleepy",
+                 sipping = "happy", dreamy = "sleepy", festive = "happy", spooky = "surprised" }
+local function seasonalMood(mood)
+    local t = os.date("*t")
+    if mood == "party" and t.month == 12 then return "festive" end
+    if (mood == "party" or mood == "surprised") and t.month == 10 and t.day >= 25 then return "spooky" end
+    return nil
+end
+-- Critter Mix: the ticked critters take turns, the next one with each new
+-- remark (SimpleUI picking a phrase). The turn starts from the day, so a
+-- restart doesn't always begin with the same one. The turn lives on
+-- SimpleUI's Assets table (tw_turn), so Reading Log's critter can move it
+-- on too.
+local function turnOf(As)
+    if type(As.tw_turn) ~= "number" then As.tw_turn = tonumber(os.date("%j")) or 0 end
+    return As.tw_turn
+end
+local function mixList()
+    local m = type(cfg.critter_mix) == "table" and cfg.critter_mix or {}
+    return #m >= 2 and m or nil
+end
+function CF.mix()
+    local As = package.loaded["modules/critter/assets"]
+    if type(As) ~= "table" or type(As.get) ~= "function" or As._tw_mix then return end
+    As._tw_mix = true
+    local orig = As.get
+    As.get = function(id, ...)
+        local m = mixList()
+        if m then
+            local want = m[(turnOf(As) % #m) + 1]
+            local e = orig(want, ...)
+            if type(e) == "table" and e.id == want then return e end
+        end
+        return orig(id, ...)
+    end
+end
+
+function CF.moods()
+    local As = package.loaded["modules/critter/assets"]
+    if type(As) ~= "table" or type(As.imagePath) ~= "function" or As._tw_moods then return end
+    As._tw_moods = true
+    local orig = As.imagePath
+    As.imagePath = function(entry, mood, ...)
+        local path = orig(entry, mood, ...)
+        local okm, res = pcall(function()
+            local neutral = orig(entry, "neutral")
+            -- the season's look, when this critter has it
+            local season = seasonalMood(mood)
+            if season then
+                local sp = orig(entry, season)
+                if sp and sp ~= neutral then return sp end
+            end
+            local base = CF.MOOD_BASE[mood]
+            if base and path == neutral then return orig(entry, base) end
+            return nil
+        end)
+        return (okm and res) or path
+    end
+end
+
+function CF.pep()
+    pcall(CF.moods)
+    pcall(CF.mix)
+    local ok, Ph = pcall(require, "modules/critter/phrases")
+    if not ok or type(Ph) ~= "table" or Ph._tw_pep then return end
+    Ph._tw_pep = true
+    local pick, refresh = Ph.pick, Ph.refresh
+    if type(pick) == "function" then
+        Ph.pick = function(f, ...)
+            local res = pick(f, ...)
+            pep_n = pep_n + 1
+            -- Critter Mix: the next critter
+            local As = package.loaded["modules/critter/assets"]
+            if type(As) == "table" then As.tw_turn = turnOf(As) + 1 end
+            salt = pep_n
+            local okp, mine_ = pcall(pep, res, f)
+            local out = okp and mine_ or res
+            if type(out) == "table" then out._tw_salt = salt end
+            return out
+        end
+    end
+    if type(refresh) == "function" then
+        Ph.refresh = function(previous, f, ...)
+            local res = refresh(previous, f, ...)
+            salt = type(previous) == "table" and tonumber(previous._tw_salt) or pep_n
+            local okp, mine_ = pcall(pep, res, f)
+            local out = okp and mine_ or res
+            if type(out) == "table" then out._tw_salt = salt end
+            return out
+        end
+    end
+end
+end
+
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
     local file_id = name:match("/module_([^/]+)$")
@@ -2133,6 +2414,7 @@ local function patchModule(name, M)
         pcall(patchCritterBubble, orig)
         pcall(patchCritterWander, M)
         pcall(patchCritterInsights, M)
+        pcall(CF.pep)
     end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
@@ -3976,6 +4258,47 @@ local function buildMenu()
                       help_text = _("The Tiny Critter remarks on your reading history: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
                       checked_func = function() return cfg.critter_insights ~= false end,
                       callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
+                    { text = _("Critter Pep Talk"),
+                      help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line steps up on the next home screen draw as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
+                      checked_func = function() return cfg.critter_pep ~= false end,
+                      callback = function() setHome("critter_pep", cfg.critter_pep == false) end },
+                    { text_func = function()
+                          local m = type(cfg.critter_mix) == "table" and cfg.critter_mix or {}
+                          return #m >= 2 and _("Critter Mix: ") .. #m .. " " .. _("critters") or _("Critter Mix: off")
+                      end,
+                      help_text = _("Tick two or more critters and they take turns: the next one shows each time the critter picks something new to say (every 20 minutes or so, a new part of the day, or when you tap it). Reading Log's critter takes turns too: a new remark or a tap there moves it on. Tick fewer than two to go back to the one picked in SimpleUI's critter settings."),
+                      sub_item_table_func = function()
+                          local items = {}
+                          local As = package.loaded["modules/critter/assets"]
+                          local list = {}
+                          if type(As) == "table" and type(As.list) == "function" then
+                              local okl, l = pcall(As.list)
+                              if okl and type(l) == "table" then list = l end
+                          end
+                          for _i, e in ipairs(list) do
+                              local id = e.id
+                              items[#items + 1] = {
+                                  text = e.name or id,
+                                  keep_menu_open = true,
+                                  checked_func = function()
+                                      for _j, v in ipairs(cfg.critter_mix or {}) do if v == id then return true end end
+                                      return false
+                                  end,
+                                  callback = function()
+                                      local new, had = {}, false
+                                      for _j, v in ipairs(cfg.critter_mix or {}) do
+                                          if v == id then had = true else new[#new + 1] = v end
+                                      end
+                                      if not had then new[#new + 1] = id end
+                                      setHome("critter_mix", new)
+                                  end,
+                              }
+                          end
+                          if #items == 0 then
+                              items[1] = { text = _("No critters found (SimpleUI 3.0's Tiny Critter)"), enabled = false }
+                          end
+                          return items
+                      end },
                     { text = _("Critter Wanders (Dynamic)"),
                       help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment are used again when this is off."),
                       enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
