@@ -24,8 +24,8 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | Diagnostic | Watches | Version |
 |---|---|---|
 | `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.3.2 |
-| `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.2.0 |
-| `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.3.0 |
+| `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.2.1 |
+| `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.3.1 |
 | `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 2.1.1 |
 | `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.1.0 |
 | `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.1.0 |
