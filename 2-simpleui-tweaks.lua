@@ -27,6 +27,13 @@ Changelog
            right of the row, with the critter on either side of the bubble
            (never the same spot twice in a row). Overrides SimpleUI's
            Side / Alignment while it's on.
+         - Critter Insights: remarks from your reading history (best day
+           this month, book milestones, back on a roll, nearly done with
+           your book, goal pace this month, a gentle nudge after quiet
+           days, weekend reading). Waits for the critter like SimpleUI's
+           own reactions, once each, at most 3 a day, only when the stats
+           back it. One statistics query a day. Its chat no longer offers
+           the same book twice in a day.
          - Critter Row Height: Taller (+30%) or Tallest (+60%) gives the
            bubble room for its full 2 + 2 lines. The row keeps that height
            for every phrase, so nothing below it moves. The critter keeps
@@ -282,6 +289,7 @@ local DEFAULTS = {
     critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own, -1 = dynamic)
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
     critter_row      = 100,
+    critter_insights = true,        -- remarks from your reading history (Critter Insights)
     critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
     critter_bubble_max = 100,       -- Full Row / Dynamic: % of the room the bubble may take         -- Tiny Critter row height, % of SimpleUI's
 }
@@ -1514,6 +1522,365 @@ function patchCritterWander(M)
 end
 end
 
+-- Critter Insights (SimpleUI 3.0 Tiny Critter): remarks drawn from your
+-- reading history, left waiting for the critter like SimpleUI's own reactions
+-- (one at a time, the more important one kept):
+--   tw_record     best reading day this month (20 min+, 5 other days read)
+--   tw_milestone  5 / 10 / 25 / 50 / 75 / 100 (then every 50) books this year
+--   tw_momentum   2-5 reading days in a row after 4+ quiet ones
+--   tw_quickwin   the book you're on is 25 minutes or less from the end
+--   tw_pace       1-3 more books this month put you on your yearly pace
+--   tw_weekend    you read clearly more on weekends (or on weekdays)
+--   tw_recovery   3+ days without reading: a gentle nudge to your last book
+-- Each comes once (a day, a week, a milestone or a quiet stretch), at most 3
+-- a day, and only when the data backs it (enough days read, real minutes).
+-- The history is one statistics query per day; nothing runs on a timer.
+-- Also: in the critter's chat, a book offered once today isn't offered again.
+local patchCritterInsights
+do
+local KEY = "simpleui_tweaks_insights"
+local MIN_SECS = 60      -- a day with less than this is a day off
+local BACK = 62          -- days of history read
+local ins_ctx            -- the critter's last fresh statistics
+local hist = { day = nil, days = {} }
+local PRIORITY = { tw_milestone = 5.8, tw_record = 5.5, tw_quickwin = 3.4, tw_momentum = 3.2,
+                   tw_pace = 2.8, tw_recovery = 2.2, tw_weekend = 1.5 }
+local REWARD = { tw_milestone = 4, tw_record = 3, tw_momentum = 2 }
+
+local function insightsOn() return cfg.critter_insights ~= false end
+
+local function dayKey(back)
+    local t = os.date("*t")
+    return os.date("%Y-%m-%d", os.time{ year = t.year, month = t.month, day = t.day - back, hour = 12 })
+end
+
+-- seconds read per day ("YYYY-MM-DD"), the last BACK days; read once a day
+local function history()
+    local today = os.date("%Y-%m-%d")
+    if hist.day == today then return hist.days end
+    local days = {}
+    pcall(function()
+        local DataStorage = require("datastorage")
+        local lfs = require("libs/libkoreader-lfs")
+        local path = DataStorage:getSettingsDir() .. "/statistics.sqlite3"
+        if lfs.attributes(path, "mode") ~= "file" then return end
+        local SQ3 = require("lua-ljsqlite3/init")
+        local conn = SQ3.open(path, "ro")
+        pcall(function()
+            conn:exec("PRAGMA busy_timeout=200;")
+            local t = os.date("*t")
+            local since = os.time{ year = t.year, month = t.month, day = t.day - BACK, hour = 0 }
+            local stmt = conn:prepare("SELECT strftime('%Y-%m-%d', start_time, 'unixepoch', 'localtime'),"
+                .. " sum(duration) FROM page_stat_data WHERE start_time >= ? GROUP BY 1")
+            local row = stmt:reset():bind(since):step()
+            while row do
+                days[tostring(row[1])] = tonumber(row[2]) or 0
+                row = stmt:step()
+            end
+            stmt:close()
+        end)
+        conn:close()
+    end)
+    hist = { day = today, days = days }
+    return days
+end
+
+-- the book you're on: { title, left (minutes) } when it's nearly done; kept
+-- while the book and today's reading stay the same
+local qw_cache = {}
+local function quickWin(today_secs)
+    local fp = G_reader_settings and G_reader_settings:readSetting("lastfile")
+    local key = tostring(fp) .. "|" .. tostring(today_secs) .. "|" .. os.date("%Y-%m-%d")
+    if qw_cache.key == key then return qw_cache.value end
+    local v = nil
+    local ok_q, res = pcall(function()
+        local SH = package.loaded["modules/module_books_shared"]
+        if type(fp) ~= "string" or type(SH) ~= "table" or type(SH.getBookData) ~= "function" then return nil end
+        local ok, b = pcall(SH.getBookData, fp)
+        if not (ok and type(b) == "table") then return nil end
+        local pct, pages, per = tonumber(b.percent) or 0, tonumber(b.pages), tonumber(b.avg_time)
+        if b.status == "complete" or pct < 0.5 or pct >= 0.995 or not (pages and per and per > 0) then return nil end
+        local left = math.floor((1 - pct) * pages * per / 60 + 0.5)
+        if left < 3 or left > 25 then return nil end
+        return { title = b.title, left = left }
+    end)
+    if ok_q then v = res end
+    qw_cache = { key = key, value = v }
+    return v
+end
+
+local function lastTitle()
+    local fp = G_reader_settings and G_reader_settings:readSetting("lastfile")
+    local SH = package.loaded["modules/module_books_shared"]
+    if type(fp) ~= "string" or type(SH) ~= "table" or type(SH.getBookData) ~= "function" then return nil end
+    local ok, b = pcall(SH.getBookData, fp)
+    if ok and type(b) == "table" and b.status ~= "complete" and type(b.title) == "string" and b.title ~= "?" then return b.title end
+    return nil
+end
+
+-- what the history says right now: a list of { kind, data, once } in priority order
+local function candidates(stats)
+    local days = history()
+    local today_secs = tonumber(stats.today_secs) or 0
+    local function secs(i) if i == 0 then return today_secs end return days[dayKey(i)] or 0 end
+    local function read(i) return secs(i) >= MIN_SECS end
+    local t = os.date("*t")
+    local out = {}
+    local function add(kind, data, once) out[#out + 1] = { kind = kind, data = data, once = once } end
+    local any = false
+    for i = 1, BACK - 1 do if read(i) then any = true break end end
+    if not any and today_secs < MIN_SECS then return out end   -- no history to speak of
+
+    -- milestone
+    local by = tonumber(stats.books_year)
+    if by and by > 0 and (({ [5] = 1, [10] = 1, [25] = 1, [50] = 1, [75] = 1, [100] = 1 })[by] or (by > 100 and by % 50 == 0)) then
+        add("tw_milestone", { days = by }, "ms:" .. t.year .. ":" .. by)
+    end
+    -- best day this month
+    if t.day >= 7 and today_secs >= 1200 then
+        local others, top = 0, 0
+        for d = 1, t.day - 1 do
+            local s = secs(t.day - d)
+            if s >= MIN_SECS then others = others + 1; if s > top then top = s end end
+        end
+        if others >= 5 and today_secs > top then
+            add("tw_record", { minutes = math.floor(today_secs / 60) }, "rec:" .. dayKey(0))
+        end
+    end
+    -- the book you're on, nearly done
+    local qw = quickWin(today_secs)
+    if qw then add("tw_quickwin", { title = qw.title, minutes = qw.left }, "qw:" .. dayKey(0) .. ":" .. tostring(qw.title)) end
+    -- momentum: a run after a quiet stretch
+    local start = read(0) and 0 or 1
+    local i, run = start, 0
+    while i < BACK and read(i) do run = run + 1; i = i + 1 end
+    local gap = 0
+    while i < BACK and not read(i) do gap = gap + 1; i = i + 1 end
+    if i < BACK and read(0) and run >= 2 and run <= 5 and gap >= 4 then
+        add("tw_momentum", { days = run }, "mo:" .. dayKey(0))
+    end
+    -- goal pace this month
+    local Goals = package.loaded["infra/sui_goals"]
+    local okg, goal = pcall(function() return Goals.get("annual") end)
+    goal = okg and tonumber(goal) or nil
+    if goal and goal > 0 and by and by < goal and t.day >= 10 then
+        local eom = os.time{ year = t.year, month = t.month + 1, day = 0, hour = 12 }
+        local diy = tonumber(os.date("%j", os.time{ year = t.year, month = 12, day = 31, hour = 12 })) or 365
+        local need = math.ceil(goal * (tonumber(os.date("%j", eom)) or 1) / diy - by - 1e-9)
+        if need >= 1 and need <= 3 then add("tw_pace", { days = need }, "pace:" .. os.date("%Y-%W")) end
+    end
+    -- a quiet stretch: a gentle nudge, once per stretch
+    if not read(0) then
+        local k = 1
+        while k < BACK and not read(k) do k = k + 1 end
+        local idle = k - 1
+        if k < BACK and idle >= 3 then
+            add("tw_recovery", { days = idle, title = lastTitle() }, "rc:" .. dayKey(k))
+        end
+    end
+    -- weekends vs weekdays, the last 8 weeks (12+ reading days)
+    if t.wday == 6 or t.wday == 7 or t.wday == 2 then
+        local we, wd, n = 0, 0, 0
+        for d = 1, 56 do
+            local s = secs(d)
+            if s >= MIN_SECS then n = n + 1 end
+            local wday = tonumber(os.date("%w", os.time{ year = t.year, month = t.month, day = t.day - d, hour = 12 }))
+            if wday == 0 or wday == 6 then we = we + s else wd = wd + s end
+        end
+        local we_avg, wd_avg = we / 16, wd / 40
+        if n >= 12 and wd_avg > 0 and we_avg >= 1.6 * wd_avg and t.wday ~= 2 then
+            add("tw_weekend", { which = "weekend" }, "we:" .. os.date("%Y-%W"))
+        elseif n >= 12 and we_avg > 0 and wd_avg >= 1.6 * we_avg and t.wday == 2 then
+            add("tw_weekend", { which = "weekday" }, "we:" .. os.date("%Y-%W"))
+        end
+    end
+    table.sort(out, function(a, b) return PRIORITY[a.kind] > PRIORITY[b.kind] end)
+    return out
+end
+
+local function readState()
+    local s = G_reader_settings and G_reader_settings:readSetting(KEY)
+    if type(s) ~= "table" then s = {} end
+    if s.day ~= os.date("%Y-%m-%d") then s.day, s.count = os.date("%Y-%m-%d"), 0 end
+    if type(s.done) ~= "table" then s.done = {} end
+    if type(s.offered) ~= "table" or s.offered_day ~= s.day then s.offered, s.offered_day = {}, s.day end
+    return s
+end
+local function writeState(s)
+    -- keep the record of what was said small
+    local n = 0
+    for _k in pairs(s.done) do n = n + 1 end
+    if n > 60 then
+        local keep = {}
+        for k, v in pairs(s.done) do if v == s.day then keep[k] = v end end
+        s.done = keep
+    end
+    G_reader_settings:saveSetting(KEY, s)
+end
+
+-- each home screen visit: one insight waits for the critter, if one is due
+local function observeInsights(R)
+    if not insightsOn() or not ins_ctx or ins_ctx.stale or type(ins_ctx.stats) ~= "table" then return end
+    local s = readState()
+    if (s.count or 0) >= 3 then return end
+    local pending = R.read().pending
+    if pending then return end
+    for _i, c in ipairs(candidates(ins_ctx.stats)) do
+        if not s.done[c.once] then
+            R.record(c.kind, c.data)
+            local now = R.read().pending
+            if now and now.kind == c.kind then
+                s.done[c.once] = s.day
+                s.count = (s.count or 0) + 1
+                writeState(s)
+                local M = package.loaded["modules/critter/mood"]
+                if REWARD[c.kind] and type(M) == "table" and type(M.reward) == "function" then
+                    pcall(function() M.write(M.reward(M.read(), REWARD[c.kind])) end)
+                end
+            end
+            return
+        end
+    end
+end
+
+-- ---- what the critter says ----
+local function q(s) return "\xE2\x80\x9C" .. tostring(s) .. "\xE2\x80\x9D" end
+local function plural(n, one, many) return string.format(n == 1 and one or many, n) end
+local LINES = {
+    tw_milestone = {
+        { mood = "party", text = function(d) return string.format("That's book %d this year!", d.days) end,
+          sub = function() return "Your shelf is looking lighter." end,
+          by_tier = { grumpy = { mood = "grumpy", text = function(d) return string.format("%d books. Fine, I'm impressed.", d.days) end },
+                      radiant = { mood = "party", text = function(d) return string.format("%d books this year! You're unstoppable!", d.days) end } } },
+        { mood = "love", text = function(d) return string.format("%d books finished this year.", d.days) end,
+          sub = function() return "A milestone. I'm putting it on the fridge." end },
+        { mood = "cheer", text = function(d) return string.format("Book number %d. Done.", d.days) end,
+          sub = function() return "What's next on the pile?" end },
+    },
+    tw_record = {
+        { mood = "surprised", text = function() return "Your best reading day this month!" end,
+          sub = function(d) return string.format("%s and counting.", plural(d.minutes, "%d minute", "%d minutes")) end,
+          by_tier = { grumpy = { mood = "grumpy", text = function() return "Best day this month. Don't let it go to your head." end },
+                      radiant = { mood = "party", text = function() return "A record day! Look at you go!" end } } },
+        { mood = "party", text = function(d) return string.format("%s today. A new monthly best.", plural(d.minutes, "%d minute", "%d minutes")) end,
+          sub = function() return "I'll remember this one." end },
+        { mood = "cheer", text = function() return "No day this month beats today." end,
+          sub = function(d) return string.format("%s so far.", plural(d.minutes, "%d minute", "%d minutes")) end },
+    },
+    tw_quickwin = {
+        { mood = "cheer", text = function(d) return string.format("Only %d min left in %s.", d.minutes, q(d.title)) end,
+          sub = function() return "A little time to spare?" end,
+          by_tier = { grumpy = { mood = "grumpy", text = function(d) return string.format("%s isn't going to finish itself.", q(d.title)) end,
+                                 sub = function(d) return string.format("About %d minutes. You know you want to.", d.minutes) end },
+                      meh = { mood = "sleepy", text = function(d) return string.format("%d minutes, then %s is done.", d.minutes, q(d.title)) end,
+                              sub = function() return "Then we can both rest." end } } },
+        { mood = "playful", text = function(d) return string.format("%s: about %d minutes to go.", q(d.title), d.minutes) end,
+          sub = function() return "The finish line is right there." end },
+        { mood = "curious", text = function(d) return string.format("Got %d minutes?", d.minutes) end,
+          sub = function(d) return string.format("That's all %s needs.", q(d.title)) end },
+    },
+    tw_momentum = {
+        { mood = "cheer", text = function(d) return string.format("%s in a row.", plural(d.days, "%d reading day", "%d reading days")) end,
+          sub = function() return "You're getting back into the habit." end,
+          by_tier = { grumpy = { mood = "playful", text = function(d) return string.format("%s in a row. Took you long enough.", plural(d.days, "%d day", "%d days")) end } } },
+        { mood = "happy", text = function() return "Look who's back on a roll." end,
+          sub = function(d) return string.format("%s running.", plural(d.days, "%d day", "%d days")) end },
+        { mood = "love", text = function(d) return string.format("Day %d of reading again.", d.days) end,
+          sub = function() return "This feels like the start of something." end },
+    },
+    tw_pace = {
+        { mood = "curious", text = function(d) return string.format("%s this month", plural(d.days, "%d more book", "%d more books")) end,
+          sub = function() return "would put you right on your yearly pace." end },
+        { mood = "playful", text = function(d) return string.format("Finish %s this month?", plural(d.days, "%d book", "%d books")) end,
+          sub = function() return "That keeps your yearly goal on track." end },
+        { mood = "cheer", text = function() return "Your yearly goal is in reach." end,
+          sub = function(d) return string.format("%s this month does it.", plural(d.days, "%d more book", "%d more books")) end },
+    },
+    tw_recovery = {
+        { mood = "shy", text = function(d) return d.title and string.format("It's been a while since %s.", q(d.title)) or "It's been a few quiet days." end,
+          sub = function() return "Fancy a few pages?" end,
+          by_tier = { grumpy = { mood = "grumpy", text = function(d) return string.format("%s. Not that I'm counting.", plural(d.days, "%d day", "%d days")) end,
+                                 sub = function() return "A page would cheer me up." end } } },
+        { mood = "curious", text = function(d) return d.title and string.format("%s misses you.", q(d.title)) or "Your books miss you." end,
+          sub = function() return "Even ten minutes counts." end },
+        { mood = "sleepy", text = function() return "Ready when you are." end,
+          sub = function(d) return d.title and string.format("%s is right where you left it.", q(d.title)) or "No rush." end },
+    },
+    tw_weekend = {
+        { mood = "curious", text = function(d) return d.which == "weekend" and "You read more on weekends." or "You read more on weekdays." end,
+          sub = function(d) return d.which == "weekend" and "Got a book lined up for this one?" or "A fresh week, a fresh chapter." end },
+        { mood = "playful", text = function(d) return d.which == "weekend" and "Weekend reader, I see." or "Weekdays are your reading days." end,
+          sub = function(d) return d.which == "weekend" and "Your best time is almost here." or "Let's make this week count." end },
+        { mood = "happy", text = function(d) return d.which == "weekend" and "Weekends are your reading time." or "You read best on weekdays." end,
+          sub = function() return "Your stats don't lie." end },
+    },
+}
+
+local done = {}
+local function install()
+    local R = package.loaded["modules/critter/reactions"]
+    if not done.R and type(R) == "table" and type(R.PRIORITY) == "table" and type(R.observe) == "function" then
+        done.R = true
+        for k, v in pairs(PRIORITY) do R.PRIORITY[k] = v end
+        local orig_observe = R.observe
+        R.observe = function(...)
+            local res = { orig_observe(...) }
+            pcall(observeInsights, R)
+            return unpack(res)
+        end
+    end
+    local L = package.loaded["modules/critter/reaction_lines"]
+    if not done.L and type(L) == "table" and type(L.LINES) == "table" then
+        done.L = true
+        for kind, list in pairs(LINES) do
+            for n, line in ipairs(list) do
+                line.id, line.kind, line.group = kind .. "_" .. n, kind, "tw"
+                line.when = function(d) return type(d) == "table" end
+                L.LINES[#L.LINES + 1] = line
+            end
+        end
+    end
+    -- the chat's book suggestion: not the same book twice in a day
+    local Rec = package.loaded["modules/critter/recommend"]
+    if not done.Rec and type(Rec) == "table" and type(Rec.nextBook) == "function" then
+        done.Rec = true
+        local orig_next = Rec.nextBook
+        Rec.nextBook = function(skip_fp, ...)
+            local s = readState()
+            local book
+            for _try = 1, 3 do
+                book = orig_next(skip_fp, ...)
+                if not (book and book.fp and s.offered[book.fp]) then break end
+                skip_fp = book.fp
+            end
+            if book and book.fp then
+                s.offered[book.fp] = true
+                pcall(writeState, s)
+            end
+            return book
+        end
+    end
+end
+
+function patchCritterInsights(M)
+    if type(M) ~= "table" or type(M.build) ~= "function" or ours[M.build] then return end
+    install()
+    local orig = M.build
+    M.build = mine(function(w, ctx, ...)
+        if type(ctx) == "table" then ins_ctx = { stats = ctx.stats, stale = ctx.stats_stale } end
+        local root = orig(w, ctx, ...)
+        if type(root) == "table" and type(root.critter_update) == "function" then
+            local update = root.critter_update
+            root.critter_update = function(new_ctx, ...)
+                if type(new_ctx) == "table" then ins_ctx = { stats = new_ctx.stats, stale = new_ctx.stats_stale } end
+                return update(new_ctx, ...)
+            end
+        end
+        return root
+    end)
+end
+end
+
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
     local file_id = name:match("/module_([^/]+)$")
@@ -1536,6 +1903,7 @@ local function patchModule(name, M)
     if file_id == "critter" and orig then
         pcall(patchCritterBubble, orig)
         pcall(patchCritterWander, M)
+        pcall(patchCritterInsights, M)
     end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
@@ -3362,6 +3730,10 @@ local function buildMenu()
                           end
                           return items
                       end },
+                    { text = _("Critter Insights"),
+                      help_text = _("The Tiny Critter remarks on your reading history: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
+                      checked_func = function() return cfg.critter_insights ~= false end,
+                      callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
                     { text = _("Critter Wanders (Dynamic)"),
                       help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment are used again when this is off."),
                       enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
