@@ -1,8 +1,20 @@
 --[[
 2-zz-network-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.3.0
+Version 1.3.1
 
 Changelog:
+  1.3.1 - Sleep breakdown: while KOReader hands out the sleep event,
+          every plugin's sleep handler is timed and the slow ones are
+          logged by name ("sleep: storefront 412 ms (main.lua:11464)"),
+          with the time no handler accounts for. Every full garbage
+          collection during it is timed and named by caller too, so the
+          Storefront sleep fix in Network Tweaks can be checked directly
+          (a skipped one shows as "skipped", one that ran with its time).
+          Handlers only show when KOReader reaches them through its
+          widgets; Storefront's own sleep hooks don't, its clean-ups do. Nothing is wrapped outside that moment.
+          24h expiry now keyed to this diagnostic's version, like the
+          others (a new version starts a new 24h; copying the same file
+          again doesn't).
   1.3.0 - Shared perf core (same block as the other diagnostics):
           every Network Tweaks timer timed (slow ones named with file and
           line), screen updates and flashes it asks for, timers it leaves
@@ -85,6 +97,7 @@ How to use:
   3. Send diagnostics.log, then delete this file and restart.
 ]]
 
+local DIAG_VERSION = "1.3.1"
 local ACTIVE_MINUTES = 5   -- logging window after each KOReader start
 local EXPIRES_HOURS = 24   -- after first install: no hooks at all
 
@@ -136,24 +149,23 @@ end
 -- Expiry
 -- --------------------------------------------------------------------------
 
--- Keyed to this file's timestamp: copying a fresh copy in starts a new 24h.
+-- Keyed to this diagnostic's version: version on line 1, first run on
+-- line 2. Another version (or an older state file) starts a new 24h.
 -- Kept in network-tweaks-diagnostics.state (per the diagnostics contract).
-local me = DataStorage:getDataDir() .. "/patches/2-zz-network-tweaks-diagnostics.lua"
-local mtime = lfs.attributes(me, "modification") or 0
 -- One-time cleanup of the v1.2.1 settings key.
 pcall(function() G_reader_settings:delSetting("network_tweaks_diagnostics_first_run") end)
 local first
 do
     local f = io.open(STATE, "r")
     if f then
-        local a, b = f:read("*a"):match("^(%d+) (%d+)$")
+        local v, t = f:read("*l"), tonumber(f:read("*l") or "")
         f:close()
-        if a and tonumber(b) == mtime then first = tonumber(a) end
+        if v == DIAG_VERSION and t and t <= os.time() then first = t end
     end
     if not first then
         first = os.time()
         local w = io.open(STATE, "w")
-        if w then w:write(string.format("%d %d", first, mtime)) w:close() end
+        if w then w:write(DIAG_VERSION, "\n", first, "\n") w:close() end
     end
 end
 if os.time() - first > EXPIRES_HOURS * 3600 then
@@ -251,7 +263,7 @@ local function startTest(what)
         q(nt.connect_style or "banner (default)"))
 end
 
-log("==================== network-tweaks diagnostics 1.3.0 started ====================")
+log("==================== network-tweaks diagnostics %s started ====================", DIAG_VERSION)
 log("logging for %d min (until %s) | expires %s | log %s",
     ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
     os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), SHARED_LOG)
@@ -397,6 +409,84 @@ end
 -- Sleep / wake and network events
 -- --------------------------------------------------------------------------
 
+-- Sleep breakdown (1.3.1): only while the sleep event is being handed
+-- out, every handler that answers it is timed (EventListener.handleEvent
+-- is the leaf every widget and plugin goes through), and every full
+-- garbage collection is timed and named by its caller. Both are put back
+-- the moment the event is done, error or not.
+local EventListener = require("ui/widget/eventlistener")
+local sleep_rows, sleep_gc
+
+local function shortSrc(info)
+    local src = (info and info.short_src or "?"):gsub("^.*/plugins/", ""):gsub("^.*/patches/", "")
+    return string.format("%s:%s", src, info and info.linedefined or "?")
+end
+
+local function sleepTimingOn()
+    sleep_rows, sleep_gc = {}, {}
+    local orig_he = rawget(EventListener, "handleEvent")
+    local real_gc = collectgarbage
+    EventListener.handleEvent = function(w, event)
+        local fn = event and event.handler and w[event.handler]
+        if event.handler ~= "onSuspend" or type(fn) ~= "function" then
+            return orig_he(w, event)
+        end
+        local t = now()
+        local r = { orig_he(w, event) }
+        local spent = ms(t)
+        pcall(function()
+            local info = debug.getinfo(fn, "S")
+            local key = tostring(w.name or "?") .. " (" .. shortSrc(info) .. ")"
+            local row = sleep_rows[key]
+            if not row then row = { key = key, n = 0, ms = 0 } sleep_rows[key] = row end
+            row.n, row.ms = row.n + 1, row.ms + math.max(spent, 0)
+        end)
+        return unpack(r)
+    end
+    collectgarbage = function(opt, ...)
+        if opt ~= nil and opt ~= "collect" then return real_gc(opt, ...) end
+        local info = debug.getinfo(2, "Sl")
+        local t = now()
+        local r = { real_gc(opt, ...) }
+        local spent = ms(t)
+        pcall(function()
+            local src = (info and info.short_src or "?"):gsub("^.*/plugins/", ""):gsub("^.*/patches/", "")
+            table.insert(sleep_gc, { at = string.format("%s:%s", src, info and info.currentline or "?"), ms = spent })
+        end)
+        return unpack(r)
+    end
+    return function()
+        EventListener.handleEvent = orig_he
+        collectgarbage = real_gc
+    end
+end
+
+local function sleepTimingReport(total)
+    local list, sum = {}, 0
+    for _k, row in pairs(sleep_rows or {}) do
+        table.insert(list, row)
+        sum = sum + row.ms
+    end
+    table.sort(list, function(a, b) return a.ms > b.ms end)
+    local parts = {}
+    for i, row in ipairs(list) do
+        if row.ms < 20 or i > 8 then break end
+        table.insert(parts, string.format("%s %d ms%s", row.key, row.ms, row.n > 1 and (" (" .. row.n .. "x)") or ""))
+    end
+    log("sleep breakdown: %d handlers took %d ms of %d ms%s", #list, sum, total,
+        #parts > 0 and (" | slowest: " .. table.concat(parts, "; ")) or " | none over 20 ms")
+    -- A collection that returns at once (under 5 ms) was skipped by a
+    -- patch (Network Tweaks 1.11.1+ skips Storefront's).
+    local ran, skipped = {}, {}
+    for _i, e in ipairs(sleep_gc or {}) do
+        table.insert(e.ms >= 5 and ran or skipped, e.ms >= 5 and string.format("%s %d ms", e.at, e.ms) or e.at)
+    end
+    log("sleep: full garbage collections: %d ran%s | %d skipped%s", #ran,
+        #ran > 0 and (" (" .. table.concat(ran, "; ") .. ")") or "",
+        #skipped, #skipped > 0 and (" (" .. table.concat(skipped, "; ") .. ")") or "")
+    sleep_rows, sleep_gc = nil, nil
+end
+
 local NET_EVENTS = {
     onNetworkConnecting = true, onNetworkConnected = true, onNetworkDisconnected = true,
     onNetworkTweaksStateChanged = true,
@@ -409,7 +499,12 @@ UIManager.broadcastEvent = function(self, ev, ...)
         -- least of all on the suspend path: original always runs.
         pcall(startTest, "going to sleep")
         local t = now()
-        local r = orig_bc(self, ev, ...)
+        local undo = sleepTimingOn()
+        local res = { pcall(orig_bc, self, ev, ...) }
+        pcall(undo)
+        if not res[1] then error(res[2], 0) end
+        local r = res[2]
+        pcall(sleepTimingReport, ms(t))
         pcall(function()
             log("sleep handled in %dms | Wi-Fi radio %s | SSH %s%s", ms(t),
                 NetworkMgr:isWifiOn() and "on (!)" or "off", sshOn() and "STILL ON" or "off",
