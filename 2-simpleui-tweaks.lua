@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.5
+Version 2.13.4
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,48 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.13.4 Critter Position (Modules): Left, Right, or Left or right (never
+         the middle) for the critter and its bubble in their row, so the
+         middle of the row stays clear; works with or without Critter
+         Wanders. With Critter Side, the cat's side of its text.
+  2.13.3 Critters Everywhere removed. Critter Side (Modules) now works
+         whatever the bubble width or Critter Wanders: Left of Text / Right
+         of Text keeps the critter on that side of its bubble; the third
+         choice uses SimpleUI's own Side (random while wandering).
+  2.13.2 Fix: 2.13.0/2.13.1 stopped the patch from loading (Critters
+         Everywhere used two helpers before the file defines them).
+  2.13.1 Critter Side (Modules, with Critter Wanders on): keep the critter
+         always left or always right of its text while the row still
+         moves left, centre or right; Random keeps the old switching.
+  2.13.0 Critters Everywhere (Modules → Critters Everywhere, on by
+         default): SimpleUI's Tiny Critters on every KOReader window -
+         top menus (Tools, Search, Add-ons, settings), button popups, the
+         search box, confirmations, X-ray and other patches' popups, and
+         full-screen pages (file browser, history, collections, lists,
+         toolbar panels, the home screen). Never on the book page or the
+         sleep screen. A critter only goes where that bit of the window is
+         blank (one plain colour, plus a margin), so it never covers text,
+         icons or lines; it sits on a bottom edge or hangs upside down from
+         a top edge, and takes no taps. Options: menus/dialogs, pages,
+         hanging, 1 or 2 per window, size, a different critter per window
+         or one all day, and which critters (all, or tick the ones you
+         want, your own packs included). Its mood fits the place. Drawn
+         after the window paints; a spot is looked for once per window.
+  2.12.6 Critter Insights, tightened:
+         - Milestones fire when the count goes up to one (finishing that
+           book), not when the home screen first sees it, and stay said for
+           the year. Before, the record of what was said was trimmed to
+           today's after 60 entries, so a milestone could come again.
+         - What's remembered has its own life now: today's insights reset
+           each day, milestones last the year, comebacks / quiet stretches
+           / weekly ones are dropped after 90 days.
+         - Back on a roll: once per comeback (was once a day for up to 4
+           days).
+         - Goal pace: books left over days left ("20 books to go, 69 days
+           left. About one every 3 days catches you up."), worded for on
+           pace or catching up; weekly from mid-January.
+         - Weekend reader: needs 4+ weekend and 8+ weekday reading days in
+           8 weeks; the verdict sticks until the difference is mostly gone.
   2.12.5 Tiny Critter:
          - Critter Bubble Width > Dynamic. The bubble keeps SimpleUI's
            width for short lines and grows, up to all the room the critter
@@ -246,7 +288,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.5"
+local VERSION = "2.13.4"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -291,6 +333,8 @@ local DEFAULTS = {
     critter_row      = 100,
     critter_insights = true,        -- remarks from your reading history (Critter Insights)
     critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
+    critter_wander_side = "random", -- critter "left" / "right" of its bubble, or SimpleUI's ("random" while wandering)
+    critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
     critter_bubble_max = 100,       -- Full Row / Dynamic: % of the room the bubble may take         -- Tiny Critter row height, % of SimpleUI's
 }
 
@@ -1437,19 +1481,40 @@ end
 -- phrase changes (fresh statistics, the chat's "something else" / replies).
 local patchCritterWander
 do
-local wander_last
+local wander_last, wander_last_align
 local wander_roots = setmetatable({}, { __mode = "k" })
 local wander_live = setmetatable({}, { __mode = "v" })
 local function wanderOn()
     return (tonumber(cfg.critter_bubble) or 0) < 0 and cfg.critter_wander ~= false
 end
+-- Critter Position: where in the row the critter and its bubble go.
+--   "wander" (default) left / centre / right while wandering, else SimpleUI's
+--   "left" / "right" always that end of the row
+--   "edges" the left or the right end, never the middle
+local function posAligns()
+    local p = cfg.critter_pos
+    if p == "left" or p == "right" then return { p } end
+    if p == "edges" then return { "left", "right" } end
+    return nil
+end
+local function sideFixed()
+    local v = cfg.critter_wander_side
+    return (v == "left" or v == "right") and v or nil
+end
 local function wanderPick()
     local spots = {}
-    for _i, side in ipairs({ "left", "right" }) do
-        for _j, align in ipairs({ "left", "center", "right" }) do
+    -- Critter Side: "left" / "right" keeps the critter on that side of its
+    -- bubble; "random" lets it switch too
+    local sides = sideFixed() and { sideFixed() } or { "left", "right" }
+    for _i, side in ipairs(sides) do
+        for _j, align in ipairs(posAligns() or { "left", "center", "right" }) do
             local key = side .. "/" .. align
             if key ~= wander_last then spots[#spots + 1] = { side, align, key } end
         end
+    end
+    if #spots == 0 then   -- only one spot allowed: it repeats
+        wander_last = nil
+        return wanderPick()
     end
     local spot = spots[math.random(#spots)]
     wander_last = spot[3]
@@ -1469,21 +1534,38 @@ function patchCritterWander(M)
     if type(M) ~= "table" or type(M.build) ~= "function" or ours[M.build] then return end
     local orig = M.build
     M.build = mine(function(w, ctx, ...)
-        if not wanderOn() or type(w) ~= "number" then return orig(w, ctx, ...) end
+        -- what this build overrides: the side and the spot while wandering,
+        -- or just what Critter Side / Critter Position fix
+        local side, align
+        if wanderOn() and type(w) == "number" then
+            side, align = wanderPick()
+        else
+            side = sideFixed()
+            local aligns = posAligns()
+            if aligns then
+                if #aligns == 1 then align = aligns[1]
+                else
+                    local pick = {}
+                    for _i, a in ipairs(aligns) do if a ~= wander_last_align then pick[#pick + 1] = a end end
+                    align = pick[math.random(#pick)]
+                end
+                wander_last_align = align
+            end
+        end
+        if not side and not align then return orig(w, ctx, ...) end
         local Config = package.loaded["infra/sui_config"]
         local ga = type(Config) == "table" and Config.getAlignment
         if type(ga) ~= "function" then return orig(w, ctx, ...) end
         local pfx = type(ctx) == "table" and ctx.pfx or "simpleui_hs_"
-        local side, align = wanderPick()
         Config.getAlignment = function(key, ...)
-            if key == pfx .. "critter_side" then return side end
-            if key == pfx .. "critter_align" then return align end
+            if side and key == pfx .. "critter_side" then return side end
+            if align and key == pfx .. "critter_align" then return align end
             return ga(key, ...)
         end
         local ok, root = pcall(orig, w, ctx, ...)
         Config.getAlignment = ga
         if not ok then error(root, 0) end
-        if type(root) == "table" then
+        if type(root) == "table" and align and type(w) == "number" then
             wander_roots[root] = { w = w, h = root.dimen and root.dimen.h or 0, align = align }
             wander_live[1] = root
             pcall(wanderPlace, root)
@@ -1525,12 +1607,16 @@ end
 -- Critter Insights (SimpleUI 3.0 Tiny Critter): remarks drawn from your
 -- reading history, left waiting for the critter like SimpleUI's own reactions
 -- (one at a time, the more important one kept):
---   tw_record     best reading day this month (20 min+, 5 other days read)
---   tw_milestone  5 / 10 / 25 / 50 / 75 / 100 (then every 50) books this year
---   tw_momentum   2-5 reading days in a row after 4+ quiet ones
+--   tw_record     best reading day this month, in minutes (20 min+, a week in,
+--                 beating each of 5+ earlier reading days this month)
+--   tw_milestone  5 / 10 / 25 / 50 / 75 / 100 (then every 50) books this year,
+--                 when the count goes up to it (finishing that book)
+--   tw_momentum   2-5 reading days in a row after 4+ quiet ones, once per comeback
 --   tw_quickwin   the book you're on is 25 minutes or less from the end
---   tw_pace       1-3 more books this month put you on your yearly pace
---   tw_weekend    you read clearly more on weekends (or on weekdays)
+--   tw_pace       books left over days left ("one every 6 days"), on pace or
+--                 catching up; weekly
+--   tw_weekend    you read clearly more on weekends (or on weekdays): 4+ weekend
+--                 and 8+ weekday reading days in 8 weeks; the verdict sticks
 --   tw_recovery   3+ days without reading: a gentle nudge to your last book
 -- Each comes once (a day, a week, a milestone or a quiet stretch), at most 3
 -- a day, and only when the data backs it (enough days read, real minutes).
@@ -1618,56 +1704,127 @@ local function lastTitle()
     return nil
 end
 
--- what the history says right now: a list of { kind, data, once } in priority order
-local function candidates(stats)
+-- Remembered between visits (G_reader_settings, KEY), each with its own life:
+--   day, count, daily   today: insights said and how many (reset each day)
+--   ms, ms_due, seen_by milestones: said ("2026:25"), owed, and the count
+--                       last seen (a milestone is owed only when the count
+--                       goes up to it, so a refresh can't announce it again)
+--   spans               once per comeback / quiet stretch / week: key -> the
+--                       day it was said, dropped after 90 days
+--   weekend             the weekend / weekday verdict, kept until the data
+--                       clearly says otherwise
+--   offered             books the chat offered today
+local SPAN_DAYS = 90
+local function readState()
+    local s = G_reader_settings and G_reader_settings:readSetting(KEY)
+    if type(s) ~= "table" then s = {} end
+    s.done = nil   -- 2.12.5's single list
+    local today = os.date("%Y-%m-%d")
+    if s.day ~= today or type(s.daily) ~= "table" then s.day, s.count, s.daily = today, 0, {} end
+    if type(s.ms) ~= "table" then s.ms = {} end
+    if type(s.spans) ~= "table" then s.spans = {} end
+    if type(s.offered) ~= "table" or s.offered_day ~= s.day then s.offered, s.offered_day = {}, s.day end
+    return s
+end
+local function writeState(s)
+    local year = tostring(os.date("*t").year)
+    for k in pairs(s.ms) do if k:sub(1, 4) ~= year then s.ms[k] = nil end end
+    local t = os.date("*t")
+    local cutoff = os.date("%Y-%m-%d", os.time{ year = t.year, month = t.month, day = t.day - SPAN_DAYS, hour = 12 })
+    for k, v in pairs(s.spans) do if type(v) ~= "string" or v < cutoff then s.spans[k] = nil end end
+    G_reader_settings:saveSetting(KEY, s)
+end
+local function said(s, c) return (c.scope == "ms" and s.ms or c.scope == "span" and s.spans or s.daily)[c.key] ~= nil end
+local function markSaid(s, c)
+    if c.scope == "ms" then s.ms[c.key] = true; s.ms_due = nil
+    elseif c.scope == "span" then s.spans[c.key] = s.day
+    else s.daily[c.key] = true end
+end
+
+local MILESTONES = { [5] = true, [10] = true, [25] = true, [50] = true, [75] = true, [100] = true }
+local function isMilestone(n) return MILESTONES[n] or (n > 100 and n % 50 == 0) end
+
+-- "one every 6 days" / "3 a week"
+local function every(days_left, left)
+    local e = days_left / left
+    if e >= 1.5 then return string.format("one every %d days", math.floor(e + 0.5)) end
+    return string.format("%d a week", math.ceil(7 / e))
+end
+
+-- Which insights qualify right now: { kind, data, scope, key }, most
+-- important first. The visit then says the first one not said yet (scope:
+-- "daily", "span" or "ms"). Updates what `s` remembers (milestone count,
+-- weekend verdict) and sets s._changed.
+local function candidates(stats, s)
     local days = history()
     local today_secs = tonumber(stats.today_secs) or 0
     local function secs(i) if i == 0 then return today_secs end return days[dayKey(i)] or 0 end
     local function read(i) return secs(i) >= MIN_SECS end
     local t = os.date("*t")
     local out = {}
-    local function add(kind, data, once) out[#out + 1] = { kind = kind, data = data, once = once } end
+    local function add(kind, data, scope, key) out[#out + 1] = { kind = kind, data = data, scope = scope, key = key } end
+
+    -- milestone: owed when the count goes up to one this year
+    local by = tonumber(stats.books_year)
+    if by then
+        local prev = s.seen_by
+        if not (type(prev) == "table" and prev.year == t.year and prev.n == by) then
+            if type(prev) == "table" and prev.year == t.year and by > (tonumber(prev.n) or by) and isMilestone(by) then
+                s.ms_due = t.year .. ":" .. by
+            end
+            s.seen_by = { year = t.year, n = by }
+            s._changed = true
+        end
+        if type(s.ms_due) == "string" and s.ms_due == t.year .. ":" .. by then
+            add("tw_milestone", { days = by }, "ms", s.ms_due)
+        end
+    end
+
     local any = false
     for i = 1, BACK - 1 do if read(i) then any = true break end end
-    if not any and today_secs < MIN_SECS then return out end   -- no history to speak of
-
-    -- milestone
-    local by = tonumber(stats.books_year)
-    if by and by > 0 and (({ [5] = 1, [10] = 1, [25] = 1, [50] = 1, [75] = 1, [100] = 1 })[by] or (by > 100 and by % 50 == 0)) then
-        add("tw_milestone", { days = by }, "ms:" .. t.year .. ":" .. by)
+    if not any and today_secs < MIN_SECS then
+        table.sort(out, function(a, b) return PRIORITY[a.kind] > PRIORITY[b.kind] end)
+        return out
     end
-    -- best day this month
+
+    -- best day this month, in minutes read: a week in, 20+ minutes, beating
+    -- each of 5+ earlier reading days this month
     if t.day >= 7 and today_secs >= 1200 then
         local others, top = 0, 0
         for d = 1, t.day - 1 do
-            local s = secs(t.day - d)
-            if s >= MIN_SECS then others = others + 1; if s > top then top = s end end
+            local sv = secs(t.day - d)
+            if sv >= MIN_SECS then others = others + 1; if sv > top then top = sv end end
         end
         if others >= 5 and today_secs > top then
-            add("tw_record", { minutes = math.floor(today_secs / 60) }, "rec:" .. dayKey(0))
+            add("tw_record", { minutes = math.floor(today_secs / 60) }, "daily", "rec")
         end
     end
-    -- the book you're on, nearly done
+    -- the book you're on, nearly done (at that book's own pace)
     local qw = quickWin(today_secs)
-    if qw then add("tw_quickwin", { title = qw.title, minutes = qw.left }, "qw:" .. dayKey(0) .. ":" .. tostring(qw.title)) end
-    -- momentum: a run after a quiet stretch
+    if qw then add("tw_quickwin", { title = qw.title, minutes = qw.left }, "daily", "qw:" .. tostring(qw.title)) end
+    -- back on a roll: 2+ reading days in a row after 4+ quiet ones, once
+    -- per comeback (keyed to the day the run started)
     local start = read(0) and 0 or 1
     local i, run = start, 0
     while i < BACK and read(i) do run = run + 1; i = i + 1 end
     local gap = 0
     while i < BACK and not read(i) do gap = gap + 1; i = i + 1 end
     if i < BACK and read(0) and run >= 2 and run <= 5 and gap >= 4 then
-        add("tw_momentum", { days = run }, "mo:" .. dayKey(0))
+        add("tw_momentum", { days = run }, "span", "mo:" .. dayKey(run - 1))
     end
-    -- goal pace this month
+    -- goal pace: what's left over the days left, on pace or catching up;
+    -- weekly, from mid-January
     local Goals = package.loaded["infra/sui_goals"]
     local okg, goal = pcall(function() return Goals.get("annual") end)
     goal = okg and tonumber(goal) or nil
-    if goal and goal > 0 and by and by < goal and t.day >= 10 then
-        local eom = os.time{ year = t.year, month = t.month + 1, day = 0, hour = 12 }
+    local doy = tonumber(os.date("%j")) or 1
+    if goal and goal > 0 and by and by < goal and doy >= 14 then
         local diy = tonumber(os.date("%j", os.time{ year = t.year, month = 12, day = 31, hour = 12 })) or 365
-        local need = math.ceil(goal * (tonumber(os.date("%j", eom)) or 1) / diy - by - 1e-9)
-        if need >= 1 and need <= 3 then add("tw_pace", { days = need }, "pace:" .. os.date("%Y-%W")) end
+        local days_left = diy - doy + 1
+        local left = goal - by
+        local expected = goal * doy / diy
+        add("tw_pace", { days = left, minutes = days_left, years = goal,
+                         which = (by >= expected - 0.5) and "on" or "behind" }, "span", "pace:" .. os.date("%Y-%W"))
     end
     -- a quiet stretch: a gentle nudge, once per stretch
     if not read(0) then
@@ -1675,72 +1832,65 @@ local function candidates(stats)
         while k < BACK and not read(k) do k = k + 1 end
         local idle = k - 1
         if k < BACK and idle >= 3 then
-            add("tw_recovery", { days = idle, title = lastTitle() }, "rc:" .. dayKey(k))
+            add("tw_recovery", { days = idle, title = lastTitle() }, "span", "rc:" .. dayKey(k))
         end
     end
-    -- weekends vs weekdays, the last 8 weeks (12+ reading days)
-    if t.wday == 6 or t.wday == 7 or t.wday == 2 then
-        local we, wd, n = 0, 0, 0
-        for d = 1, 56 do
-            local s = secs(d)
-            if s >= MIN_SECS then n = n + 1 end
-            local wday = tonumber(os.date("%w", os.time{ year = t.year, month = t.month, day = t.day - d, hour = 12 }))
-            if wday == 0 or wday == 6 then we = we + s else wd = wd + s end
+    -- weekends against weekdays, the last 8 weeks: 4+ weekend and 8+ weekday
+    -- reading days, a clear difference (1.6x) to say so, and kept until the
+    -- difference is mostly gone (under 1.2x)
+    local we, wd, we_n, wd_n = 0, 0, 0, 0
+    for d = 1, 56 do
+        local sv = secs(d)
+        local wday = tonumber(os.date("%w", os.time{ year = t.year, month = t.month, day = t.day - d, hour = 12 }))
+        if wday == 0 or wday == 6 then
+            we = we + sv; if sv >= MIN_SECS then we_n = we_n + 1 end
+        else
+            wd = wd + sv; if sv >= MIN_SECS then wd_n = wd_n + 1 end
         end
+    end
+    if we_n >= 4 and wd_n >= 8 then
         local we_avg, wd_avg = we / 16, wd / 40
-        if n >= 12 and wd_avg > 0 and we_avg >= 1.6 * wd_avg and t.wday ~= 2 then
-            add("tw_weekend", { which = "weekend" }, "we:" .. os.date("%Y-%W"))
-        elseif n >= 12 and we_avg > 0 and wd_avg >= 1.6 * we_avg and t.wday == 2 then
-            add("tw_weekend", { which = "weekday" }, "we:" .. os.date("%Y-%W"))
-        end
+        local v
+        if we_avg >= 1.6 * wd_avg then v = "weekend"
+        elseif wd_avg >= 1.6 * we_avg then v = "weekday"
+        elseif s.weekend == "weekend" and we_avg >= 1.2 * wd_avg then v = "weekend"
+        elseif s.weekend == "weekday" and wd_avg >= 1.2 * we_avg then v = "weekday" end
+        if v ~= s.weekend then s.weekend = v; s._changed = true end
+    end
+    if (s.weekend == "weekend" and (t.wday == 6 or t.wday == 7)) or (s.weekend == "weekday" and t.wday == 2) then
+        add("tw_weekend", { which = s.weekend }, "span", "we:" .. os.date("%Y-%W"))
     end
     table.sort(out, function(a, b) return PRIORITY[a.kind] > PRIORITY[b.kind] end)
     return out
 end
 
-local function readState()
-    local s = G_reader_settings and G_reader_settings:readSetting(KEY)
-    if type(s) ~= "table" then s = {} end
-    if s.day ~= os.date("%Y-%m-%d") then s.day, s.count = os.date("%Y-%m-%d"), 0 end
-    if type(s.done) ~= "table" then s.done = {} end
-    if type(s.offered) ~= "table" or s.offered_day ~= s.day then s.offered, s.offered_day = {}, s.day end
-    return s
-end
-local function writeState(s)
-    -- keep the record of what was said small
-    local n = 0
-    for _k in pairs(s.done) do n = n + 1 end
-    if n > 60 then
-        local keep = {}
-        for k, v in pairs(s.done) do if v == s.day then keep[k] = v end end
-        s.done = keep
-    end
-    G_reader_settings:saveSetting(KEY, s)
-end
-
--- each home screen visit: one insight waits for the critter, if one is due
+-- each home screen visit: the first qualifying insight not said yet waits
+-- for the critter (3 a day at most; nothing while another reaction waits)
 local function observeInsights(R)
     if not insightsOn() or not ins_ctx or ins_ctx.stale or type(ins_ctx.stats) ~= "table" then return end
     local s = readState()
-    if (s.count or 0) >= 3 then return end
-    local pending = R.read().pending
-    if pending then return end
-    for _i, c in ipairs(candidates(ins_ctx.stats)) do
-        if not s.done[c.once] then
-            R.record(c.kind, c.data)
-            local now = R.read().pending
-            if now and now.kind == c.kind then
-                s.done[c.once] = s.day
-                s.count = (s.count or 0) + 1
-                writeState(s)
-                local M = package.loaded["modules/critter/mood"]
-                if REWARD[c.kind] and type(M) == "table" and type(M.reward) == "function" then
-                    pcall(function() M.write(M.reward(M.read(), REWARD[c.kind])) end)
+    local list = candidates(ins_ctx.stats, s)
+    local changed = s._changed
+    s._changed = nil
+    if (s.count or 0) < 3 and not R.read().pending then
+        for _i, c in ipairs(list) do
+            if not said(s, c) then
+                R.record(c.kind, c.data)
+                local now = R.read().pending
+                if now and now.kind == c.kind then
+                    markSaid(s, c)
+                    s.count = (s.count or 0) + 1
+                    changed = true
+                    local M = package.loaded["modules/critter/mood"]
+                    if REWARD[c.kind] and type(M) == "table" and type(M.reward) == "function" then
+                        pcall(function() M.write(M.reward(M.read(), REWARD[c.kind])) end)
+                    end
                 end
+                break
             end
-            return
         end
     end
+    if changed then writeState(s) end
 end
 
 -- ---- what the critter says ----
@@ -1789,12 +1939,33 @@ local LINES = {
           sub = function() return "This feels like the start of something." end },
     },
     tw_pace = {
-        { mood = "curious", text = function(d) return string.format("%s this month", plural(d.days, "%d more book", "%d more books")) end,
-          sub = function() return "would put you right on your yearly pace." end },
-        { mood = "playful", text = function(d) return string.format("Finish %s this month?", plural(d.days, "%d book", "%d books")) end,
-          sub = function() return "That keeps your yearly goal on track." end },
-        { mood = "cheer", text = function() return "Your yearly goal is in reach." end,
-          sub = function(d) return string.format("%s this month does it.", plural(d.days, "%d more book", "%d more books")) end },
+        { mood = "curious",
+          text = function(d)
+              if d.which == "on" then return "You're on pace for your goal." end
+              return string.format("%s to go, %d days left.", plural(d.days, "%d book", "%d books"), d.minutes)
+          end,
+          sub = function(d)
+              if d.which == "on" then return string.format("%d to go: about %s.", d.days, every(d.minutes, d.days)) end
+              return string.format("About %s catches you up.", every(d.minutes, d.days))
+          end },
+        { mood = "playful",
+          text = function(d)
+              if d.which == "on" then return string.format("Right on track for %d books.", d.years) end
+              return string.format("Your %d-book goal is in reach.", d.years)
+          end,
+          sub = function(d)
+              if d.which == "on" then return string.format("Keep it to %s.", every(d.minutes, d.days)) end
+              return string.format("%s left: %s.", plural(d.days, "%d book", "%d books"), every(d.minutes, d.days))
+          end },
+        { mood = "cheer",
+          text = function(d) return string.format("%s left this year.", plural(d.days, "%d book", "%d books")) end,
+          sub = function(d)
+              if d.which == "on" then return string.format("You're on pace. About %s does it.", every(d.minutes, d.days)) end
+              return string.format("A little behind. About %s does it.", every(d.minutes, d.days))
+          end,
+          by_tier = { grumpy = { mood = "grumpy",
+                                 text = function(d) return d.which == "on" and "On pace. Don't get cocky." or "Behind on the year goal." end,
+                                 sub = function(d) return string.format("%s. Chop chop.", (every(d.minutes, d.days):gsub("^%l", string.upper))) end } } },
     },
     tw_recovery = {
         { mood = "shy", text = function(d) return d.title and string.format("It's been a while since %s.", q(d.title)) or "It's been a few quiet days." end,
@@ -3739,6 +3910,36 @@ local function buildMenu()
                       enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
                       checked_func = function() return cfg.critter_wander ~= false end,
                       callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
+                    { text_func = function()
+                          local names = { wander = _("SimpleUI's / wanders"), left = _("Left"), right = _("Right"), edges = _("Left or right") }
+                          return string.format(_("Critter Position: %s"), names[cfg.critter_pos] or names.wander)
+                      end,
+                      help_text = _("Where in its row the critter and its speech bubble go. Left or Right keeps them at that end, so the middle of the row (and your wallpaper behind it) stays clear. Left or Right picks one of the two ends each time, never the middle. The first choice uses SimpleUI's Alignment, or wanders left, centre and right with Critter Wanders on. A bubble that needs the whole row can't move."),
+                      enabled_func = function() return critter_bubble ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "wander", _("SimpleUI's own (wanders with Critter Wanders)") }, { "left", _("Left") }, { "right", _("Right") }, { "edges", _("Left or right (never the middle)") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.critter_pos or "wander") == opt[1] end,
+                                  callback = function() setHome("critter_pos", opt[1]) end }
+                          end
+                          return items
+                      end },
+                    { text_func = function()
+                          local names = { random = _("SimpleUI's / random"), left = _("Left of text"), right = _("Right of text") }
+                          return string.format(_("Critter Side: %s"), names[cfg.critter_wander_side] or names.random)
+                      end,
+                      help_text = _("Which side of its text (speech bubble) the critter stands on: always left of the text, always right, or SimpleUI's own setting (with Critter Wanders on, it switches each time). The row can still wander left, centre or right."),
+                      enabled_func = function() return critter_bubble ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "random", _("SimpleUI's own (random while wandering)") }, { "left", _("Left of text") }, { "right", _("Right of text") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.critter_wander_side or "random") == opt[1] end,
+                                  callback = function() setHome("critter_wander_side", opt[1]) end }
+                          end
+                          return items
+                      end },
                     { text_func = function()
                           local names = { [100] = _("Default"), [130] = _("Taller"), [160] = _("Tallest") }
                           return string.format(_("Critter Row Height: %s"), names[rowPct()] or (rowPct() .. "%"))
