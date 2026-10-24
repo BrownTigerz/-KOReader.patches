@@ -31,7 +31,7 @@ return {
     ["2-screenshot-timer.lua"] = "1.0.0",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.15.0",
     ["2-shortcutstoolbar-quick-shelf.lua"] = "1.2.2",
-    ["2-simpleui-tweaks.lua"] = "2.12.2",
+    ["2-simpleui-tweaks.lua"] = "2.12.3",
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.6",
     ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.3.2",
