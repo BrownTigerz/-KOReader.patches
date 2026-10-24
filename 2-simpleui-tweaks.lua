@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.1
+Version 2.12.2
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,16 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.12.2 SimpleUI 3.0:
+         - Reading Stats takes the module colours again (it showed
+           SimpleUI's own white in Night Mode). SimpleUI 3.0 moved it to
+           modules/reading_stats/module_reading_stats, and only files
+           directly in modules/ were hooked. Modules in a folder are now
+           hooked too (also the new Critter module).
+         - Palette colours SimpleUI 3.0 works out live (track,
+           surface_flat: they follow the secondary colour and Night Mode)
+           no longer get stuck at one value after this patch swaps them
+           for a moment (progress accents, nav bar in Night Mode).
   2.12.1 Section titles on SimpleUI v3.0.0: the label builder moved to
          engines/sui_section_label, so the hook retargets there (v2.x
          inline fallback kept).
@@ -200,7 +210,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.1"
+local VERSION = "2.12.2"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -608,7 +618,9 @@ local function swapAccents(C, saved)
         local k = ACC_KEYS[i]
         local v = ovr[k]
         if v then
-            local was = C[k]
+            -- raw only: SimpleUI 3.0 works some keys out live (track); those
+            -- are cleared again afterwards, not set to today's value
+            local was = rawget(C, k)
             if was then saved[k] = was else saved[k] = false end
             C[k] = v
         end
@@ -1170,7 +1182,7 @@ local patchNewBooksModule   -- New Books (SimpleUI 2.7.5): defined below
 
 local function patchModule(name, M)
     if type(M) ~= "table" then return false end
-    local file_id = name:match("module_(.+)$")
+    local file_id = name:match("/module_([^/]+)$")
     local orig = wrapDescriptor(M, file_id)
     if type(M.sub_modules) == "table" then
         for _i, sm in ipairs(M.sub_modules) do wrapDescriptor(sm, file_id) end
@@ -1405,14 +1417,17 @@ local function makeNavPalettePaint(w)
                 if not inv_cache[k] or not rawequal(inv_cache[k .. "_of"], v) then
                     inv_cache[k], inv_cache[k .. "_of"] = invColor(v), v
                 end
-                saved[k] = v
+                -- false: worked out live (SimpleUI 3.0 surface_flat), cleared after
+                saved[k] = rawget(C, k) or false
                 C[k] = inv_cache[k]
             end
         end
         local ok, err = pcall(orig, self, bb, x, y)
         for i = 1, #NAV_PALETTE_KEYS do
             local k = NAV_PALETTE_KEYS[i]
-            if saved[k] then C[k] = saved[k]; saved[k] = nil end   -- truthiness only
+            local was = saved[k]   -- truthiness / rawequal only
+            if rawequal(was, false) then rawset(C, k, nil); saved[k] = nil
+            elseif was then C[k] = was; saved[k] = nil end
         end
         if not ok then error(err, 0) end
     end
@@ -1568,7 +1583,9 @@ local function patcherFor(name)
     if name == "screens/sui_bottombar" then return patchBottombar end
     if name == "screens/sui_topbar" then return patchTopbar end
     if name == "infra/sui_config" then return patchConfig end
-    if name:find("^modules/module_") then
+    -- modules/module_x (SimpleUI 2.x) and modules/<folder>/module_x (3.0:
+    -- reading_stats, critter)
+    if name:find("^modules/") and name:find("/module_[^/]+$") then
         return function(mod) patchModule(name, mod); return true end
     end
 end
