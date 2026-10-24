@@ -1,8 +1,17 @@
 --[[
 2-zz-sleepscreen-banner-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.8
+Version 1.1.0
 
 CHANGELOG
+1.1.0 - The 0.25 s heartbeat is gone: it was a timer of its own running
+        for a minute after every sleep and wake. The shared perf core
+        (the same block as the other diagnostics) does the job without
+        one: in the minute after a sleep or wake it logs any timer that
+        holds the screen 250 ms+ and any tap or event that takes 1 s+,
+        plus the banner patch's own timers 80 ms+, flashes it asks for,
+        timers left waiting at sleep, and a perf line once a minute when
+        it did anything. The 60 minutes now start per version (the marker
+        keeps the version), so an update isn't already expired.
 1.0.8 - One line per entry: messages and popups with line breaks are
         joined with " / " (they used to split into untagged lines), and
         the invisible text-direction marks around file paths are removed.
@@ -65,8 +74,9 @@ What it checks, roughly mapped to an audit's usual sections:
                        wallpaper cover/random_image/document_cover) actually
                        hold, and did the widget tree end up looking replaced?
   performance       - ms spent inside the (possibly patched) UIManager.show
-                       call, plus a freeze-heartbeat for anything that hangs
-                       the screen after a sleep/wake.
+                       call, plus (shared perf core, no timer) anything
+                       that holds the screen 250 ms+ in the minute after a
+                       sleep or wake.
   resume behavior    - taps/holds received for a short window after each
                        sleep, so a busted layout swallowing the wake tap
                        would show up as "gesture received very late" or
@@ -84,6 +94,8 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local ok_time, ktime = pcall(require, "ui/time")
+
+local DIAG_VERSION = "1.1.0"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
@@ -200,19 +212,24 @@ end
 -- Self-expiry: first-load marker persisted across restarts
 -- --------------------------------------------------------------------------
 
+local first_load
 local function minutesSinceFirstLoad()
+    -- version on line 1, first load on line 2: another version (or an old
+    -- marker with just a time) starts a new window
     local f = io.open(STATE_FILE, "r")
     if f then
-        local stamp = tonumber(f:read("*a"))
+        local v, stamp = f:read("*l"), tonumber(f:read("*l") or "")
         f:close()
-        if stamp then
+        if v == DIAG_VERSION and stamp and stamp <= os.time() then
+            first_load = stamp
             return (os.time() - stamp) / 60
         end
     end
-    -- no marker yet -- this is the first load, write it now
+    -- no marker for this version yet -- this is the first load, write it now
     local wf = io.open(STATE_FILE, "w")
     if wf then
-        wf:write(tostring(os.time()))
+        first_load = os.time()
+        wf:write(DIAG_VERSION, "\n", first_load, "\n")
         wf:close()
         return 0
     end
@@ -236,24 +253,15 @@ if expired then
     return
 end
 
-log("==================== sleepscreen-banner diagnostics 1.0.8 started ====================")
+log("==================== sleepscreen-banner diagnostics %s started ====================", DIAG_VERSION)
 log("window: %.0f of %d minutes used (persists across restarts)", elapsed_minutes, TTL_MINUTES)
 
 -- --------------------------------------------------------------------------
--- Frozen-screen heartbeat, active only in the window after a sleep event
+-- Watch window after each sleep event (no timer: the perf core below logs
+-- anything that holds the screen while it's open)
 -- --------------------------------------------------------------------------
 
-local beat_last
-local suspended = false   -- true between Suspend and Resume: the scheduler
-                          -- is frozen while asleep, so any gap measured
-                          -- across it is sleep time, not a hang
-local function beat()
-    if suspended or not active() then beat_last = nil; return end
-    local gap = beat_last and ms(beat_last) or 0
-    if gap > 750 then log("SCREEN FROZEN for ~%dms since the last heartbeat", gap - 250) end
-    beat_last = now()
-    UIManager:scheduleIn(0.25, beat)
-end
+local suspended = false   -- true between Suspend and Resume
 
 local function touch()
     active_until = math.max(active_until, os.time() + PER_SLEEP_ACTIVE_S)
@@ -340,9 +348,6 @@ UIManager.show = function(self, widget, ...)
 
     t0 = now()
     touch()
-    UIManager:unschedule(beat)
-    beat_last = now()
-    UIManager:scheduleIn(0.25, beat)
 
     log("---- ScreenSaver shown ----")
 
@@ -440,24 +445,18 @@ UIManager.sendEvent = function(self, ev, ...)
     return orig_send(self, ev, ...)
 end
 
--- Suspend/Resume: pause the heartbeat across the actual sleep so it isn't
--- reported as a freeze, then restart it (and re-open the tap window) on
--- wake. KOReader broadcasts these as events; depending on version/device
+-- Suspend/Resume: logged so they line up with everything else, and the
+-- tap window re-opens on wake. KOReader broadcasts these as events; depending on version/device
 -- they can arrive via broadcastEvent or sendEvent, so both are watched.
 local function onPowerEvent(handler)
     if handler == "onSuspend" and not suspended then
         suspended = true
-        UIManager:unschedule(beat)
-        beat_last = nil
-        if t0 then log("Suspend (heartbeat paused)") end
+        if t0 then log("Suspend") end
     elseif handler == "onResume" and suspended then
         suspended = false
         if t0 then
             touch()   -- re-open the window so the wake tap gets logged
-            log("Resume (heartbeat restarted, watching %ds for taps/freezes)", PER_SLEEP_ACTIVE_S)
-            UIManager:unschedule(beat)
-            beat_last = now()
-            UIManager:scheduleIn(0.25, beat)
+            log("Resume (watching %ds for taps and anything holding the screen)", PER_SLEEP_ACTIVE_S)
         end
     end
 end
@@ -473,6 +472,281 @@ UIManager.sendEvent = function(self, ev, ...)
     if type(ev) == "table" then onPowerEvent(ev.handler) end
     return send_with_gestures(self, ev, ...)
 end
+
+-- --------------------------------------------------------------------------
+-- Shared perf core v1 (the same block in every diagnostic that uses it)
+-- The first diagnostic to load installs it; the others plug into it. One
+-- copy of KOReader's timer loop with each timer timed, one watch on screen
+-- updates, sleep, input events and warnings, handed to whichever
+-- diagnostics are logging right now. With none logging, every hook passes
+-- straight through. No timers of its own; it's installed on the first pass
+-- of the main loop, after every patch, so its hooks are the outermost.
+-- --------------------------------------------------------------------------
+local DiagCore
+do
+    local CORE_VERSION = 1
+    DiagCore = package.loaded["diag_perf_core"]
+    if type(DiagCore) ~= "table" then
+        DiagCore = { version = CORE_VERSION, clients = {} }
+        package.loaded["diag_perf_core"] = DiagCore
+        local UIM = require("ui/uimanager")
+        local ok_time, ktime = pcall(require, "ui/time")
+        local function nowMs()
+            if ok_time and type(ktime) == "table" and ktime.now and ktime.to_ms then
+                return ktime.to_ms(ktime.now())
+            end
+            return math.floor(os.clock() * 1000)
+        end
+        DiagCore.now_ms = nowMs
+        local function pk(...) return { n = select("#", ...), ... } end
+
+        -- "plugins/x.koplugin/main.lua:12" for a function or a debug.getinfo
+        local function short(src, line)
+            src = tostring(src or "?"):gsub("^@", ""):gsub("^%./", ""):gsub("^.-plugins/", "plugins/")
+                :gsub("^.-patches/", "patches/")
+            return line and (src .. ":" .. tostring(line)) or src
+        end
+        function DiagCore.where(fn)
+            if type(fn) ~= "function" then return tostring(fn) end
+            local info = debug.getinfo(fn, "S")
+            if not info then return "?" end
+            return short(info.source, info.linedefined)
+        end
+        local function caller(level)
+            local info = debug.getinfo(level + 1, "Sl")
+            if not info then return "?" end
+            return short(info.source, info.currentline)
+        end
+
+        local function anyOn()
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then return true end
+            end
+            return false
+        end
+        local function emit(kind, ...)
+            for _i, c in ipairs(DiagCore.clients) do
+                local ok, v = pcall(c.on)
+                if ok and v then pcall(c.handle, kind, ...) end
+            end
+        end
+
+        local function install()
+            -- Timers: KOReader's _checkTasks loop, each task timed.
+            local orig_tasks = UIM._checkTasks
+            if ok_time and type(orig_tasks) == "function" and type(UIM._task_queue) == "table" then
+                UIM._checkTasks = function(self)
+                    if not anyOn() then return orig_tasks(self) end
+                    self._now = ktime.now()
+                    local wait_until = nil
+                    self._task_queue_dirty = false
+                    while self._task_queue[1] do
+                        local task_time = self._task_queue[#self._task_queue].time
+                        if task_time <= self._now then
+                            local task = table.remove(self._task_queue)
+                            local t0 = nowMs()
+                            if type(task.args) == "table" then
+                                task.action(unpack(task.args, 1, task.args.n))
+                            else
+                                task.action()
+                            end
+                            emit("timer", task.action, nowMs() - t0)
+                        else
+                            wait_until = task_time
+                            break
+                        end
+                    end
+                    return wait_until, self._now
+                end
+            end
+
+            -- Screen updates: who asked, and which kind (a flash or not).
+            local orig_sd = UIM.setDirty
+            if type(orig_sd) == "function" then
+                UIM.setDirty = function(self, widget, refresh, ...)
+                    if not anyOn() then return orig_sd(self, widget, refresh, ...) end
+                    local src = caller(2)
+                    if type(refresh) == "function" then
+                        local f = refresh
+                        refresh = function(...)
+                            local r = pk(f(...))
+                            emit("dirty", src, r[1])
+                            return unpack(r, 1, r.n)
+                        end
+                    else
+                        emit("dirty", src, refresh)
+                    end
+                    return orig_sd(self, widget, refresh, ...)
+                end
+            end
+
+            -- Input events: slow ones (taps, swipes) are reported.
+            local orig_send = UIM.sendEvent
+            if type(orig_send) == "function" then
+                UIM.sendEvent = function(self, event, ...)
+                    if not anyOn() then return orig_send(self, event, ...) end
+                    local t0 = nowMs()
+                    local res = pk(orig_send(self, event, ...))
+                    local dt = nowMs() - t0
+                    if dt >= 15 and type(event) == "table" then
+                        local h = tostring(event.handler or "?"):gsub("^on", "")
+                        local ges = h == "Gesture" and event.args and event.args[1]
+                        if type(ges) == "table" and ges.ges then h = "Gesture " .. tostring(ges.ges) end
+                        emit("event", h, dt)
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Sleep: the timers still waiting after every plugin handled it.
+            local orig_bc = UIM.broadcastEvent
+            if type(orig_bc) == "function" then
+                UIM.broadcastEvent = function(self, event, ...)
+                    local h = type(event) == "table" and event.handler
+                    if not (anyOn() and (h == "onSuspend" or h == "onResume")) then
+                        return orig_bc(self, event, ...)
+                    end
+                    local res = pk(orig_bc(self, event, ...))
+                    if h == "onSuspend" then
+                        local actions = {}
+                        for _i, task in ipairs(self._task_queue or {}) do actions[#actions + 1] = task.action end
+                        emit("sleep", actions)
+                    else
+                        emit("wake")
+                    end
+                    return unpack(res, 1, res.n)
+                end
+            end
+
+            -- Warnings and errors, with the file that wrote them.
+            local ok_l, logger = pcall(require, "logger")
+            if ok_l and type(logger) == "table" then
+                for _i, lvl in ipairs({ "warn", "err" }) do
+                    local orig = logger[lvl]
+                    if type(orig) == "function" then
+                        logger[lvl] = function(...)
+                            if anyOn() then
+                                local src = caller(2)
+                                local parts = {}
+                                for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+                                local msg = table.concat(parts, " ")
+                                if #msg > 300 then msg = msg:sub(1, 300) .. "..." end
+                                emit("warn", lvl, src, msg)
+                            end
+                            return orig(...)
+                        end
+                    end
+                end
+            end
+        end
+        UIM:nextTick(function() pcall(install) end)
+    end
+
+    function DiagCore.register(client)
+        table.insert(DiagCore.clients, client)
+    end
+
+    -- A standard client: everything the core sees that comes from the
+    -- patch's own files (o.targets: parts of a path, e.g. "2-network-tweaks.lua").
+    --   o.name     label in the lines ("ShelfSync Tweaks")
+    --   o.log, o.on  the diagnostic's own log and "logging now?" functions
+    --   o.errors   also log the patch's warnings/errors (when the
+    --              diagnostic doesn't catch them itself)
+    --   o.busy     optional: while it returns true, a timer of anyone's that
+    --              holds the screen 250 ms+ or a tap/swipe 1 s+ is logged
+    --              (replaces a freeze heartbeat; the patch was busy then, it
+    --              isn't necessarily the cause)
+    --   o.extra    optional: a few words added to the once-a-minute line
+    --   o.summary  optional: where the once-a-minute line goes (default
+    --              o.log; a diagnostic that only writes inside its own
+    --              windows passes a function that drops it otherwise)
+    function DiagCore.client(o)
+        local SLOW_MS = o.slow_ms or 80
+        local BUSY_TIMER_MS, BUSY_EVENT_MS = o.busy_timer_ms or 250, o.busy_event_ms or 1000
+        local function mine(src)
+            src = tostring(src or "")
+            for _i, t in ipairs(o.targets) do
+                if src:find(t, 1, true) then return true end
+            end
+            return false
+        end
+        local st = { since = os.time(), runs = 0, ms = 0, max = 0, max_src = nil, dirty = 0, flashes = 0 }
+        local function summary(force)
+            if not force and os.time() - st.since < 60 then return end
+            if st.runs > 0 or st.dirty > 0 then
+                local extra = o.extra and o.extra() or nil
+                ;(o.summary or o.log)("perf (last %d s): %s timers ran %d times, %d ms in all, slowest %d ms%s | screen updates asked %d, flashes %d | Lua memory %.1f MB%s",
+                    os.time() - st.since, o.name, st.runs, st.ms, st.max,
+                    st.max_src and (" (" .. st.max_src .. ")") or "", st.dirty, st.flashes,
+                    collectgarbage("count") / 1024, extra and (" | " .. extra) or "")
+            end
+            st.since, st.runs, st.ms, st.max, st.max_src, st.dirty, st.flashes = os.time(), 0, 0, 0, nil, 0, 0
+        end
+        local FLASH = { flashui = true, full = true, flashpartial = true }
+        local client = { on = o.on }
+        function client.handle(kind, a, b, c)
+            if kind == "timer" then
+                local src = DiagCore.where(a)
+                if mine(src) then
+                    st.runs, st.ms = st.runs + 1, st.ms + b
+                    if b > st.max then st.max, st.max_src = b, src end
+                    if b >= SLOW_MS then o.log("slow: %s timer %s took %d ms", o.name, src, b) end
+                elseif o.busy and b >= BUSY_TIMER_MS and o.busy() then
+                    o.log("screen held %d ms by timer %s while %s was busy", b, src, o.name)
+                end
+            elseif kind == "dirty" then
+                if mine(a) then
+                    st.dirty = st.dirty + 1
+                    if FLASH[b] then
+                        st.flashes = st.flashes + 1
+                        o.log("FLASH %s asked by %s", tostring(b), a)
+                    end
+                end
+            elseif kind == "event" then
+                if o.busy and b >= BUSY_EVENT_MS and o.busy() then
+                    o.log("screen held %d ms by a %s while %s was busy", b, a, o.name)
+                end
+            elseif kind == "sleep" then
+                summary(true)
+                local by, n = {}, 0
+                for _i, fn in ipairs(a or {}) do
+                    local src = DiagCore.where(fn)
+                    if mine(src) then by[src] = (by[src] or 0) + 1; n = n + 1 end
+                end
+                if n == 0 then
+                    o.log("going to sleep: no %s timers left waiting", o.name)
+                else
+                    local bits = {}
+                    for src, k in pairs(by) do bits[#bits + 1] = k .. " x " .. src end
+                    table.sort(bits)
+                    o.log("going to sleep: %d %s timers still waiting (!): %s", n, o.name, table.concat(bits, ", "))
+                end
+                return
+            elseif kind == "warn" then
+                -- a = level, b = the file that wrote it, c = the message
+                if o.errors and mine(b) then
+                    o.log("%s from %s: %s", a == "err" and "ERROR" or "warning", b, tostring(c))
+                end
+            end
+            summary(false)
+        end
+        DiagCore.register(client)
+        return client
+    end
+end
+
+-- The banner patch's own file, plus (busy) anything of anyone's that holds
+-- the screen in the minute after a sleep or wake: what the heartbeat used
+-- to catch, with no timer of our own.
+DiagCore.client({
+    name = "Sleep Screen Banner",
+    targets = { "2-kobo-style-sleepscreen-banner.lua" },
+    on = function() return first_load ~= nil and os.time() - first_load < TTL_MINUTES * 60 end,
+    log = log,
+    busy = function() return active() and not suspended end,
+    errors = false,
+})
 
 log("hooks installed, watching for ScreenSaver shows")
 
