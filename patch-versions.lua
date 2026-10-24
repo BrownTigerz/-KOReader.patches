@@ -20,7 +20,7 @@
 return {
     ["2-ReadMastery-notify.lua"] = "1.0.5",
     ["2-ReadMastery-quests.lua"] = "1.0.5",
-    ["2-backup-patches.lua"] = "2.4.3",
+    ["2-backup-patches.lua"] = "2.4.5",
     ["2-debugging-menu.lua"] = "1.3.3",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.1.3",
     ["2-list-rating-progress.lua"] = "1.0.0",
@@ -33,7 +33,7 @@ return {
     ["2-simpleui-tweaks.lua"] = "2.12.1",
     ["2-track-reading-location.lua"] = "1.9.4",
     ["2-tweaks-menu.lua"] = "1.0.6",
-    ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.2.1",
+    ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.3.2",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.1.8",
     ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.3.0",
     ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.1.1",
