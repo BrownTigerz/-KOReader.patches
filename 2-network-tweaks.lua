@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.10.3
+Version: 1.10.4
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -80,6 +80,12 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.10.4 Opening the network list while it's already scanning (tapping a
+         "no known network" note again, or holding Wi-Fi twice) started
+         a second scan next to the first. The two fought over
+         wpa_supplicant's results: the first one's "Scanning…" stayed up
+         behind the list and ended ~45 s later as "Scan failed". A second
+         open while a scan is running is now ignored.
   1.10.3 Network list connect: the IP address is fetched in the background
          on Kobo (obtain-ip.sh took ~4 s inside the tap, screen frozen 5-7 s
          with no cancel). "Obtaining IP address… · tap to cancel" now
@@ -141,7 +147,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.10.3"
+local PATCH_VERSION = "1.10.4"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -1951,6 +1957,12 @@ end
 -- Shared as NetworkMgr.__network_tweaks_choose_network (toolbar hold).
 local function chooseNetwork()
     if not Device:hasWifiToggle() then return end
+    -- Already scanning for the list: a second scan next to it fights over
+    -- the results (the first one's note stays up and fails much later).
+    if list_scan then
+        logger.info("network-tweaks: network list already scanning, ignored")
+        return
+    end
     if quiet then cancelQuiet(true) end -- you asked for the list instead
     local wifi_on = NetworkMgr:isWifiOn()
 
