@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.12.4
+Version 2.12.5
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,24 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.12.5 Tiny Critter:
+         - Critter Bubble Width > Dynamic. The bubble keeps SimpleUI's
+           width for short lines and grows, up to all the room the critter
+           and decorations leave, when a line would otherwise be cut short.
+           Measured with SimpleUI's own text box, per phrase (its chat
+           replies too).
+         - Critter Bubble Max: Full Row and Dynamic can stop short of the
+           row's end (90% or 80% of the room), so a long bubble doesn't run
+           to the edge.
+         - Critter Wanders (Dynamic): each time the home screen draws the
+           row, the critter and its bubble move to the left, centre or
+           right of the row, with the critter on either side of the bubble
+           (never the same spot twice in a row). Overrides SimpleUI's
+           Side / Alignment while it's on.
+         - Critter Row Height: Taller (+30%) or Tallest (+60%) gives the
+           bubble room for its full 2 + 2 lines. The row keeps that height
+           for every phrase, so nothing below it moves. The critter keeps
+           its size (Critter Size > Fill Height grows it to the new row).
   2.12.4 Tiny Critter: Modules > Critter Size. SimpleUI draws the critter
          at the largest whole pixel step that fits the row, which often
          leaves it well short of its speech bubble. Fill Height scales it
@@ -221,7 +239,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.12.4"
+local VERSION = "2.12.5"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -261,8 +279,11 @@ local DEFAULTS = {
     tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
     tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "coll:<name>" / "new" / "history" / "last"
     tbr_panel_colls  = {},          --   more KOReader collections shown as panel views, in order: { "Book Club", ... }
-    critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own)
+    critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own, -1 = dynamic)
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
+    critter_row      = 100,
+    critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
+    critter_bubble_max = 100,       -- Full Row / Dynamic: % of the room the bubble may take         -- Tiny Critter row height, % of SimpleUI's
 }
 
 local userpatch  = require("userpatch")
@@ -1202,6 +1223,9 @@ local function applyCritterBubble()
     local cb = critter_bubble
     if not cb then return end
     local want = tonumber(cfg.critter_bubble) or 0
+    -- Dynamic: the module lays out the widest bubble; patchCritterBubbleBuild
+    -- then narrows each bubble to what its text needs
+    if want < 0 then want = 2000 end
     debug.setupvalue(cb.fn, cb.idx, want > 0 and want or cb.stock)
 end
 -- Tiny Critter size (SimpleUI 3.0, modules/critter/sprite). SimpleUI enlarges
@@ -1211,6 +1235,30 @@ end
 --   smaller  one whole step down
 --   fill     scaled by nearest neighbour to the bubble's height (or the width
 --            the module allows), cached like SimpleUI's own images
+-- Tiny Critter row height: the module's row is a constant (BASE_H_DP, inside
+-- its rowHeight(), which both build and getHeight use, so the home screen
+-- lays out the taller row everywhere). The critter keeps its size unless
+-- Fill Height is on: its images get the old height as their box.
+local critter_row = nil   -- { fn = rowHeight, idx, stock }
+local function rowPct()
+    local v = tonumber(cfg.critter_row) or 100
+    return (v >= 100 and v <= 200) and v or 100
+end
+local function applyCritterRow()
+    local cr = critter_row
+    if not cr then return end
+    debug.setupvalue(cr.fn, cr.idx, math.floor(cr.stock * rowPct() / 100 + 0.5))
+end
+-- Whether the sprite being made is the home screen critter's (not Reading Log's).
+local function fromCritterModule()
+    for level = 3, 7 do
+        local info = debug.getinfo(level, "S")
+        if not info then return false end
+        if (info.source or ""):find("modules/critter/module_critter", 1, true) then return true end
+    end
+    return false
+end
+
 local critter_sprite_on = false
 local patchCritterSprite = function(Sprite)
     if type(Sprite) ~= "table" or type(Sprite.init) ~= "function" or type(Sprite._entry) ~= "function" then return false end
@@ -1237,6 +1285,11 @@ local patchCritterSprite = function(Sprite)
 
     Sprite.init = mine(function(self, ...)
         local mode = cfg.critter_size
+        -- a taller row: the critter's own images keep the old height
+        if self.max_pixel == nil and mode ~= "fill" and rowPct() > 100 and type(self.max_h) == "number"
+                and critter_row and fromCritterModule() then
+            self.max_h = math.floor(self.max_h * 100 / rowPct() + 0.5)
+        end
         if self.max_pixel ~= nil or (mode ~= "smaller" and mode ~= "fill") then
             return orig_init(self, ...)
         end
@@ -1267,12 +1320,198 @@ local patchCritterSprite = function(Sprite)
     return true
 end
 
+-- Dynamic bubble width: Bubble.build calls from the critter module (not
+-- Reading Log's) get the narrowest width, from SimpleUI's own up to the room
+-- the module gave, at which the text shows whole (main line and second line
+-- in at most 2 lines each, inside the bubble's height). The row lays itself
+-- out around the narrower bubble.
+local _bh = {}
+local function boxHeight(UI, face, bold, text, width)
+    local key = table.concat({ tostring(face), tostring(bold), width, text }, "|")
+    if _bh[key] then return _bh[key] end
+    local ok, box = pcall(UI.makeTextBox, { text = text, face = face, bold = bold, width = width })
+    if not ok or not box then return nil end
+    local h = box:getSize().h
+    pcall(box.free, box)
+    local n = 0
+    for _ in pairs(_bh) do n = n + 1 end
+    if n > 200 then _bh = {} end
+    _bh[key] = h
+    return h
+end
+
+local function wholeAt(Bubble, UI, o, w)
+    local _b, _p, reach, frame = Bubble.metrics(o.scale, o.side ~= nil, o.style, o.unit)
+    local tw = w - reach - frame
+    if tw <= 20 then return false end
+    local mh, ml = boxHeight(UI, o.msg_face, o.msg_bold, o.message, tw), boxHeight(UI, o.msg_face, o.msg_bold, "Xg", tw)
+    if not (mh and ml) then return true end
+    if mh > 2 * ml + 1 then return false end
+    local used = mh + frame
+    if o.detail then
+        local dh, dl = boxHeight(UI, o.det_face, o.det_bold, o.detail, tw), boxHeight(UI, o.det_face, o.det_bold, "Xg", tw)
+        if not (dh and dl) then return true end
+        if dh > 2 * dl + 1 then return false end
+        used = used + dh + math.floor(Screen:scaleBySize(2) * (o.scale or 1))
+    end
+    return used <= o.h
+end
+
+local function bubbleMaxPct()
+    local v = tonumber(cfg.critter_bubble_max) or 100
+    return (v >= 50 and v <= 100) and v or 100
+end
+-- Full Row and Dynamic only: the other widths are already their own size.
+local function bubbleCapped()
+    local w = tonumber(cfg.critter_bubble) or 0
+    return w < 0 or w >= 2000
+end
+
+local patchCritterBubbleBuild = function(Bubble)
+    if type(Bubble) ~= "table" or type(Bubble.build) ~= "function" or type(Bubble.metrics) ~= "function" then return false end
+    if ours[Bubble.build] then return true end
+    local orig = Bubble.build
+    Bubble.build = mine(function(o, ...)
+        local dynamic = (tonumber(cfg.critter_bubble) or 0) < 0
+        local cap = bubbleCapped() and bubbleMaxPct() < 100
+        if (dynamic or cap) and critter_bubble and type(o) == "table"
+                and type(o.w) == "number" and type(o.message) == "string" then
+            local info = debug.getinfo(2, "S")
+            local src = info and info.source or ""
+            if src:find("modules/critter/module_critter", 1, true) then
+                local UI = package.loaded["infra/sui_core"]
+                local base = math.floor(Screen:scaleBySize(critter_bubble.stock) * (o.scale or 1))
+                local top = o.w
+                if cap then top = math.max(math.min(base, o.w), math.floor(o.w * bubbleMaxPct() / 100)) end
+                if dynamic and type(UI) == "table" and type(UI.makeTextBox) == "function" and top > base then
+                    local pick = top
+                    local steps = 6
+                    for i = 0, steps do
+                        local cand = base + math.floor((top - base) * i / steps)
+                        if wholeAt(Bubble, UI, o, cand) then pick = cand break end
+                    end
+                    top = pick
+                end
+                if top < o.w then
+                    local narrowed = {}
+                    for k, v in pairs(o) do narrowed[k] = v end
+                    narrowed.w = top
+                    return orig(narrowed, ...)
+                end
+            end
+        end
+        return orig(o, ...)
+    end)
+    return true
+end
+
 local function patchCritterBubble(build)
+    if not critter_row then
+        local rh = findUpvalue(build, "rowHeight")
+        local v, idx = findUpvalue(rh, "BASE_H_DP")
+        if type(v) == "number" and idx then
+            critter_row = { fn = rh, idx = idx, stock = v }
+            applyCritterRow()
+        end
+    end
     if critter_bubble then return end
     local v, idx = findUpvalue(build, "BUBBLE_DP")
     if type(v) ~= "number" or not idx then return end
     critter_bubble = { fn = build, idx = idx, stock = v }
     applyCritterBubble()
+end
+
+-- Critter Wanders (Dynamic only): a random side (critter left or right of the
+-- bubble) and spot (left / centre / right) each build, read in place of
+-- SimpleUI's own settings for that build only. The module lays out the
+-- widest bubble and places the group only when it's narrower than the row,
+-- so once the bubble has narrowed the row is placed here, also after the
+-- phrase changes (fresh statistics, the chat's "something else" / replies).
+local patchCritterWander
+do
+local wander_last
+local wander_roots = setmetatable({}, { __mode = "k" })
+local wander_live = setmetatable({}, { __mode = "v" })
+local function wanderOn()
+    return (tonumber(cfg.critter_bubble) or 0) < 0 and cfg.critter_wander ~= false
+end
+local function wanderPick()
+    local spots = {}
+    for _i, side in ipairs({ "left", "right" }) do
+        for _j, align in ipairs({ "left", "center", "right" }) do
+            local key = side .. "/" .. align
+            if key ~= wander_last then spots[#spots + 1] = { side, align, key } end
+        end
+    end
+    local spot = spots[math.random(#spots)]
+    wander_last = spot[3]
+    return spot[1], spot[2]
+end
+local function wanderPlace(root)
+    local st = wander_roots[root]
+    local inner = type(root) == "table" and root[1]
+    if not st or type(inner) ~= "table" or inner._tw_wander or type(inner.getSize) ~= "function" then return end
+    local size = inner:getSize()
+    if not (size and size.w and size.w < st.w) then return end   -- full row, or the module's own placing
+    local Geom = require("ui/geometry")
+    local box = require("ui/widget/container/" .. st.align .. "container")
+    root[1] = box:new{ dimen = Geom:new{ w = st.w, h = st.h }, allow_mirroring = false, _tw_wander = true, inner }
+end
+function patchCritterWander(M)
+    if type(M) ~= "table" or type(M.build) ~= "function" or ours[M.build] then return end
+    local orig = M.build
+    M.build = mine(function(w, ctx, ...)
+        if not wanderOn() or type(w) ~= "number" then return orig(w, ctx, ...) end
+        local Config = package.loaded["infra/sui_config"]
+        local ga = type(Config) == "table" and Config.getAlignment
+        if type(ga) ~= "function" then return orig(w, ctx, ...) end
+        local pfx = type(ctx) == "table" and ctx.pfx or "simpleui_hs_"
+        local side, align = wanderPick()
+        Config.getAlignment = function(key, ...)
+            if key == pfx .. "critter_side" then return side end
+            if key == pfx .. "critter_align" then return align end
+            return ga(key, ...)
+        end
+        local ok, root = pcall(orig, w, ctx, ...)
+        Config.getAlignment = ga
+        if not ok then error(root, 0) end
+        if type(root) == "table" then
+            wander_roots[root] = { w = w, h = root.dimen and root.dimen.h or 0, align = align }
+            wander_live[1] = root
+            pcall(wanderPlace, root)
+            local update = root.critter_update
+            if type(update) == "function" then
+                root.critter_update = function(...)
+                    local changed = update(...)
+                    pcall(wanderPlace, root)
+                    return changed
+                end
+            end
+        end
+        return root
+    end)
+    -- the chat's "something else" and replies show a new phrase in the row
+    local Talk = package.loaded["modules/critter/talk"]
+    if type(Talk) == "table" and type(Talk.open) == "function" and not ours[Talk.open] then
+        local orig_open = Talk.open
+        Talk.open = mine(function(o, ...)
+            local root = wander_live[1]
+            if type(o) == "table" and root and wander_roots[root] then
+                for _i, k in ipairs({ "on_other", "on_reply" }) do
+                    local f = o[k]
+                    if type(f) == "function" then
+                        o[k] = function(...)
+                            local r = f(...)
+                            pcall(wanderPlace, root)
+                            return r
+                        end
+                    end
+                end
+            end
+            return orig_open(o, ...)
+        end)
+    end
+end
 end
 
 local function patchModule(name, M)
@@ -1294,7 +1533,10 @@ local function patchModule(name, M)
     if file_id == "quote" then quietQuoteBuild(M) end
     if file_id == "currently" then patchCurrentlySwipe(M) end
     if file_id == "new_books" and orig then pcall(patchNewBooksModule, orig) end
-    if file_id == "critter" and orig then pcall(patchCritterBubble, orig) end
+    if file_id == "critter" and orig then
+        pcall(patchCritterBubble, orig)
+        pcall(patchCritterWander, M)
+    end
     -- the clock's minute tick calls its local build() directly
     if file_id == "clock" and orig then
         local lb, idx = findUpvalue(orig, "build", function(v) return type(v) == "function" end)
@@ -1672,6 +1914,7 @@ end
 
 local function patcherFor(name)
     if name == "modules/critter/sprite" then return patchCritterSprite end
+    if name == "modules/critter/bubble" then return patchCritterBubbleBuild end
     if name == "engines/sui_book_sources" then return patchBookSources end
     if name == "lib/bookshelf_reader_park" then return patchBookshelfPark end
     if name == "infra/sui_core" then return patchCore end
@@ -3085,14 +3328,14 @@ local function buildMenu()
                       separator = true },
                     { text_func = function()
                           local w = tonumber(cfg.critter_bubble) or 0
-                          local names = { [0] = _("Default"), [360] = _("Wide"), [440] = _("Wider"), [2000] = _("Full Row") }
+                          local names = { [0] = _("Default"), [360] = _("Wide"), [440] = _("Wider"), [2000] = _("Full Row"), [-1] = _("Dynamic") }
                           return string.format(_("Critter Bubble Width: %s"), names[w] or tostring(w))
                       end,
-                      help_text = _("Width of the Tiny Critter's speech bubble (SimpleUI 3.0). Wider fits longer lines on fewer rows; its chat answers follow. Full Row takes all the room the critter and decorations leave."),
+                      help_text = _("Width of the Tiny Critter's speech bubble (SimpleUI 3.0). Wider fits longer lines on fewer rows; its chat answers follow. Full Row takes all the room the critter and decorations leave. Dynamic keeps SimpleUI's width for short lines and grows only as much as a long line needs."),
                       enabled_func = function() return critter_bubble ~= nil end,
                       sub_item_table_func = function()
                           local items = {}
-                          for _i, opt in ipairs({ { 0, _("Default") }, { 360, _("Wide") }, { 440, _("Wider") }, { 2000, _("Full Row") } }) do
+                          for _i, opt in ipairs({ { 0, _("Default") }, { -1, _("Dynamic") }, { 360, _("Wide") }, { 440, _("Wider") }, { 2000, _("Full Row") } }) do
                               items[#items + 1] = { text = opt[2], radio = true,
                                   checked_func = function() return (tonumber(cfg.critter_bubble) or 0) == opt[1] end,
                                   callback = function()
@@ -3104,6 +3347,45 @@ local function buildMenu()
                           return items
                       end,
                       separator = true },
+                    { text_func = function()
+                          local p = bubbleMaxPct()
+                          return string.format(_("Critter Bubble Max: %s"), p == 100 and _("Full") or (p .. "%"))
+                      end,
+                      help_text = _("For Critter Bubble Width > Full Row and Dynamic: how much of the row's room the bubble may take. 90% or 80% keeps a long bubble from running to the edge."),
+                      enabled_func = function() return critter_bubble ~= nil and bubbleCapped() end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { 100, _("Full") }, { 90, "90%" }, { 80, "80%" } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return bubbleMaxPct() == opt[1] end,
+                                  callback = function() setHome("critter_bubble_max", opt[1]) end }
+                          end
+                          return items
+                      end },
+                    { text = _("Critter Wanders (Dynamic)"),
+                      help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment are used again when this is off."),
+                      enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
+                      checked_func = function() return cfg.critter_wander ~= false end,
+                      callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
+                    { text_func = function()
+                          local names = { [100] = _("Default"), [130] = _("Taller"), [160] = _("Tallest") }
+                          return string.format(_("Critter Row Height: %s"), names[rowPct()] or (rowPct() .. "%"))
+                      end,
+                      help_text = _("Height of the Tiny Critter's row (SimpleUI 3.0). Taller gives the speech bubble room for its full lines; the row keeps that height for every phrase, so nothing below it moves. The critter keeps its size; Critter Size > Fill Height grows it to the new row."),
+                      enabled_func = function() return critter_row ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { 100, _("Default") }, { 130, _("Taller") }, { 160, _("Tallest") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return rowPct() == opt[1] end,
+                                  callback = function()
+                                      cfg.critter_row = opt[1]
+                                      applyCritterRow()
+                                      setHome("critter_row", opt[1])
+                                  end }
+                          end
+                          return items
+                      end },
                     { text_func = function()
                           local names = { default = _("Default"), fill = _("Fill Height"), smaller = _("Smaller") }
                           return string.format(_("Critter Size: %s"), names[cfg.critter_size] or names.default)
