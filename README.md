@@ -24,7 +24,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.6 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.7 |
-| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.5 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.0 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.15 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
@@ -513,5 +513,6 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
+
 
 
