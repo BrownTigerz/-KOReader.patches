@@ -2,7 +2,7 @@
 --redesigns the inbuilt 'banner' type sleep screen message to
 --make it look like the kobo lockscreen tag.
 
---Version: 1.2.1
+--Version: 1.2.2
 
 --VERSIONING
 --1.0.x = fixes (e.g. adapting to a ShelfSync token rename)
@@ -10,6 +10,8 @@
 --2.0.0 = changes that affect how existing backups work
 
 --CHANGELOG
+--1.2.2 - wording only: Screenshot help text and one code comment
+--         reworded plainer, no behavior change
 --1.2.1 - Screenshot Next Sleep Screen didn't show up: KOReader's menu
 --         sorter takes the Sleep screen entry out of the menu's item list
 --         while it builds the menu, so it was gone by the time this looked
@@ -138,7 +140,7 @@ local util = require("util")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 
-local PATCH_VERSION = "1.2.1"	--bump this on every change; it's the only
+local PATCH_VERSION = "1.2.2"	--bump this on every change; it's the only
 								--number that needs to change -- the header's
 								--Version line and changelog are kept in sync
 								--by hand, this constant is what actually
@@ -667,9 +669,8 @@ function Screensaver:show(...)
 	if not G_reader_settings:isTrue(SHOT_KEY) then return end
 	G_reader_settings:delSetting(SHOT_KEY)
 	local ok, err = pcall(function()
-		-- the device paints right after show() anyway; doing it here first
-		-- puts the finished sleep screen in the framebuffer for the shot,
-		-- and the device's own repaint then has nothing left to do
+		-- the device paints right after show() anyway, so repainting here
+		-- first puts the finished sleep screen in the framebuffer for the shot
 		UIManager:forceRePaint()
 		local path = os.date(shotDir() .. "/SleepScreen_%Y-%m-%d_%H%M%S.png")
 		local shot_ok, shot_err = Screen:shot(path)
@@ -688,7 +689,7 @@ local function shotMenuItem()
 		text = _("Screenshot Next Sleep Screen"),
 		help_text_func = function()
 			local last = G_reader_settings:readSetting(SHOT_LAST_KEY)
-			return _("On the next sleep, the sleep screen is saved to the screenshots folder, then this turns itself off.")
+			return _("Next sleep, this saves the sleep screen to the screenshots folder, then turns itself off.")
 				.. (last and ("\n\n" .. _("Last one:") .. "\n" .. last) or "")
 		end,
 		checked_func = function() return G_reader_settings:isTrue(SHOT_KEY) end,
