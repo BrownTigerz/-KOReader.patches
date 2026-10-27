@@ -30,7 +30,7 @@ return {
     ["2-readinginsights-tweaks.lua"] = "2.1.1",
     ["2-shelfsync-tweaks.lua"] = "1.11.15",
     ["2-screenshot-timer.lua"] = "1.0.0",
-    ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.15.0",
+    ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.16.0",
     ["2-shortcutstoolbar-quick-shelf.lua"] = "1.2.2",
     ["2-simpleui-tweaks.lua"] = "2.14.3",
     ["2-track-reading-location.lua"] = "1.9.5",
@@ -49,6 +49,7 @@ return {
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.1.0",
 }
+
 
 
 
