@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.6
+Version: 1.0.7
 
   Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
                     settings from patches that support it (e.g. 2-simpleui-mod.lua),
@@ -11,7 +11,7 @@ Version: 1.0.6
 Moved plugins work exactly the same, they're just shown here instead of their
 usual spot.
 
-Newly installed plugins and patches (anything that adds a menu) are found
+Newly installed plugins and patches (anything that adds a menu) get picked up
 automatically (AUTO_COLLECT): you get a one-time notice, and they show up
 marked "New" in "Choose what's in Add-ons", under "Other", for you to tick.
 
@@ -19,7 +19,7 @@ marked "New" in "Choose what's in Add-ons", under "Other", for you to tick.
 off (off puts it back where it originally was), hold it to move it to another
 group. Both apply after a restart.
 
-KOReader's menu order is never modified: each menu build works on a copy, so
+KOReader's menu order stays untouched: each menu build works on a copy, so
 delete this file and restart, and every menu goes back where it was. Only your
 Add-ons choices are saved (in settings.reader.lua). An id that doesn't exist
 (not installed, renamed by an update) is skipped. Items hidden with a
@@ -53,6 +53,12 @@ Changelog:
                      preserved, so SimpleUI/X-Ray/Wi-Fi are unchanged).
                      Notification, toast, and dialog strings untouched; moved
                      plugin items keep their own text.
+  1.0.7  2026-10-27  Wording only (TK-approved review): chooser header
+                     "Tap: in or out" -> "Tap to turn on or off"; header
+                     "are found automatically" -> "get picked up
+                     automatically", "menu order is never modified" ->
+                     "menu order stays untouched"; notification "New
+                     add-on(s)" -> "New add-on". No behavior change.
   1.0.6  2026-10-23  New "Check For Patch Updates" entry in Patches (below
                      Debugging, order 950), shown only when Backup Patches
                      is installed; invokes Backup's updater global directly.
@@ -63,7 +69,7 @@ Changelog:
                      now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.0.6"
+local PATCH_VERSION = "1.0.7"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -316,7 +322,7 @@ end
 local function chooserItems(where)
     restart_asked = false
     local list = seen[where] or {}
-    local out, last_header = { { text = titlecase(_("Tap: in or out · Hold: move to a group")), enabled = false, separator = true } }, nil
+    local out, last_header = { { text = titlecase(_("Tap to turn on or off · Hold to move to a group")), enabled = false, separator = true } }, nil
     for _i, c in ipairs(list) do
         if c.header ~= last_header then
             if #out > 0 then out[#out].separator = true end
@@ -532,7 +538,7 @@ local function inject(where, items, order)
             local names = {}
             for _i, id in ipairs(fresh) do names[#names + 1] = labels[id] end
             local text = (#fresh == 1 and _("New add-on: ") or _("New add-ons: ")) .. table.concat(names, ", ")
-            if not shared_note(text, _("New add-on(s)")) then
+            if not shared_note(text, _("New add-on")) then
                 local ok, Notification = pcall(require, "ui/widget/notification")
                 if ok and type(Notification) == "table" and Notification.notify then
                     pcall(Notification.notify, Notification, text)
