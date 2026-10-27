@@ -21,8 +21,8 @@ Menu: Settings (gear) → Network → Network Tweaks
     Scans (tap the scanning message to cancel) and lists networks:
     Connected, Saved, Saved · away (saved, not in range) or Open. Tap one
     for Reconnect / Edit password / Forget, or Disconnect when connected.
-    Forget (and Forget all) ask KOReader Only or Device + KOReader when the
-    device has the network saved too.
+    When the device has the network saved too, Forget and Forget all ask:
+    KOReader Only, or Device + KOReader.
     Forget all saved, Rescan and Close at the bottom. Never connects by
     itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and
     closing the list without picking puts Wi-Fi back off. "Saved" here is
@@ -64,8 +64,8 @@ Menu: Settings (gear) → Network → Network Tweaks
 
   Cancel Wi-Fi connection (only shown while connecting)
     Stops a background connect in progress. You can also tap the banner,
-    or tap the Wi-Fi toggle (toolbar/gesture) again. A connect in progress
-    is also cancelled when the device goes to sleep.
+    or tap the Wi-Fi toggle (toolbar/gesture) again. Going to sleep
+    cancels a connect in progress too.
 
 Bluetooth…  (only with kobo.koplugin on a device it supports)
   The plugin's Bluetooth menu (on/off, scan, paired devices, settings),
@@ -2099,7 +2099,7 @@ local function askPassword(state, nw, saved)
     local function go()
         local pw = dlg:getInputText() or ""
         if #pw == 0 and nw.flags:find("WPA") then
-            UIManager:show(InfoMessage:new{ text = _("Password cannot be empty."), timeout = 2 })
+            UIManager:show(InfoMessage:new{ text = _("Password can't be empty."), timeout = 2 })
             return
         end
         UIManager:close(dlg)
@@ -2606,14 +2606,14 @@ local function menuTable()
             local items = {
                 {
                     text = _("Stop SSH Server On Sleep"),
-                    help_text = _("Stop the SSH server when the device sleeps. It is not restarted on wake."),
+                    help_text = _("Stop the SSH server when the device sleeps. It stays off on wake."),
                     checked_func = sshStopOnSleep,
                     callback = function() set("ssh_stop_on_sleep", not sshStopOnSleep()) end,
                     keep_menu_open = true,
                 },
                 {
                     text = _("SSH Follows Wi-Fi"),
-                    help_text = _("Start SSH when you turn Wi-Fi on, stop it whenever Wi-Fi goes off. Not started by the automatic reconnect after waking."),
+                    help_text = _("Start SSH when you turn Wi-Fi on, stop it whenever Wi-Fi goes off. The auto-reconnect on wake doesn't start it."),
                     checked_func = sshStartOnConnect,
                     callback = function() set("ssh_start_on_connect", not sshStartOnConnect()) end,
                     keep_menu_open = true,
@@ -2632,7 +2632,7 @@ local function menuTable()
                     sub_item_table = {
                         styleItem("normal", _("Normal (KOReader Popups)")),
                         styleItem("silent", _("Minimal (Small Corner Notes)")),
-                        styleItem("banner", _("Banner (Top Banner, SSH Address)")),
+                        styleItem("banner", _("Banner (Top Banner, Shows SSH Address)")),
                     },
                 },
             }
@@ -2643,7 +2643,7 @@ local function menuTable()
                         local menu = bt_menu
                         table.insert(items, i + 1, {
                             text = _("Bluetooth…"),
-                            help_text = _("Bluetooth from kobo.koplugin: turn it on or off, scan, paired devices and settings."),
+                            help_text = _("kobo.koplugin's Bluetooth: on/off, scan, paired devices, settings."),
                             sub_item_table_func = function() return menu.sub_item_table end,
                         })
                         break
