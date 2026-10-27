@@ -8,8 +8,8 @@
 
     What it does:
     When a multi-action gesture is set to "Show as QuickMenu", the popup
-    lists plain action names with no indication of state. This patch adds a
-    checkbox in front of toggle actions it knows how to read: "✓" when on,
+    lists plain action names with no indication of state. This patch puts a
+    checkbox in front of toggle actions it can read: "✓" when on,
     "▢" when off - the same glyphs KOReader's own menus use
     (ui/widget/checkmark.lua renders them as text in the stock UI font, so
     they always render). The marker goes FIRST on purpose: the popup
@@ -30,22 +30,22 @@
 
     To add more toggles, add an entry to CUSTOM_TOGGLES below: action key
     -> function returning true/false. Return nil to leave the text alone
-    (e.g. when the state can't be determined); the patch never breaks the
-    menu over an unreadable state.
+    (e.g. when the state can't be determined); the patch won't break the
+    menu just because a state can't be read.
 
     Notes:
-    - Renamed actions (custom names via "Rename QuickMenu actions") are
-      annotated too: the marker is applied to the stored custom name for the
-      duration of the menu build, then the stored name is restored untouched.
+    - Renamed actions (custom names via "Rename QuickMenu actions") get
+      marked too: the marker is put on the stored custom name while the
+      menu is being built, then the stored name is put back untouched.
     - If "keep menu open" is turned on for the gesture, the checkboxes
       show the state from when the menu opened - reopen it to refresh.
     - In the file browser no book is open, so style tweak entries show
       without a checkbox there. That's expected, not a bug.
 
-    This patch does not modify KOReader. It wraps Dispatcher._showAsMenu
-    and Dispatcher.getDisplayList from the outside; the flags between them
-    mean only the fired quick menu is annotated, never the "Arrange
-    actions" screen or other display lists.
+    This patch doesn't touch KOReader's code. It wraps
+    Dispatcher._showAsMenu and Dispatcher.getDisplayList, and the flags
+    make sure only the quick menu you fired gets marked — never the
+    "Arrange actions" screen or other display lists.
 
     ===================================================================
     CHANGELOG
