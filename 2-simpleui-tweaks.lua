@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.2
+Version 2.14.3
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,10 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.3 Wording pass: menu help texts and critter lines rewritten to
+         sound natural (no AI phrasing). No functionality changed.
   2.14.2 Critter Mix (Modules): tick two or more critters (say Donny, Blu
          and Donny & Blu) and they take turns: the next one shows each
          time the critter has something new to say. Reading Log's
-         critter takes turns too (a new remark or a tap there moves it on).
+         critter takes turns too (a new remark or a tap there moves it along).
          Off (fewer than two ticked): SimpleUI's own pick.
   2.14.1 More critter moods: reading, proud, hungry, cozy, sipping,
          dreamy, festive and spooky (Donny and Blu have them in
@@ -329,7 +331,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.2"
+local VERSION = "2.14.3"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -4255,18 +4257,18 @@ local function buildMenu()
                       end,
                       separator = true },
                     { text = _("Critter Insights"),
-                      help_text = _("The Tiny Critter remarks on your reading history: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
+                      help_text = _("The Tiny Critter tells you about your reading: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
                       checked_func = function() return cfg.critter_insights ~= false end,
                       callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
                     { text = _("Critter Pep Talk"),
-                      help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line steps up on the next home screen draw as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
+                      help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line moves up a step next time the home screen draws as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
                       checked_func = function() return cfg.critter_pep ~= false end,
                       callback = function() setHome("critter_pep", cfg.critter_pep == false) end },
                     { text_func = function()
                           local m = type(cfg.critter_mix) == "table" and cfg.critter_mix or {}
                           return #m >= 2 and _("Critter Mix: ") .. #m .. " " .. _("critters") or _("Critter Mix: off")
                       end,
-                      help_text = _("Tick two or more critters and they take turns: the next one shows each time the critter picks something new to say (every 20 minutes or so, a new part of the day, or when you tap it). Reading Log's critter takes turns too: a new remark or a tap there moves it on. Tick fewer than two to go back to the one picked in SimpleUI's critter settings."),
+                      help_text = _("Tick two or more critters and they take turns: the next one shows each time the critter picks something new to say (every 20 minutes or so, a new part of the day, or when you tap it). Reading Log's critter takes turns too: a new remark or a tap there moves it along. Tick fewer than two to go back to the one picked in SimpleUI's critter settings."),
                       sub_item_table_func = function()
                           local items = {}
                           local As = package.loaded["modules/critter/assets"]
@@ -4300,7 +4302,7 @@ local function buildMenu()
                           return items
                       end },
                     { text = _("Critter Wanders (Dynamic)"),
-                      help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment are used again when this is off."),
+                      help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment take over when this is off."),
                       enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
                       checked_func = function() return cfg.critter_wander ~= false end,
                       callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
@@ -4308,7 +4310,7 @@ local function buildMenu()
                           local names = { auto = _("Auto"), white = _("White"), black = _("Black") }
                           return string.format(_("Critter Text Colour: %s"), names[cfg.critter_text] or names.auto)
                       end,
-                      help_text = _("Colour of the Tiny Critter's speech text (and its bubble outline). Auto writes in white when the bubble is dark, as with a dark SimpleUI look, and leaves it as SimpleUI draws it otherwise. White or Black always. Reading Log's critter follows too."),
+                      help_text = _("Colour of the Tiny Critter's speech text (and its bubble outline). Auto writes in white when the bubble is dark, as with a dark SimpleUI look, and leaves it alone otherwise. White or Black always. Reading Log's critter follows too."),
                       enabled_func = function() return critter_bubble ~= nil end,
                       sub_item_table_func = function()
                           local items = {}
@@ -4323,7 +4325,7 @@ local function buildMenu()
                           local names = { wander = _("SimpleUI's / wanders"), left = _("Left"), right = _("Right"), edges = _("Left or right") }
                           return string.format(_("Critter Position: %s"), names[cfg.critter_pos] or names.wander)
                       end,
-                      help_text = _("Where in its row the critter and its speech bubble go. Left or Right keeps them at that end, so the middle of the row (and your wallpaper behind it) stays clear. Left or Right picks one of the two ends each time, never the middle. The first choice uses SimpleUI's Alignment, or wanders left, centre and right with Critter Wanders on. A bubble that needs the whole row can't move."),
+                      help_text = _("Where in its row the critter and its speech bubble go. Left or Right keeps them at that end, so the middle of the row (and your wallpaper behind it) stays clear. The third choice picks one end each time, never the middle. The first choice uses SimpleUI's Alignment, or wanders left, centre and right with Critter Wanders on. A bubble that needs the whole row can't move."),
                       enabled_func = function() return critter_bubble ~= nil end,
                       sub_item_table_func = function()
                           local items = {}
