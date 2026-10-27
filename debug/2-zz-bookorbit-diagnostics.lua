@@ -1,6 +1,6 @@
 --[[
 2-zz-bookorbit-diagnostics.lua - TEMPORARY troubleshooting patch for BookOrbit
-Version 1.3.0
+Version 1.3.1
 
 For the hang where opening BookOrbit does nothing and KOReader has to be
 restarted, and for the freeze after sleep. It changes nothing about how
@@ -8,12 +8,14 @@ BookOrbit runs: it only writes lines to the shared log, so the last line
 before a freeze shows exactly where it stopped.
 
 Changelog
-  1.3.0 Shared perf core (same block as the SimpleUI and the other
-        diagnostics): every BookOrbit / BookOrbit Tweaks timer is timed
-        (slow ones logged with their file), screen updates and flashes
-        they ask for are logged with who asked (so the tweaks' ghosting
-        flash shows up as FLASH lines), timers they leave waiting when
-        the device sleeps, and a once-a-minute perf line with Lua memory
+  1.3.1 Wording only: header and log text rewritten direct and plain;
+        no functionality, behavior, or menu changes.
+  1.3.0 Shared perf core (the same block the SimpleUI and other
+        diagnostics use): it times every BookOrbit and BookOrbit Tweaks
+        timer, logs slow ones with their file, logs screen updates and
+        flashes with who asked for them (so the tweaks' ghosting flash
+        shows up as FLASH lines), logs timers left waiting when the
+        device sleeps, and writes a once-a-minute line with Lua memory
         and covers built. The 10-second heartbeat timer is gone (no
         timers rule): while the catalog is open, a timer holding the
         screen 250 ms+ or a tap 1 s+ is logged instead. Freeze time is
@@ -51,11 +53,10 @@ Shared log contract v1: writes tagged lines ("[bookorbit]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
 (Kobo: .adds/koreader/diagnostics.log)
 
-It only logs for the first 30 minutes after KOReader starts (WINDOW_MIN
-below; time asleep counts). After that every hook it adds goes idle and
-nothing more is written. 3 days after its first run it stops hooking
-anything at all (one line per start says so); delete
-bookorbit-diagnostics.state for another 3 days. It writes the log (and
+It logs for the first 30 minutes after KOReader starts (WINDOW_MIN
+below; time asleep counts). After that it goes quiet. Three days
+after its first run it stops completely (one line per start says
+so); delete bookorbit-diagnostics.state for another 3 days. It writes the log (and
 that one-line state file), nothing else. No repeating timers: when the
 device freezes, the last line written is the evidence.
 
@@ -78,9 +79,8 @@ What it logs, all on the open path and everything around it:
     goDashboard, cancelThumbnailJobs, cleanLegacyThumbnails, onCloseWidget.
   - Every BookOrbit API call, timed, with method and path only (query
     strings stripped, bodies and headers never logged): request and
-    requestBlocking, plus download and downloadBlocking. A blocking
-    network call that never returns is the classic freeze, and its
-    enter line without an exit line is the proof.
+    requestBlocking, plus download and downloadBlocking. If a blocking network call never comes back, that's the freeze — its
+    enter line with no exit line shows it.
   - BookOrbit warnings and errors from KOReader's logger, with any
     credential-looking values scrubbed out.
   - Performance (shared perf core): BookOrbit timers timed, screen updates
@@ -118,8 +118,8 @@ How to use (within 30 minutes of starting KOReader):
      off (it moves to patches/debug/).
 
 The "zz" makes it load after every other patch, so it sees their changes.
-This file is LOCAL ONLY: it is not pushed to GitHub, and neither is any
-BookOrbit patch, until TK explicitly says so (BookOrbit is in beta).
+BookOrbit Tweaks v2.11.1 and this diagnostic v1.3.1 are on GitHub.
+Future patch pushes still need TK's go-ahead each time.
 ]]
 
 local DataStorage = require("datastorage")
@@ -129,7 +129,7 @@ local WINDOW_MIN = 30
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 3 * 24 * 3600
 local STATE = DataStorage:getDataDir() .. "/bookorbit-diagnostics.state"
-local DIAG_VERSION = "1.3.0"
+local DIAG_VERSION = "1.3.1"
 local DIAG_TAG = "bookorbit"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024

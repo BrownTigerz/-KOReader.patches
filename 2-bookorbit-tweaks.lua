@@ -15,23 +15,22 @@ Purpose:
     while a buried catalog existed).
   * Option: reopen an already-open catalog at BookOrbit home, or where you
     left off.
-  * Option: when BookOrbit closes and SimpleUI home is gone, show SimpleUI
-    home instead of the stock library.
+  * When BookOrbit closes, go back to SimpleUI home instead of the stock library.
   * Optional e-ink flash on catalog page turns to reduce ghosting.
   * Option: loop catalog pages (swipe past last page → first, past first → last).
     When looping is off, a swipe at either end is a no-op and does not flash.
-  * Saved servers: snapshot the current BookOrbit login and switch between
-    them later (from Tweaks menu, Sign-in, or Settings → Account → Server).
-  * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
+  * Saved servers: save the current BookOrbit login and switch between
+    servers later (from the Tweaks menu, Sign-in, or Settings → Account → Server).
+  * Looping also works on the dashboard pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
-This patch hooks the real current module, bookorbit_catalog_widgets.
+This patch hooks bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.11.0"
+local VERSION = "2.11.1"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -1275,7 +1274,7 @@ local function showSavedServerPicker(plugin, page)
         local InfoMessage = require("ui/widget/infomessage")
         local UIManager = require("ui/uimanager")
         UIManager:show(InfoMessage:new{
-            text = _("No saved servers yet.\nSign in once, then use BookOrbit Tweaks → Saved servers → Save current server."),
+            text = _("No saved servers yet.\nSign in once, then save it from BookOrbit Tweaks → Server Management → Save Current Server."),
             timeout = 4,
         })
         return
@@ -1303,7 +1302,7 @@ local function showSavedServerPicker(plugin, page)
                     end
                     local InfoMessage = require("ui/widget/infomessage")
                     UIManager:show(InfoMessage:new{
-                        text = _("Switching To") .. "\n" .. label,
+                        text = _("Switching to") .. "\n" .. label,
                         timeout = 3,
                     })
                 end,
@@ -1393,7 +1392,7 @@ local function hookSignInPage()
                                 end
                                 local InfoMessage = require("ui/widget/infomessage")
                                 UIManager:show(InfoMessage:new{
-                                    text = _("Switching To") .. "\n" .. label,
+                                    text = _("Switching to") .. "\n" .. label,
                                     timeout = 3,
                                 })
                             end,
@@ -1470,7 +1469,7 @@ local function showServerChooser(plugin, on_enter_new, on_switched)
                 if on_switched then pcall(on_switched, entry) end
                 local InfoMessage = require("ui/widget/infomessage")
                 UIManager:show(InfoMessage:new{
-                    text = _("Switching To") .. "\n" .. label,
+                    text = _("Switching to") .. "\n" .. label,
                     timeout = 3,
                 })
             end,
@@ -1868,7 +1867,7 @@ local function buildServerMenu()
     local current = currentBookOrbitCreds()
 
     table.insert(items, {
-        text = _("Enable Server Selection In Settings"),
+        text = _("Show Server Chooser In Settings"),
         checked_func = function() return cfg.server_chooser_in_settings ~= false end,
         callback = function()
             cfg.server_chooser_in_settings = not (cfg.server_chooser_in_settings ~= false)
@@ -1929,7 +1928,7 @@ local function buildServerMenu()
                         local InfoMessage = require("ui/widget/infomessage")
                         local UIManager = require("ui/uimanager")
                         UIManager:show(InfoMessage:new{
-                            text = _("Switching To") .. "\n" .. label,
+                            text = _("Switching to") .. "\n" .. label,
                             timeout = 2,
                         })
                     end
