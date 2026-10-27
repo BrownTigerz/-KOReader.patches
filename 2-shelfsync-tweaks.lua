@@ -38,7 +38,7 @@
 --            absent (or its shared note doesn't handle it).
 --   1.11.9   Header only: bundled login code is a goodreadskosync 1.15.0
 --            snapshot (was mislabeled 2.0.0). No behavior change.
--- Checked against: ShelfSync 1.7.0, goodreadskosync 1.15.0 (bundled login code)
+-- Checked against: ShelfSync 1.8.1, goodreadskosync 1.15.0 (bundled login code)
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
 -- 1) Goodreads email + password "Log in" (code bundled from goodreadskosync,
@@ -57,8 +57,8 @@
 -- 9) Auto re-login once per provider per 30 min when a session expires,
 --    then re-push progress. Captcha / verification code still prompts.
 --
--- Notes follow Network Tweaks' style when installed, ReadMastery's notify
--- style when it is, else KOReader popups. Hide changes show after reopening
+-- Notifications match Network Tweaks if it's installed, ReadMastery Notify
+-- if that's installed, otherwise plain KOReader popups. Hide changes show after reopening
 -- the book / file browser.
 
 local userpatch = require("userpatch")
@@ -441,7 +441,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local ImageViewer = require("ui/widget/imageviewer")
         local viewer = ImageViewer:new{
             image = path,
-            caption = _("Type these characters, then close this to continue"),
+            caption = _("Type these characters, then close this window to continue"),
         }
         local orig_onClose = viewer.onClose
         local chained = false
@@ -1050,24 +1050,24 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             end
             local new = {
                 toggle(_("Auto Re-login When Session Expires"), "auto_relogin",
-                    _("When a Goodreads or StoryGraph session expires and you've saved your login, sign in again automatically (once per 30 min) and re-send your progress. Goodreads may still ask for a verification code.")),
+                    _("When a Goodreads or StoryGraph session expires and you've saved your login, it signs in again automatically (once per 30 min) and sends your progress again. Goodreads may still ask for a verification code.")),
                 toggle(_("Retry Autolink When Wi-Fi Connects"), "relink_on_connect",
-                    _("If you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. With this on, any enabled provider still unlinked for the open book tries again when Wi-Fi connects.")),
+                    _("If you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. With this on, it tries again when Wi-Fi connects.")),
                 {
                     text = _("Hide Providers"),
                     sub_item_table = {
                         toggle(_("Fable"), "hide_fable",
-                            _("Remove Fable from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove Fable from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                         toggle(_("Hardcover"), "hide_hardcover",
-                            _("Remove Hardcover from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove Hardcover from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                         toggle(_("Goodreads"), "hide_goodreads",
-                            _("Remove Goodreads from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove Goodreads from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                         toggle(_("Pagebound"), "hide_pagebound",
-                            _("Remove Pagebound from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove Pagebound from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                         toggle(_("StoryGraph"), "hide_storygraph",
-                            _("Remove StoryGraph from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove StoryGraph from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                         toggle(_("LibraryThing"), "hide_librarything",
-                            _("Remove LibraryThing from the Providers menu and stop it from doing anything. Reopen the book or file browser to update the menu.")),
+                            _("Remove LibraryThing from the Providers menu and stop it from syncing. Reopen the book or file browser to update the menu.")),
                     },
                 },
             }
@@ -1175,7 +1175,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         done = done or function() end
         gen = gen or CACHE.sleep_gen
         if not (app.ui and app.ui.document) then
-            styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
+            styledNote(_("Can't update progress — no book is open"), _("No book open"), { warn = true })
             return done()
         end
         local file = app.ui.document.file
@@ -1632,7 +1632,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         function plugin:onShelfSyncAllUpdateProgress()
             local app = self
             if not (app.ui and app.ui.document) then
-                styledNote(_("Unable to update reading progress: No book active"), _("No book open"), { warn = true })
+                styledNote(_("Can't update progress — no book is open"), _("No book open"), { warn = true })
                 return true
             end
             updateAllOnce(app); return true
@@ -1734,7 +1734,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 end
                 if (result.needs_otp or result.needs_challenge) and engine then
                     -- Can't be silent: hand over to the normal login prompts
-                    notify(_("Goodreads session expired and needs verification to log back in."))
+                    notify(_("Goodreads session expired — it needs a verification code to log back in."))
                     local helper = setmetatable({ settings = engine.settings }, { __index = GoodreadsMenu })
                     return helper:_grkHandleResult(result, { email = email, password = password })
                 end
