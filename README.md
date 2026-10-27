@@ -345,7 +345,7 @@ Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Work
 - **Menu Toggle and Bluetooth indicators:** a custom shortcut set to a menu action follows that item's own checkmark, and Bluetooth follows the Kobo plugin's Bluetooth state.
 - **Live network state:** the Wi-Fi icon and any Wi-Fi/SSH/Calibre indicator follow the real state, including background connects, failures, cancels, auto-disconnect and sleep.
 - **Toolbar stays open** after tapping custom SSH, Wi-Fi, Calibre or Night Mode shortcuts, so you see the icon change. Other actions still close it.
-- **Hold actions:** hold the built-in Wi-Fi button for the network list (Network Tweaks' picker when installed); hold the built-in Restart or Search button for Restart / Exit KOReader / Reboot / Power off; hold a custom SSH shortcut for Bluetooth from the Kobo plugin (turn it on or off, scan, paired devices). Tap does what it always did. Each one has its own on/off in Icon Tweaks → Hold Actions. Off gives the plugin's own hold back; for an SSH shortcut, that's its edit dialog.
+- **Hold actions:** hold the built-in Wi-Fi button for the network list (Network Tweaks' picker when installed); hold the built-in Restart or Search button for Restart / Exit KOReader / Reboot / Power off; hold a custom SSH shortcut for Bluetooth from the Kobo plugin (turn it on or off, scan, paired devices); hold a custom Calibre shortcut to open BookOrbit directly. Tap does what it always did. Each one has its own on/off in Icon Tweaks → Hold Actions. Off gives the plugin's own hold back; for an SSH shortcut, that's its edit dialog.
 - **Bluetooth notes:** the Kobo plugin's Bluetooth messages (scanning, on / off, failed to connect) show in Network Tweaks' note style (Banner / Minimal), like its Wi-Fi notes. With Normal, or without Network Tweaks, they stay as they are.
 - **Sleep:** an open reader or library top menu closes when the device goes to sleep, so you wake to the page, not the menu.
 
@@ -513,6 +513,7 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
+
 
 
 
