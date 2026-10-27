@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.15.0
+Version: 1.16.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -27,7 +27,8 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
   • Hold the built-in Wi-Fi button: network list (Network Tweaks' picker
     when installed). Hold the built-in Restart or Search button: Restart /
     Exit KOReader, Reboot, Power off. Hold an SSH shortcut: Bluetooth
-    (Kobo plugin): turn it on or off, scan, paired devices. Tap does what
+    (Kobo plugin): turn it on or off, scan, paired devices. Hold a
+    Calibre shortcut: BookOrbit, directly, no menu. Tap does what
     it always did.
   • The Kobo plugin's Bluetooth messages show in Network Tweaks' note style
     (Banner / Minimal), like its Wi-Fi notes. Each hold action can be
@@ -60,6 +61,11 @@ a D-Bus query), then reuse the answer for redraws. Nothing runs
 in the background or while asleep.
 
 Changelog
+  1.16.0 Hold a Calibre shortcut for BookOrbit directly, no menu: hold a
+         custom shortcut that connects to (or disconnects from) Calibre to
+         open BookOrbit. New Hold Actions toggle, on by default. Without
+         the BookOrbit plugin, holding opens the shortcut's edit dialog
+         as before.
   1.15.0 Hold Actions menu (Icon Tweaks → Hold Actions): each hold action
          can be turned off, giving the plugin's own hold back (built-ins
          flash their name, custom shortcuts open their edit dialog). New:
@@ -179,7 +185,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.15.0"
+local PATCH_VERSION = "1.16.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -919,6 +925,42 @@ local function holdBluetooth()
     UIManager:show(dialog)
 end
 
+-- Hold a Calibre shortcut: open BookOrbit directly, no menu. The plugin
+-- instance comes from PluginLoader (canonical, by name); the UI scan is the
+-- fallback, same pattern as the Kobo Bluetooth lookup. Returns false when
+-- the BookOrbit plugin isn't there, so the shortcut's own hold (its edit
+-- dialog) runs instead.
+local function findBookOrbit()
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if ok_pl and type(PluginLoader) == "table"
+            and type(PluginLoader.getPluginInstance) == "function" then
+        local ok, bo = pcall(PluginLoader.getPluginInstance, PluginLoader, "bookorbit")
+        if ok and type(bo) == "table" and type(bo.openBookOrbit) == "function" then
+            return bo
+        end
+    end
+    for _i, path in ipairs({ "apps/reader/readerui", "apps/filemanager/filemanager" }) do
+        local mod = package.loaded[path]
+        local ui = mod and mod.instance
+        if type(ui) == "table" and not ui.tearing_down then
+            for k, v in pairs(ui) do
+                if type(v) == "table" and type(v.openBookOrbit) == "function" then
+                    return v
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function holdBookOrbit()
+    local bo = findBookOrbit()
+    if type(bo) ~= "table" then return false end
+    local ok = pcall(bo.openBookOrbit, bo)
+    if not ok then return false end
+    return true
+end
+
 -- --------------------------------------------------------------------------
 -- Bluetooth notes in Network Tweaks' style
 -- --------------------------------------------------------------------------
@@ -964,6 +1006,7 @@ local HOLD = {
     restart = holdPower,
     search  = holdPower, -- reader search button: tap searches, hold = power
     ssh     = holdBluetooth,
+    bookorbit = holdBookOrbit,
 }
 local HOLD_BUILTIN = { wifi = "wifi", restart = "restart", search = "search" }
 
@@ -977,7 +1020,13 @@ local function holdFor(key)
     local id = HOLD_BUILTIN[key]
     if not id and type(key) == "string" and key:sub(1, 3) == "cs_" then
         local sc = shortcutFor(key)
-        if type(sc) == "table" and sc.dispatcher_action == "toggle_ssh_server" then id = "ssh" end
+        if type(sc) == "table" then
+            if sc.dispatcher_action == "toggle_ssh_server" then id = "ssh"
+            elseif sc.dispatcher_action == "calibre_start_connection"
+                    or sc.dispatcher_action == "calibre_close_connection" then
+                id = "bookorbit"
+            end
+        end
     end
     if id and holdOn(id) then return id end
     return nil
@@ -1527,6 +1576,8 @@ local function buildMenu()
                         _("Hold the built-in Search button (reader) for the power options. Tap still searches. Off gives the plugin's own hold back.")),
                     holdItem(_("Hold SSH Shortcut: Bluetooth"), "ssh",
                         _("Hold a custom shortcut that toggles SSH for Bluetooth from the Kobo plugin: turn it on or off, scan, paired devices. Without the Kobo plugin, or with this off, holding opens the shortcut's edit dialog.")),
+                    holdItem(_("Hold Calibre Shortcut: BookOrbit"), "bookorbit",
+                        _("Hold a custom shortcut that connects to Calibre for BookOrbit: opens BookOrbit directly, no menu. Without the BookOrbit plugin, or with this off, holding opens the shortcut's edit dialog.")),
                 },
             })
             table.insert(t, {
