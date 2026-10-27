@@ -1,6 +1,6 @@
 --[[
     Track Reading Location
-    Version: 1.9.4
+    Version: 1.9.5
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
@@ -15,10 +15,9 @@
     appendix) - or several smaller forward taps land close enough together in
     time to add up to the same thing - the same button appears mirrored at the
     bottom-left. A slow, single 2-page forward move stays silent on purpose
-    (skipping a blank/illustration page, a "skip ahead" gesture); only
-    backward drift is held to that tighter 1-page tolerance. What it shows is
-    configurable independently (Reader menu -> Navigation -> Reading location ->
-    Settings):
+    (skipping a blank or picture page). Only going back gets the tight
+    1-page rule. You can change what it shows (Reader menu -> Navigation ->
+    Reading location -> Settings):
 
     - "Show full text": include the "Go back to page" wording.
     - "Show location/page number": include the page number (or percentage, in
@@ -27,11 +26,11 @@
     - "Mode: Page number/Percentage": show the reference point as a page
       number (default) or as a percentage of the book, both on the button
       and in the "Go back to..." wording.
-    - "Forward popup auto-dismiss" (Off/15s/20s/30s/50s, default 20s): the
-      forward popup only - never backward - hides itself if you never act on
-      it within this window, treating an unreturned skim-ahead (table of
-      contents, a picture page, checking something) as intentional. The next
-      real page turn after it hides becomes the new anchor.
+    - "Forward popup auto-dismiss" (Off/15s/20s/30s/50s, default 20s): only
+      the forward popup - never the backward one - hides itself if you don't
+      tap it in time. That treats a skim-ahead you didn't come back from
+      (table of contents, a picture page, checking something) as on purpose.
+      The next real page turn after it hides becomes the new reference page.
     - "Fast-skim detection": how many quick forward taps in a row count as a
       skim-ahead (3-6 pages, default 4) and how close together they have to
       land (1.0-3.0 seconds, default 1.5).
@@ -42,15 +41,15 @@
       section) jumps back to that page.
     - Tapping the "X" - or, if it isn't shown, holding the button instead -
       cancels the prompt and accepts your current page as the new reference
-      point (it won't nag you about this jump again).
+      page (it won't nag you about this jump again).
     - Reading normally (forward, or drifting back by at most one page) silently
       advances the remembered position - no popup.
 
     The button is drawn as an overlay on top of the page (like KOReader's own
     footer/progress bar), so it never blocks taps anywhere else on the screen -
     you can keep turning pages or open menus while it's showing. It docks
-    above KOReader's own footer bar when the footer is visible and actually
-    reserving its own space (not when "Overlap status bar" is on).
+    above KOReader's own footer bar when the footer is showing in its own
+    space (not when "Overlap status bar" is on).
 
     A "Reading location" menu entry (Reader menu -> Navigation, right below
     "Go forward to next location", by default - a menu-organizing patch may
@@ -78,6 +77,8 @@
 
     Changelog (from here forward - this patch's earlier history predates this
     numbering scheme and isn't repeated here):
+    1.9.5 - 2026-10-27 - Wording pass: plainer fast-skim labels and offset
+    help texts, and plainer header wording. No behaviour change.
     1.9.4 - 2026-10-11 - Title case for all user-facing menu/item/button
     texts ("Reading Location", "Show Button On Screen", ...), including the
     floating button's own label ("Go Back To Page").
@@ -134,7 +135,7 @@ local Screen = Device.screen
 -- comment can't read a code constant) and needs updating by hand alongside
 -- this one; everything else - the menu's version row and both load logs -
 -- reads from here.
-local PATCH_VERSION = "1.9.4"
+local PATCH_VERSION = "1.9.5"
 
 logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
 
@@ -1734,7 +1735,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             sub_item_table = {
                                 {
                                     text_func = function()
-                                        return T(_("Pages To Trigger: %1"), ReadingLocationTracker.getBurstPages())
+                                        return T(_("Skim Length: %1 Pages"), ReadingLocationTracker.getBurstPages())
                                     end,
                                     sub_item_table = {
                                         {
@@ -1781,7 +1782,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                                 },
                                 {
                                     text_func = function()
-                                        return T(_("Max Time Between Taps: %1s"),
+                                        return T(_("Max Gap Between Taps: %1s"),
                                             string.format("%.1f", ReadingLocationTracker.getBurstIntervalMs() / 1000))
                                     end,
                                     sub_item_table = {
@@ -1847,7 +1848,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
                                     _("Bottom Offset"),
-                                    _("Extra distance the button is docked away from the bottom edge of the screen, on top of the footer's own height when it's visible. Applies to both corners."),
+                                    _("How far above the bottom edge the button sits, plus the footer's height when it's showing. Same for both corners."),
                                     ReadingLocationTracker.getBottomOffset,
                                     ReadingLocationTracker.setBottomOffset)
                             end,
@@ -1860,7 +1861,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
                                     _("Side Offset"),
-                                    _("Extra distance the button is docked away from the left/right edge of the screen, whichever corner it's currently in. Applies to both corners."),
+                                    _("How far in from the left or right edge the button sits, whichever corner it's in. Same for both corners."),
                                     ReadingLocationTracker.getSideOffset,
                                     ReadingLocationTracker.setSideOffset)
                             end,
@@ -1873,7 +1874,7 @@ ReaderLink.addToMainMenu = function(self, menu_items)
                             callback = function(touchmenu_instance)
                                 showOffsetSpinWidget(ui, touchmenu_instance,
                                     _("Button Radius"),
-                                    _("Corner roundness of the button, from 0 (square) up to fully rounded (pill/circle)."),
+                                    _("How rounded the button's corners are, from 0 (square) to fully rounded (pill/circle)."),
                                     ReadingLocationTracker.getButtonRadius,
                                     ReadingLocationTracker.setButtonRadius,
                                     { value_max = BUTTON_RADIUS_DEFAULT, default_value = BUTTON_RADIUS_DEFAULT })
