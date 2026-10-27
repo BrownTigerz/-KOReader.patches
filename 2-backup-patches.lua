@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.7 (2026-10-23)
+2-backup-patches.lua                                     2.4.8 (2026-10-27)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.8  2026-10-27
+    - Wording only: error notes use contractions like the rest of the
+      file ("Couldn't create the zip" instead of "Could not create
+      zip"), and the zip-support notes say what they mean ("can't
+      make/open zips"). Nothing works differently.
   2.4.7  2026-10-23
     - Update check right after it turned Wi-Fi on: "Couldn't Fetch the
       Version List. host or service not provided". Wi-Fi reports
@@ -276,7 +281,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.7"
+local VERSION = "2.4.8"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -547,7 +552,7 @@ end
 
 local function makeBackup(target, tag)
     local ok_a, Archiver = pcall(require, "ffi/archiver")
-    if not ok_a then return nil, _("This KOReader version has no zip support.") end
+    if not ok_a then return nil, _("This KOReader version can't make zips.") end
     local dump = require("dump")
 
     local settings = collectSettings(target)
@@ -587,7 +592,7 @@ local function makeBackup(target, tag)
         os.date("%Y-%m-%d_%H%M%S"), tag and ("_" .. tag) or "")
 
     local w = Archiver.Writer:new()
-    if not w:open(path, "zip") then return nil, w.err or _("Could not create zip.") end
+    if not w:open(path, "zip") then return nil, w.err or _("Couldn't create the zip.") end
     -- Icons first: only the ones actually in the zip go in the manifest, so
     -- a restore never expects an icon that isn't there.
     local count, added = 0, {}
@@ -609,23 +614,23 @@ local function makeBackup(target, tag)
         logger.warn("backup_patches: could not serialise settings for", target.id, manifest_src)
         w:close()
         os.remove(path)
-        return nil, _("Could not read these settings.")
+        return nil, _("Couldn't read these settings.")
     end
     if not w:addFileFromMemory(MANIFEST, "return " .. manifest_src) then ok = false end
     w:close()
     if not ok then
         os.remove(path)
-        return nil, w.err or _("Could not write backup.")
+        return nil, w.err or _("Couldn't write the backup.")
     end
     return path, count
 end
 
 local function restoreBackup(target, zip_path)
     local ok_a, Archiver = pcall(require, "ffi/archiver")
-    if not ok_a then return nil, _("This KOReader version has no zip support.") end
+    if not ok_a then return nil, _("This KOReader version can't open zips.") end
 
     local r = Archiver.Reader:new()
-    if not r:open(zip_path) then return nil, r.err or _("Could not open zip.") end
+    if not r:open(zip_path) then return nil, r.err or _("Couldn't open the zip.") end
     for _e in r:iterate() do end -- index entries
 
     local src = r:extractToMemory(MANIFEST)
@@ -1353,7 +1358,7 @@ local function fetchUrl(url, on_progress)
     local ok_sock, socket = pcall(require, "socket")
     local ok_su, socketutil = pcall(require, "socketutil")
     if not (ok_http and ok_ltn12 and ok_sock and ok_su) then
-        return nil, _("No network stack.")
+        return nil, _("No network on this device.")
     end
     -- Follow redirects manually (LuaSocket doesn't). Cap the hops.
     for hop = 1, 5 do
