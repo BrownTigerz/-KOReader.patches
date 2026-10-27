@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.1.1
+Version 2.1.2
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -27,9 +27,9 @@ What it records:
             leak shows as steady growth.
   Warnings  every "RI tweaks:" warning the main patch logs.
   Perf      (shared perf core) for the whole 48 hours: a Tweaks or Reading
-            Insights timer that holds the screen 80 ms+, a flash either
-            asks for, and their timers still waiting when the device sleeps
-            each open a session; inside a session, a once-a-minute perf
+            Insights timer that holds the screen 80 ms or more, a flash from
+            either one, or timers still waiting when the device sleeps —
+            each of those opens a session; inside a session, a once-a-minute perf
             line (their timers, screen updates, flashes, Lua memory).
 
 How to use:
@@ -100,6 +100,8 @@ Changelog
                      went up (52 after a few minutes) and looked like a leak.
                      Those opens now say "(closes can't be watched here)" and
                      the suspend line says so instead of a number.
+  2.1.2  2026-10-27  Wording pass (TK-approved): plainer Perf line description;
+                     no behavior change.
 ]]
 
 local DataStorage = require("datastorage")
@@ -110,7 +112,7 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "2.1.1"
+local DIAG_VERSION = "2.1.2"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file

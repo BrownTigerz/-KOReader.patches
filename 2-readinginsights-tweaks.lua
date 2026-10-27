@@ -1,6 +1,6 @@
 --[[
     2-readinginsights-tweaks.lua
-    Version: 2.1.0
+    Version: 2.1.1
     KOReader user patch: visual toggles for Reading Insights
     (peterboda236/readinginsights.koplugin) and KOReader's Statistics calendar.
     Each one is on its own toggle.
@@ -27,7 +27,7 @@
     How: Reading Insights loads its files through the global loadfile. This
     patch wraps loadfile for three of its view files. The book calendar gets a
     small addition to its source (routing one function through here); the
-    heatmap and records views are patched on the module table they return. The
+    heatmap and records views get patched when they load. The
     Statistics calendar is patched when KOReader's Statistics plugin loads.
     Toggles are checked every time something is drawn, so turning one off gives
     you the stock view right away.
@@ -50,9 +50,9 @@
     only when you open one of these views (a few small read-only queries + covers
     already cached by CoverBrowser). Scaled covers are kept for the session (max
     150). The only timer is a one-shot 30s retry window after a missing cover was
-    sent for extraction. One quick check each time a window opens (to know
-    Reading Insights' own: Simple UI's home mark in 2.0.1, closing on sleep in
-    2.1.0); at sleep, Reading Insights' windows are closed, nothing else runs.
+    sent for extraction. One quick check per window opened, to spot
+    Reading Insights' own windows (for the home-screen mark and close
+    on sleep). At sleep, only those windows close — nothing else runs.
 
     Versioning
       1.0.x  fixes, e.g. adapting to a Reading Insights or KOReader change
@@ -112,6 +112,8 @@
                          device sleeps, so waking shows the home screen or the
                          book you were reading. Reading Insights' own sleep
                          screen isn't affected (it's drawn after they close).
+      2.1.1  2026-10-27  Wording pass (TK-approved): plainer header text and
+                         heatmap caption; no behavior change.
 ]]
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -143,7 +145,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "2.1.0" -- the only number to change when updating
+local PATCH_VERSION = "2.1.1" -- the only number to change when updating
 local TAG = "RI tweaks:"
 logger.info(TAG, "version", PATCH_VERSION, "loaded")
 local HOOK_NAME = "ri_tweaks_hook"
@@ -710,7 +712,7 @@ local function patchHeatmap(M, deps)
                     w,
                     VerticalSpan:new{ width = S(4) },
                     TextWidget:new{
-                        text = T(_("Shaded by daily goal · %1 = %2 or more"),
+                        text = T(_("Shaded by daily goal: %1 = %2 or more"),
                             G_reader_settings:isTrue("night_mode") and _("brightest") or _("darkest"),
                             fmtDuration(goalSecs())),
                         face = face, fgcolor = C_MUTED,
