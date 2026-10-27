@@ -1,6 +1,6 @@
 --[[
 2-debugging-menu.lua
-Version 1.3.5
+Version 1.3.6
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
@@ -14,9 +14,8 @@ and off, and to tidy up their logs. Your diagnostic patches are never edited.
     diagnostic doesn't load and costs nothing, and the folder stays tidy.
     Changes apply after a restart (asked once). Old-style ".lua.disabled"
     diagnostics in patches/ are moved into debug/ the first time.
-  • Combine Crash And Diagnostics Log For Review: writes the shared
-    diagnostics log (once), plus the end of crash.log, into one file:
-    koreader/debug-all.log.
+  • Combine Logs: writes the shared diagnostics log once, plus the end
+    of crash.log, into one file: koreader/debug-all.log.
   • Delete All Logs: removes every .log file except version.log and
     crash.log, plus the diagnostics' stamp/state files (this also
     restarts their time windows), plus orphaned .state files left
@@ -35,6 +34,12 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.3.6  Wording only, no behavior change: "Combine Logs" (was "Combine
+       Crash And Diagnostics Log For Review"), "No diagnostics found"
+       (was "No Diagnostics Found In Patches/"), and plainer
+       notifications ("Diagnostics change on restart", "has only
+       crash.log", "log and state files", "switched off on next
+       restart").
 1.3.5  1.3.4 only reached Delete Log on one diagnostic: Delete All Logs
        gathers its own list and still skipped those files (the log after
        Delete All Logs showed none of them deleted). It now takes every
@@ -75,7 +80,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.3.5"
+local VERSION = "1.3.6"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -382,7 +387,7 @@ local function changed()
         return
     end
     asked_restart = true
-    UIManager:askForRestart("Diagnostics change after a restart.")
+    UIManager:askForRestart("Diagnostics change on restart.")
 end
 
 local function confirm(text, ok_text, fn)
@@ -456,7 +461,7 @@ local function combine()
     end
     out:close()
     if count == 0 then
-        notify("Debugging: no diagnostic logs yet (debug-all.log has crash.log only)")
+        notify("Debugging: no diagnostic logs yet (debug-all.log has only crash.log)")
     else
         notify(string.format("Debugging: %d log%s combined into debug-all.log",
             count, count == 1 and "" or "s"))
@@ -526,7 +531,7 @@ end
 local function deleteAll()
     local files = allLeftovers()
     if #files == 0 then notify("Debugging: no logs to delete") return end
-    confirm(string.format("Delete %d log/state file%s?\n\nOnly version.log and crash.log are kept.",
+    confirm(string.format("Delete %d log and state file%s?\n\nOnly version.log and crash.log are kept.",
         #files, #files == 1 and "" or "s"), "Delete", function()
         local n = 0
         for _i, p in ipairs(files) do
@@ -645,7 +650,7 @@ local function buildItems()
 
     local list = scan()
     if #list == 0 then
-        items[#items + 1] = { text = "No Diagnostics Found In Patches/", enabled = false, separator = true }
+        items[#items + 1] = { text = "No diagnostics found", enabled = false, separator = true }
     end
     for idx, d0 in ipairs(list) do
         local base = d0.base
@@ -703,7 +708,7 @@ local function buildItems()
     }
     items[#items + 1] = { text = "Clear Crash.log", keep_menu_open = true,
         callback = function(tm) clearCrash() refresh(tm) end }
-    items[#items + 1] = { text = "Combine Crash And Diagnostics Log For Review", keep_menu_open = true,
+    items[#items + 1] = { text = "Combine Logs", keep_menu_open = true,
         callback = function() combine() end }
     return items
 end
@@ -762,7 +767,7 @@ if not G_reader_settings:isTrue(FIRST_RUN_KEY) then
         end
         G_reader_settings:saveSetting(FIRST_RUN_KEY, true)
         if n > 0 then
-            notify(string.format("Debugging: %d diagnostic%s switched off from next restart",
+            notify(string.format("Debugging: %d diagnostic%s switched off on next restart",
                 n, n == 1 and "" or "s"))
         end
     end)
