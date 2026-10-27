@@ -449,6 +449,12 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
+![BookOrbit Tweaks menu](images/bookorbit-tweaks-menu.png)
+![BookOrbit Library Filter submenu](images/bookorbit-library-filter.png)
+![BookOrbit Server Management submenu](images/bookorbit-server-management.png)
+![BookOrbit Recently Added catalog, night mode covers](images/bookorbit-recently-added.png)
+![BookOrbit Home dashboard, night mode covers](images/bookorbit-home.png)
+
 ### Navigation
 
 - **Loop pages** — swipe past the last catalog or dashboard page to wrap to the first (and the other way). When looping is off, a swipe at either end does nothing and does not flash.
