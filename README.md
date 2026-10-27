@@ -39,6 +39,7 @@ All patches work independently and together. If one fails to attach (for example
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.11.0 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -439,6 +440,59 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 - Tap it again before the 10 s are up to cancel (shows a check mark while waiting).
 - Going to sleep cancels it, so no timer waits through sleep.
 - Nothing runs until you tap it. Temporary helper — delete the file when you're done.
+
+---
+
+## BookOrbit Tweaks
+
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.11.0
+
+Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
+
+### Navigation
+
+- **Loop pages** — swipe past the last catalog or dashboard page to wrap to the first (and the other way). When looping is off, a swipe at either end does nothing and does not flash.
+- **Reopen BookOrbit at** — *Where I Left Off* or *BookOrbit Home* when bringing an already-open catalog back (for example after sleep).
+- Closing BookOrbit returns to **SimpleUI home** when that is your start screen (no stock library flash). Works best with SimpleUI Tweaks 2.14.3+.
+
+### After sleep / SimpleUI nav
+
+BookOrbit is closed cleanly on suspend and on resume so SimpleUI home cannot bury a leftover catalog. Opening from the SimpleUI nav bar or Shortcuts Toolbar after wake forces a clean open and raises the catalog above home.
+
+### Library filter
+
+Pick which BookOrbit library is used for the catalog (for example Books vs Comics) from the tweaks menu, without opening BookOrbit → Filter every time. **Refresh Library List** pulls names from the server. The active library is marked next to its name.
+
+### Saved servers
+
+- Save the current server, switch with a tap, **hold** for **Edit Server** (address, username, user key, display name) or **Remove**.
+- Optional: show a server chooser inside BookOrbit **Settings → Account** (toggle under Server Management).
+
+### Night mode covers
+
+**Keep Covers Original In Night Mode** — catalog and dashboard covers keep their artwork instead of being inverted.
+
+### Flash to reduce ghosting
+
+Master **Enable Flash**, then choose what flashes:
+
+| Option | Effect |
+|---|---|
+| Flash on page turns | Catalog and dashboard swipes |
+| Flash on content load | Library / recent / section rebuilds |
+| Flash on return to dashboard | Leaving library or recent for home |
+| Flash on settings menu | Pull-down menu open and close |
+| Flash on open | Single flash when BookOrbit opens |
+| Flash frequency (1 / 2 / 3 / 5) | How often page turns trigger a flash |
+
+Rapid flashes are debounced so opening the catalog does not stack two or three refreshes.
+
+### Other
+
+- Swipe south on the catalog does not close BookOrbit (top-edge pull-down still opens the menu).
+- Title case labels in the tweaks menu.
+
+Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics.log` with the other debug companions).
 
 ---
 
