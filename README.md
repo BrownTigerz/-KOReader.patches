@@ -20,7 +20,7 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.2 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.3 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.8 |
@@ -513,6 +513,7 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
+
 
 
 
