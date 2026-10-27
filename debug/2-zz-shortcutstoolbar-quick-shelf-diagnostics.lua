@@ -52,12 +52,12 @@ Battery safety (in case you forget to delete it):
   • Logs for 15 minutes, starting the first time a reader toolbar is built
     after KOReader starts. Then it writes a summary and goes quiet until the
     next restart. One window per restart.
-  • Stops for good 24 hours after it first runs: after that it loads, sees
-    it's expired and does nothing else. The start time is kept in its own
+  • After 24 hours it stops for good: it loads, sees it's expired, and does
+    nothing. The start time is kept in its own
     state file (shortcutstoolbar-quick-shelf-diagnostics.state), so nothing
     is saved in KOReader's settings. Delete the state file for a fresh 24h.
-  • No background polling and no timers of its own: the window closes on
-    elapsed time, checked at every hooked call. Lines go to the shared
+  • No background polling and no timers of its own. The window just closes
+    once 15 minutes have passed. Lines go to the shared
     diagnostics.log (2 MB rotation, older part kept as diagnostics.log.old).
 
 How to use:
@@ -269,7 +269,7 @@ local function summary(why)
         hints[#hints + 1] = string.format("%d book(s) had no saved thumbnail: browsing them once in a cover view (SimpleUI / CoverBrowser) saves one", stats.covers_tile)
     end
     if stats.strips > 1 and stats.strips >= stats.builds and stats.builds > 1 then
-        hints[#hints + 1] = "the strip was rebuilt on every menu open: keeping it while the history is unchanged would skip that"
+        hints[#hints + 1] = "the strip rebuilt on every menu open: keeping it while nothing changed would skip that rebuild"
     end
     if stats.paints > 0 and stats.paint_us / stats.paints > 80000 then
         hints[#hints + 1] = "repaint after a swipe is slow: smaller covers or fewer books would help"
@@ -277,7 +277,7 @@ local function summary(why)
     if stats.asleep_actions > 0 or stats.warnings > 0 then
         hints[#hints + 1] = "CHECK the flagged lines above"
     end
-    if #hints == 0 then hints[1] = "nothing to improve: all within budget" end
+    if #hints == 0 then hints[1] = "Nothing slow enough to worry about" end
     for i, h in ipairs(hints) do log("hint %d: %s", i, h) end
 end
 

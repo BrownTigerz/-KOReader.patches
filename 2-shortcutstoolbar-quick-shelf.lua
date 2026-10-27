@@ -7,7 +7,7 @@ For xusoo/shortcutstoolbar.koplugin
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
 book info panel) to flip between it and a strip of books. The shortcut icons
 below stay where they are. Two dots show which page you're on. Each menu
-open starts on the normal page.
+open starts on the book panel.
 
 The strip (the Quick Shelf) shows, per Shortcuts toolbar → Quick Shelf Shows:
   • Books In Progress  - your reading history, most recent first: books
@@ -20,19 +20,19 @@ Tap a cover to switch to that book.
 Reader only: the library toolbar and the SimpleUI module are unchanged.
 
 Cost: nothing until you swipe. The strip is built on the first swipe of a
-menu open and reused after that. Covers come from the thumbnails SimpleUI
-(or CoverBrowser) already keeps; a book is never opened to pull its cover
-(a book with no saved thumbnail gets a title tile), and kept already sized
-between menu opens (up to 10). A swipe redraws only the top row: the menu
-doesn't resize. No timers.
+menu open and reused after that. Covers come from thumbnails SimpleUI
+(or CoverBrowser) already keeps. A book is never opened to pull its cover.
+A book with no saved thumbnail gets a title tile instead. Covers are kept
+already sized between menu opens, up to 10. A swipe redraws only the top
+row, so the menu doesn't resize. No timers.
 
 Install: drop in koreader/patches/ and restart KOReader. Loads after
 2-shortcutstoolbar-icon-tweaks.lua (file order), which it works with.
 
 Changelog
-  1.2.2  Covers are kept between menu opens, already sized: the first swipe
-         of a menu open no longer resizes each cover again (about 25 ms a
-         cover on a Clara Colour). Up to 10 covers are kept; a SimpleUI
+  1.2.2  Covers are kept between menu opens, already sized, so the first
+         swipe of a menu open doesn't resize them again (about 25 ms a
+         cover on a Clara Colour). Up to 10 covers are kept. A SimpleUI
          cover that changes is picked up straight away.
   1.2.1  Suspend dismisses the shelf: if the Quick Shelf page is showing
          when the device sleeps, the pager drops back to the book panel.
@@ -308,7 +308,7 @@ local function buildStrip(w, h)
             dimen = Geom:new{ w = w, h = h },
             TextWidget:new{
                 text = (src == "tbr") and _("To Be Read is empty")
-                    or _("No other books in progress"),
+                    or _("Nothing else in progress"),
                 face = face,
             },
         }
@@ -543,7 +543,7 @@ local function menuItem()
                 if s.id == cur then return T(_("Quick Shelf Shows: %1"), s.text) end
             end
         end,
-        help_text = _("Quick Shelf: in the reader, swipe left or right on the toolbar's book row to flip between the book and these books."),
+        help_text = _("Quick Shelf: in the reader, swipe left or right on the toolbar's top row to flip between the book panel and the Quick Shelf."),
         sub_item_table = items,
     }
 end
