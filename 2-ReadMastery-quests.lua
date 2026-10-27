@@ -21,16 +21,12 @@ Adds ONE new top-level menu toggle: "Quests (Enhanced)".
   exactly like stock, apart from the page guard (always on, see
   the 1.0.5 changelog).
 
-  ON: tracks Daily / Weekly / Monthly / Seasonal quests (see list
-  below) using ReadMastery's own live session data (pages/minutes/
-  streak/book events) - no separate tracking system, no duplicate
-  bookkeeping. On completion, awards XP through ReadMastery's own
-  addXP() (so it shows up in your real XP/level, same as everything
-  else), and fires a "Quest Complete" popup using the SAME styled +
-  queued notification pipeline as your achievements (Full/Compact/
-  Banner, your chosen font, position, duration - all of it,
-  automatically, including queuing so several completions in a row
-  don't overlap). If the XP happens to push you to a new level, the
+  ON: tracks Daily / Weekly / Monthly / Seasonal quests from
+  ReadMastery's own live session data (pages, minutes, streak, book
+  events). On completion it awards XP through ReadMastery's own
+  addXP(), so it lands in your real XP and level, and fires a
+  "Quest Complete" popup through the same styled, queued notification
+  pipeline as achievements. If the XP pushes you to a new level, the
   normal Level Up notification fires too.
 
   Turning it back OFF just pauses tracking - your daily/weekly/
@@ -73,10 +69,9 @@ Quests included:
   counts as one finished book - it can't complete a "2 books" quest
   by itself.
 
-  Reasoning for the split: a single matching book in a week is a
-  realistic ask, but genuine multi-book genre variety needs a full
-  month - so one-book genre quests live weekly, multi-book ones
-  live monthly.
+  Why the split: one matching book in a week is doable, but real
+  multi-book genre variety needs a full month - so one-book genre
+  quests are weekly, multi-book ones are monthly.
 
   Seasonal (active only during a specific month, resets fresh each
   year): Love Story in February (finish a romance-tagged book),
@@ -86,35 +81,30 @@ Quests included:
   epic-fantasy/classics-tagged book). Only shown in View Quests
   while actually active - no 11 months of dead entries in the list.
 
-  Yearly (resets each January, own dedup set so the same book can't
-  double-count across different months): Genre Conqueror (finish
-  books covering 7 different genres) and Author Explorer (finish
-  books by 8 different authors) - deliberately set below "1 book a
-  month" pace, so a full year's normal reading is genuinely needed,
-  not just a few months of deliberate effort. Both pay a small XP
-  taste as soon as a finished book confirms something new (a genre
-  or author not yet counted this year - checked at book completion,
-  same as the anti-cheat gate, not at book-open - no popup, just
-  quiet XP), with the bulk of the reward reserved for actually
-  completing the whole thing.
+  Yearly (resets each January, with its own dedup set so the same
+  book can't count twice across months): Genre Conqueror (7 different
+  genres) and Author Explorer (8 different authors). Both are set
+  below one book a month, so they take a full year of normal reading,
+  not a few months of grinding. Each finished book that adds a new
+  genre or author pays a small XP bonus right away (checked at book
+  completion, no popup), with the big reward saved for completing
+  the whole thing.
 
 Near-completion nudges (80%/90% - "you're in the final stretch" /
-"almost there") are informational only: no XP, no quest progress,
-just a friendly notice, and have their own ON/OFF toggle in the
-notify patch (Settings -> Nudges, right under the main Notifications
-toggle). Genuinely distinct from The Final Stretch quest above,
-which does track progress and pay XP - the nudge is just a heads-up,
-the quest is the actual reward for following through on it.
+"almost there") are just notices: no XP, no quest progress. They
+have their own ON/OFF toggle in the notify patch (Settings ->
+Nudges, under the main Notifications toggle). Don't confuse them
+with The Final Stretch quest above, which does track progress and
+pay XP.
 
-Anti-cheat: book-completion quests (Close the Cover, length tiers,
-Genre Explorer, Change of Scenery, Genre Hopper, seasonal, Yearly,
-Final Stretch) require at least 5 pages of real page-by-page reading
-THIS session before EndOfBook is trusted - leans on ReadMastery's
-own existing big-jump filter (a slider jump over 5 pages never
-updates session.pages_read at all), so slider-jumping straight to
-the last page without reading can't award credit. A genuine reader
-finishing a book they mostly read in earlier sessions still clears
-this easily.
+Book-completion quests (Close the Cover, length tiers, Genre
+Explorer, Change of Scenery, Genre Hopper, seasonal, Yearly, Final
+Stretch) need at least 5 pages read page-by-page in this session
+before a book finish counts. This leans on ReadMastery's own
+big-jump filter (a slider jump over 5 pages never updates
+session.pages_read), so jumping straight to the last page can't
+earn credit. Finishing a book you mostly read in earlier sessions
+still clears it easily.
 
 Tag-based quests read a book's own keywords/subject metadata (the
 same thing Calibre tags usually end up in for EPUBs) once when you
@@ -127,13 +117,12 @@ Conqueror) are checked once, when a book finishes - not by page
 count, since "finish a book in this genre" is what they actually
 ask for. Author Explorer works the same way, off getProps().authors.
 
-Held back for a later phase: quest chains and wildcard quests - both
-need real new mechanics (chain state across resets, "don't repeat an
-active pick" selection logic) rather than more of what's already
-proven. Series quests stay blocked entirely - there's no reliable
-series metadata field in standard EPUB/Calibre exports, unlike
-author (getProps().authors), which is why Author Explorer is safe
-to have already but a series-based quest isn't.
+Not yet: quest chains and wildcard quests need new mechanics
+(chain state across resets, not repeating an active pick) rather
+than more of what's already here. Series quests aren't possible -
+there's no reliable series field in standard EPUB/Calibre exports,
+unlike author (getProps().authors), which is why Author Explorer
+works but a series quest doesn't.
 
 Changelog:
   1.0.6 (2026-10-24) - SimpleUI's Critter (via the notify patch's
@@ -521,7 +510,7 @@ local function describeQuest(quest)
     elseif quest.type == "minutes" then
         return "Read for a total of " .. quest.target .. " minutes."
     elseif quest.type == "time_window_minutes" then
-        return "Read " .. quest.target .. " minutes with the clock between " .. quest.from .. " and " .. quest.to .. "."
+        return "Read " .. quest.target .. " minutes between " .. quest.from .. " and " .. quest.to .. "."
     elseif quest.type == "single_session_minutes" then
         return "Keep one continuous reading session going for " .. quest.target .. " minutes (a long pause resets it)."
     elseif quest.type == "single_session_pages" then
@@ -533,30 +522,29 @@ local function describeQuest(quest)
     elseif quest.type == "book_min_page_count" then
         return "Finish a single book that's at least " .. quest.target .. " pages long."
     elseif quest.type == "tag_pages" then
-        return "Read " .. quest.target .. " pages in a book tagged " .. table.concat(quest.tag_groups, " or ")
-               .. " (based on the book's own metadata - won't count if it isn't tagged)."
+        return "Read " .. quest.target .. " pages in a " .. table.concat(quest.tag_groups, " or ")
+               .. " book. Only counts if the book is tagged that way."
     elseif quest.type == "tag_book_finish" then
         return "Finish " .. quest.target .. (quest.target == 1 and " book" or " books")
                .. " tagged " .. table.concat(quest.tag_groups, " or ")
                .. " (based on the book's own metadata)."
     elseif quest.type == "tag_unique_book_finish" then
-        return "Finish " .. quest.target .. " different books, together covering at least "
-               .. quest.target .. " different genres (based on each book's own metadata) - "
-               .. "both requirements are tracked separately, so a single book tagged with "
-               .. "multiple genres still only counts as one finished book."
+        return "Finish " .. quest.target .. " different books across "
+               .. quest.target .. " different genres. One book tagged with two genres "
+               .. "still only counts as one book."
     elseif quest.type == "genre_conquer" then
-        return "Finish books covering " .. quest.target .. " different genres, at any pace, "
-               .. "over the year - " .. quest.discovery_xp .. " XP the moment each NEW genre is "
-               .. "touched, +" .. quest.reward_xp .. " XP once all " .. quest.target .. " are covered."
+        return "Finish books in " .. quest.target .. " different genres over the year. "
+               .. "Each new genre pays " .. quest.discovery_xp .. " XP right away, and covering all "
+               .. quest.target .. " pays " .. quest.reward_xp .. " XP."
     elseif quest.type == "author_explorer" then
         return "Finish books by " .. quest.target .. " different authors over the year "
-               .. "(tracks each book's primary/first listed author) - "
-               .. quest.discovery_xp .. " XP for each NEW author, +" .. quest.reward_xp
-               .. " XP once you've covered all " .. quest.target .. "."
+               .. "(first listed author per book). Each new author pays "
+               .. quest.discovery_xp .. " XP right away, and all " .. quest.target
+               .. " pays " .. quest.reward_xp .. " XP."
     elseif quest.type == "reread_pages" then
         return "Re-read " .. quest.target .. " pages: go back to an earlier page, set it as your "
                .. "reading location (Track Reading Location's gesture), and read forward. Pages "
-               .. "up to where you'd read before count; flipping through doesn't."
+               .. "up to where you'd read before count; flipping through doesn't count."
     elseif quest.type == "return_visit" then
         local bits = {}
         for _, t in ipairs(RETURN_TIERS) do
@@ -564,11 +552,11 @@ local function describeQuest(quest)
         end
         return "Re-read a book you've finished before and finish it again. "
                .. "The sooner you came back to it, the more it pays: " .. table.concat(bits, ", ") .. ". "
-               .. "That's for re-reading the whole book; re-reading part of it pays that share "
-               .. "(half the book, half the XP), and under a quarter doesn't count."
+               .. "That's for the whole book; part of a book pays that share "
+               .. "(half the book, half the XP), and under a quarter pays nothing."
     elseif quest.type == "final_stretch" then
-        return "Reach 80%+ completion during a reading session, then finish the book in "
-               .. "that same session, with at least 5 pages of real reading along the way."
+        return "Reach 80% during a reading session, then finish the book in "
+               .. "that same session, reading at least 5 pages to get there."
     end
     return ""
 end
