@@ -92,7 +92,7 @@ ReadMastery's own data file.
 Changelog:
   1.0.6 (2026-10-24) - SimpleUI Critter: new "Critter Reacts (SimpleUI)"
     toggle (default ON). Level ups, achievements (tier ups too), streak
-    milestones and completed quests wait for SimpleUI 3.0's Critter,
+    milestones and completed quests queue up for SimpleUI 3.0's Critter,
     which comments on the most important one the next time the home
     screen shows it (a finished book still comes first) and gets a
     little happier. In its chat the Critter
@@ -870,7 +870,7 @@ local function rmLines(L)
 
     -- Level up
     add("rm_level", "level", has_title, { id = "rm_lv1", mood = "party",
-        text = t("Level %s!"), sub = s("Shiny new number. I approve."),
+        text = t("Level %s!"), sub = s("Shiny new number. Nice."),
         by_tier = {
             grumpy  = { mood = "grumpy", text = t("Level %s. Fine. That's impressive.") },
             radiant = { mood = "party",  text = t("LEVEL %s! Bow before the reader!") },
