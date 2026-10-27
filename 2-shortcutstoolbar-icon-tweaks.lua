@@ -6,11 +6,11 @@ For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
   • Swap any toolbar icon (built-in or custom) for your own SVG/PNG,
-    or put it back to the plugin's original.
+    or restore the plugin's original.
   • Colour mode, globally or per icon:
       Default          – plugin behaviour (icons follow night mode)
       Keep original    – icons keep their true colours, even in night mode
-      Inverted         – icon colours flipped relative to the UI
+      Inverted         – icon colours flipped
     (no background tile – only the icon pixels are flipped)
   • Optional on/off indicator per icon. Follows Wi-Fi, frontlight, night
     mode, SSH server, Calibre connection, Bluetooth (Kobo plugin), a
@@ -19,8 +19,8 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     Off/on styles: dim when off, inverted tile when off or when on, or an
     alternate "off" icon.
   • The toolbar Wi-Fi icon, and any Wi-Fi/SSH/Calibre indicator, follow
-    the real network state: connecting in the background, failing,
-    cancelling, auto-disconnect and sleep all update them.
+    the real network state: background connects, failures, cancels,
+    auto-disconnect, and sleep all update them.
   • Custom shortcuts for SSH, Wi-Fi, Calibre connect/disconnect and night
     mode toggles keep the toolbar open when tapped (like the built-in Wi-Fi
     button), so you see the icon change. Other actions still close it.
@@ -30,11 +30,13 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     (Kobo plugin): turn it on or off, scan, paired devices. Tap does what
     it always did.
   • The Kobo plugin's Bluetooth messages show in Network Tweaks' note style
-    (Banner / Minimal), like its Wi-Fi notes. Each hold action has its own on/off in Icon Tweaks →
-    Hold Actions; off gives the plugin's own hold back.
-  • Going to sleep with the top menu open (reader or library, where the
-    toolbar lives) closes it first, so you wake up to the page, not the
-    menu, and a sleep screen that keeps the page doesn't show it either.
+    (Banner / Minimal), like its Wi-Fi notes. Each hold action can be
+    turned off in Icon Tweaks → Hold Actions. Off gives the plugin's own
+    hold back.
+  • If the top menu is open when the device goes to sleep (reader or
+    library, where the toolbar lives), it closes first, so you wake up to
+    the page, not the menu, and a sleep screen that keeps the page doesn't
+    show the menu either.
 
 Works in the reader menu, file-browser bar/persistent bar and the SimpleUI
 home-screen module. Does not modify any plugin files. Compatible with
@@ -1518,13 +1520,13 @@ local function buildMenu()
                 separator = true,
                 sub_item_table = {
                     holdItem(_("Hold Wi-Fi: Network List"), "wifi",
-                        _("Hold the built-in Wi-Fi button for the network list. Off: the plugin's own hold.")),
+                        _("Hold the built-in Wi-Fi button for the network list. Off gives the plugin's own hold back.")),
                     holdItem(_("Hold Restart: Power Options"), "restart",
-                        _("Hold the built-in Restart button for Restart / Exit / Reboot / Power Off. Off: the plugin's own hold.")),
+                        _("Hold the built-in Restart button for Restart / Exit / Reboot / Power Off. Off gives the plugin's own hold back.")),
                     holdItem(_("Hold Search: Power Options"), "search",
-                        _("Hold the built-in Search button (reader) for the power options. Tap still searches. Off: the plugin's own hold.")),
+                        _("Hold the built-in Search button (reader) for the power options. Tap still searches. Off gives the plugin's own hold back.")),
                     holdItem(_("Hold SSH Shortcut: Bluetooth"), "ssh",
-                        _("Hold a custom shortcut that toggles SSH for Bluetooth from the Kobo plugin: turn it on or off, scan, paired devices. Without the Kobo plugin, or off: the shortcut's edit dialog.")),
+                        _("Hold a custom shortcut that toggles SSH for Bluetooth from the Kobo plugin: turn it on or off, scan, paired devices. Without the Kobo plugin, or with this off, holding opens the shortcut's edit dialog.")),
                 },
             })
             table.insert(t, {
