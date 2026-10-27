@@ -23,7 +23,7 @@ return {
     ["2-backup-patches.lua"] = "2.4.8",
     ["2-bookorbit-tweaks.lua"] = "2.11.1",
     ["2-debugging-menu.lua"] = "1.3.6",
-    ["2-kobo-style-sleepscreen-banner.lua"] = "1.2.1",
+    ["2-kobo-style-sleepscreen-banner.lua"] = "1.2.2",
     ["2-list-rating-progress.lua"] = "1.0.0",
     ["2-network-tweaks.lua"] = "1.12.0",
     ["2-quickmenu-toggle-state.lua"] = "1.0.4",
@@ -49,6 +49,7 @@ return {
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.1.0",
 }
+
 
 
 
