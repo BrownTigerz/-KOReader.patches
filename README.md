@@ -30,7 +30,7 @@ All patches work independently and together. If one fails to attach (for example
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.1 |
-| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.4 |
+| [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.5 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.15.0 |
 | [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.2 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
@@ -513,4 +513,5 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
+
 
