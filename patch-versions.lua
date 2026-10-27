@@ -27,7 +27,7 @@ return {
     ["2-list-rating-progress.lua"] = "1.0.0",
     ["2-network-tweaks.lua"] = "1.12.0",
     ["2-quickmenu-toggle-state.lua"] = "1.0.4",
-    ["2-readinginsights-tweaks.lua"] = "2.1.0",
+    ["2-readinginsights-tweaks.lua"] = "2.1.1",
     ["2-shelfsync-tweaks.lua"] = "1.11.15",
     ["2-screenshot-timer.lua"] = "1.0.0",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.15.0",
@@ -39,7 +39,7 @@ return {
     ["debug/2-zz-bookorbit-diagnostics.lua"] = "1.3.1",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-network-tweaks-diagnostics.lua"] = "1.3.1",
-    ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.1.1",
+    ["debug/2-zz-readinginsights-tweaks-diagnostics.lua"] = "2.1.2",
     ["debug/2-zz-readmastery-diagnostics.lua"] = "1.1.0",
     ["debug/2-zz-shelfsync-tweaks-diagnostics.lua"] = "1.1.0",
     ["debug/2-zz-shortcutstoolbar-diagnostics.lua"] = "1.1.0",
@@ -49,6 +49,7 @@ return {
     ["debug/2-zz-track-reading-location-diagnostics.lua"] = "1.2.1",
     ["debug/2-zz-tweaks-menu-diagnostics.lua"] = "1.1.0",
 }
+
 
 
 
