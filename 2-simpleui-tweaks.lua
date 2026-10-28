@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.3
+Version 2.14.4
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.4 Section label hook forwards SimpleUI 3.0.1's new `inside` param,
+         so labels inside a module's box keep their inside styling.
   2.14.3 Wording pass: menu help texts and critter lines rewritten to
          sound natural (no AI phrasing). No functionality changed.
   2.14.2 Critter Mix (Modules): tick two or more critters (say Donny, Blu
@@ -331,7 +333,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.3"
+local VERSION = "2.14.4"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -2547,12 +2549,12 @@ local function patchSectionLabel(SL)
     if type(SL) ~= "table" or type(SL.get) ~= "function" then return false end
     local orig = SL.get
     if ours[orig] then return true end
-    SL.get = mine(function(cache, id, desc, w, landscape_factor, has_wallpaper, turn_page)
+    SL.get = mine(function(cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, inside)
         local prev = cur_title_id
         cur_title_id = id
         in_title = in_title + 1
         local res = pack(pcall(withColor, titleColor(id), flipScope, "title",
-                               orig, cache, id, desc, w, landscape_factor, has_wallpaper, turn_page))
+                               orig, cache, id, desc, w, landscape_factor, has_wallpaper, turn_page, inside))
         in_title = in_title - 1
         cur_title_id = prev
         if not res[1] then error(res[2], 0) end
