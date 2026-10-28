@@ -25,6 +25,7 @@ Purpose:
   * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Option: change the Continue reading Resume pill colour (Tools > BookOrbit Tweaks > Resume Pill Colour).
+  * Server chooser: "Enter A Different Address..." opens the plugin address entry on the first tap (no double chooser).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
@@ -32,7 +33,7 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.14.1"
+local VERSION = "2.14.2"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -1492,14 +1493,6 @@ local PILL_COLORS = {
     { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
 }
 
-local function pillColorName(hex)
-    if type(hex) ~= "string" then return "White" end
-    for _i, c in ipairs(PILL_COLORS) do
-        if c[2]:upper() == hex:upper() then return c[1] end
-    end
-    return hex
-end
-
 local function pillColorValue(hex)
     if type(hex) ~= "string" then return nil end
     local r, g, b = hex:match("^#?(%x%x)(%x%x)(%x%x)$")
@@ -1794,6 +1787,17 @@ end
 -- "server" → plugin:setServerAddress. Intercept both the settings page action
 -- and setServerAddress so a saved list appears when you have profiles.
 local function showServerChooser(plugin, on_enter_new, on_switched)
+    -- Single-tap fix: if we are already inside an "Enter A Different
+    -- Address..." escape (skip flag set by the MenuPage or Settings hook),
+    -- do NOT show a second identical chooser. Go straight to the original
+    -- action, which reaches setServerAddress unwrapped and opens the entry.
+    -- Without this, the MenuPage path stacked two choosers and Enter
+    -- Different had to be tapped twice (TK: chooser stayed, 2-3 presses).
+    if skip_server_chooser then
+        logger.info(TAG, "server entry: chooser bypassed (skip flag), calling original directly")
+        if on_enter_new then on_enter_new() end
+        return
+    end
     if cfg.server_chooser_in_settings == false then
         if on_enter_new then on_enter_new() end
         return
@@ -1864,13 +1868,24 @@ local function hookSettingsPage()
             page.on_action = function(p, action)
                 if type(action) == "table" and action.kind == "server" then
                     showServerChooser(plugin, function()
-                        if type(original_action) == "function" then
-                            original_action(p, action)
-                        elseif type(plugin.setServerAddress) == "function" then
-                            plugin:setServerAddress(function()
-                                if p.refresh then p:refresh() end
-                            end)
-                        end
+                        -- Same skip-flag protection as the MenuPage and
+                        -- setServerAddress hooks: without it, the original
+                        -- action's setServerAddress call is re-intercepted
+                        -- and the chooser pops back up instead of the entry.
+                        logger.info(TAG, "server entry: Settings hook, skip flag set, calling original")
+                        skip_server_chooser = true
+                        local ok, err = pcall(function()
+                            if type(original_action) == "function" then
+                                original_action(p, action)
+                            elseif type(plugin.setServerAddress) == "function" then
+                                plugin:setServerAddress(function()
+                                    if p.refresh then p:refresh() end
+                                end)
+                            end
+                        end)
+                        skip_server_chooser = false
+                        logger.info(TAG, "server entry: Settings hook, original action returned")
+                        if not ok then error(err, 0) end
                     end, function()
                         if p.refresh then p:refresh() end
                     end)
@@ -1902,6 +1917,7 @@ local function hookMenuPageRunAction()
             local list = loadServers()
             if #list > 0 then
                 showServerChooser(self.plugin, function()
+                    logger.info(TAG, "server entry: MenuPage hook, skip flag set, calling original")
                     skip_server_chooser = true
                     local ok, err = pcall(original, self, action)
                     skip_server_chooser = false
@@ -1925,8 +1941,10 @@ local function hookPluginServerAddress(plugin)
     local original = plugin.setServerAddress
     plugin.setServerAddress = function(self, on_done)
         if skip_server_chooser then
+            logger.info(TAG, "server entry: setServerAddress running unwrapped (skip flag)")
             return original(self, on_done)
         end
+        logger.info(TAG, "server entry: setServerAddress intercepted, showing chooser")
         local list = loadServers()
         if #list == 0 then
             return original(self, on_done)
