@@ -1,7 +1,18 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.15
+-- Version 1.11.17
 -- Changelog:
+--   1.11.17  Sync All chain fix: look up the running BookOrbit instance
+--            (ReaderUI's "bookorbit" module), not the plugin class table
+--            from the loader — the class has no settings or open book, so
+--            1.11.16 always skipped BookOrbit as "not logged in".
+--   1.11.16  Sync All now chains BookOrbit when it is installed: after
+--            ShelfSync syncs the current book, BookOrbit syncs that same
+--            book, then Wi-Fi goes off. BookOrbit absent = ShelfSync-only,
+--            unchanged. The BookOrbit step pre-checks login, book open and
+--            book capture first, and has a 60 s timeout, so a BookOrbit
+--            sync that can't start or never reports back can't hold
+--            Wi-Fi on.
 --   1.11.15  Two more of this patch's timers no longer sit through sleep.
 --            (1) The autolink retry 5 s after Wi-Fi connects (one per
 --            provider): cancelled on sleep (it checked for sleep when it
@@ -51,9 +62,11 @@
 -- 5) "Link & Update" menu: every enabled provider's Link book / Update
 --    status in one place, plus 3 gesture actions. Provider menus untouched.
 -- 6) "ShelfSync All: Update progress" action: Wi-Fi on if needed, sync every
---    enabled linked provider (one retry), Wi-Fi back off, list unlinked ones.
+--    enabled linked provider (one retry), then BookOrbit syncs the same book
+--    if it's installed, Wi-Fi back off, list unlinked ones.
 -- 7) Unlinked providers retry autolink when Wi-Fi connects.
--- 8) ShelfSync's own "Update progress for all linked books" connects first too.
+-- 8) ShelfSync's own "Update progress for all linked books" connects first too,
+--    and chains BookOrbit the same way.
 -- 9) Auto re-login once per provider per 30 min when a session expires,
 --    then re-push progress. Captcha / verification code still prompts.
 --
@@ -63,7 +76,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.15"
+local PATCH_VERSION = "1.11.17"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -91,6 +104,7 @@ local CACHE = {
 local LOGIN_OPTS = { attempts = 1, timeout = 10 }
 -- Longest ShelfSync All may keep Wi-Fi on if a provider never reports back
 local WIFI_SAFETY_TIMEOUT = 120 -- seconds (covers the retry pass too)
+local BOOKORBIT_TIMEOUT = 60 -- seconds: a single-book sync is quick; never hold Wi-Fi on it
 local RELINK_DELAY = 5       -- seconds after connecting before retrying autolink
 local RELINK_COOLDOWN = 120  -- don't retry the same book on the same provider more often
 local RELOGIN_RUNNING_MAX = 120 -- seconds before a stuck "re-login in progress" is ignored
@@ -1591,6 +1605,87 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         -- One update at a time: a second press while one is still running
         -- (connecting, syncing or retrying) used to start a parallel run whose
         -- requests collided with the first, failing providers that had synced.
+        -- BookOrbit chain step (Sync All) --------------------------------
+        -- After ShelfSync syncs the current book, BookOrbit syncs that same
+        -- book, then Wi-Fi goes off. BookOrbit absent = ShelfSync-only,
+        -- unchanged (no step, no note, no behavior change).
+        -- The RUNNING BookOrbit instance, not the plugin class: ReaderUI
+        -- registers the instance under its plugin name, and PluginLoader
+        -- keeps instances in loaded_plugins. enabled_plugins holds only
+        -- the class table (settings/ui nil there) — looking that up made
+        -- 1.11.16 skip BookOrbit as "not logged in" every time. No class
+        -- fallback: no instance means ShelfSync-only, not a bogus skip.
+        local function bookorbitPlugin(app)
+            if app and app.ui and type(app.ui["bookorbit"]) == "table" then
+                return app.ui["bookorbit"]
+            end
+            local ok_pl, Loader = pcall(require, "pluginloader")
+            if ok_pl and type(Loader) == "table" and type(Loader.loaded_plugins) == "table" then
+                local inst = Loader.loaded_plugins["bookorbit"]
+                if type(inst) == "table" then return inst end
+            end
+            return nil
+        end
+
+        -- Runs BookOrbit's same-book sync, then done(). Always resolves:
+        -- skipped (short note) when BookOrbit can't start, 60 s timeout as
+        -- backstop when it never reports back. BookOrbit's own on_done
+        -- doesn't fire on its early returns (not logged in, no book open,
+        -- capture failed) or if its job is dropped by its coordinator, so
+        -- those three are pre-checked here instead of waited on.
+        local function runBookOrbitStep(app, done, gen)
+            local plugin = bookorbitPlugin(app)
+            if not plugin then return done() end -- not installed: ShelfSync-only
+            -- Run died to sleep, or the book closed: resolve quietly, no notes
+            if CACHE.sleep_gen ~= gen then return done() end
+            if not (app.ui and app.ui.document) then return done() end
+            local function skip(reason)
+                styledNote(reason, _("BookOrbit skipped"), { timeout = 2 })
+                return done()
+            end
+            if type(plugin.isLoggedIn) ~= "function" then return done() end
+            local ok_login, logged_in = pcall(plugin.isLoggedIn, plugin)
+            if not (ok_login and logged_in) then
+                return skip(_("BookOrbit skipped: not logged in"))
+            end
+            local BookSync = package.loaded["bookorbit_book_sync"]
+            if type(BookSync) ~= "table" then
+                local ok_bs, loaded = pcall(require, "bookorbit_book_sync")
+                if ok_bs and type(loaded) == "table" then BookSync = loaded end
+            end
+            if type(BookSync) ~= "table" or type(BookSync.capture) ~= "function" then
+                return skip(_("BookOrbit skipped: can't read this book"))
+            end
+            local ok_cap, snap = pcall(BookSync.capture, plugin)
+            if not (ok_cap and snap) then
+                return skip(_("BookOrbit skipped: can't read this book"))
+            end
+            -- done() (withNetwork's finish) is once-only, so a late on_done
+            -- after the timeout is safe.
+            local resolved = false
+            local timeout_fn
+            local function resolve()
+                if resolved then return end
+                resolved = true
+                if timeout_fn then UIManager:unschedule(timeout_fn) end
+                return done()
+            end
+            timeout_fn = function() resolve() end
+            UIManager:scheduleIn(BOOKORBIT_TIMEOUT, timeout_fn)
+            local ok_call = pcall(plugin.onBookOrbitSyncBook, plugin, {
+                quiet = true, -- BookOrbit's own toasts off; the chain reports
+                on_done = function(err)
+                    if err then
+                        styledNote(_("BookOrbit sync failed"), _("BookOrbit failed"), { warn = true })
+                    else
+                        styledNote(_("BookOrbit synced"), _("BookOrbit synced"), { timeout = 2 })
+                    end
+                    resolve()
+                end,
+            })
+            if not ok_call then resolve() end -- calling it raised: don't hang
+        end
+
         local function updateAllOnce(app)
             local running = CACHE.update_running
             -- A run from before the device last slept is dead: don't let it block
@@ -1608,7 +1703,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             withNetwork(function(done)
                 -- Slept while connecting: this run is over
                 if CACHE.sleep_gen ~= gen then clear(); return done() end
-                updateAllEnabled(app, function() clear(); done() end, gen)
+                updateAllEnabled(app, function()
+                    -- BookOrbit (if installed) syncs the same book next;
+                    -- the guard stays held until the whole chain finishes.
+                    runBookOrbitStep(app, function() clear(); done() end, gen)
+                end, gen)
             end, true, app, clear)
         end
 
