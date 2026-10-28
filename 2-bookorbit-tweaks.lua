@@ -24,6 +24,7 @@ Purpose:
     them later (from Tweaks menu, Sign-in, or Settings → Account → Server).
   * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
+  * Option: change the Continue reading Resume pill colour (Tools > BookOrbit Tweaks > Resume Pill Colour).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
@@ -31,7 +32,7 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.14.0"
+local VERSION = "2.14.1"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -59,6 +60,7 @@ local DEFAULTS = {
     loop_pages = false,
     second_swipe_tools = true, -- second south swipe on settings sheet -> tools menu
     reopen_at = "last",
+    resume_pill_color = "#FFFFFF",
     after_close = "simpleui",
     library_filter_id = false,
     library_filter_name = "",
@@ -1141,7 +1143,7 @@ local function pageFingerprint(catalog)
         if ctx.kind == "dashboard" then
             return "dashboard:" .. tostring(ctx.board_page or 1)
         end
-        return tostring(ctx.kind) .. ":" .. tostring(ctx.page or ctx.section or ctx.list_page or "")
+        return tostring(ctx.kind) .. ":" .. tostring(ctx.page or ctx.section or ctx.list_page or "") .. "|menu:" .. tostring(catalog.page or "?")
     end
     if type(catalog.page) == "number" then
         return "menu:" .. tostring(catalog.page) .. "/" .. tostring(catalog.page_num or "?")
@@ -1217,14 +1219,45 @@ local function hookCatalogFlash()
     -- 2–3 flashes on open from init + updateItems + refreshDashboard).
     local last_flash_t = 0
     local FLASH_DEBOUNCE = 0.4
+    local open_t = 0
+    local last_flashed_fp = nil
+    local last_flashed_clock = 0
+    local last_turn_fp = nil
 
     local function flashNow(catalog, why)
         if not cfg.flash_ghosting then return end
+        local fp = nil
+        if catalog then
+            local ok_fp, res_fp = pcall(pageFingerprint, catalog)
+            if ok_fp then fp = res_fp end
+        end
+        if why == "content" and fp and fp == last_flashed_fp then
+            local now_c = (os.clock and os.clock()) or os.time()
+            if (now_c - last_flashed_clock) < 3 then
+                return
+            end
+        end
+        -- No Tweaks flash while the catalog is not topmost: init-time content
+        -- loads used to flash on the file browser, then KOReader's show flash
+        -- fired on the catalog -- the double flash on open. Fail open if the
+        -- window stack is unreadable, so flash never silently dies.
+        if catalog then
+            local ok_ui2, UIManager2 = pcall(require, "ui/uimanager")
+            if ok_ui2 and type(UIManager2) == "table" and type(UIManager2._window_stack) == "table" then
+                local top = false
+                for i = #UIManager2._window_stack, 1, -1 do
+                    local w = UIManager2._window_stack[i] and UIManager2._window_stack[i].widget
+                    if w == catalog or w == (catalog.show_parent or nil) then top = true break end
+                    if type(w) == "table" and type(w.name) == "string" and w.name:lower():find("bookorbit", 1, true) then top = true break end
+                end
+            end
+        end
         local now = (os.clock and os.clock()) or os.time()
-        if (now - last_flash_t) < FLASH_DEBOUNCE then
+        if why ~= "page-turn" and (now - last_flash_t) < FLASH_DEBOUNCE then
             return
         end
         last_flash_t = now
+        if fp then last_flashed_fp = fp last_flashed_clock = now end
         local ok_ui, UIManager = pcall(require, "ui/uimanager")
         if ok_ui then
             UIManager:setDirty(catalog and (catalog.show_parent or catalog) or "all",
@@ -1243,11 +1276,12 @@ local function hookCatalogFlash()
         if every < 1 then every = 1 end
         if turns >= every then
             turns = 0
-            self._bookorbit_flash_pending = os.time()
-            if type(self.dashboardMode) == "function" and self:dashboardMode() then
-                self._bookorbit_flash_pending = nil
-                flashNow(self, "page-turn")
+            local ok_fp2, fp2 = pcall(pageFingerprint, self)
+            if ok_fp2 and fp2 and fp2 == last_turn_fp then
+                return
             end
+            if ok_fp2 then last_turn_fp = fp2 end
+            flashNow(self, "page-turn")
         end
     end
 
@@ -1343,19 +1377,24 @@ local function hookCatalogFlash()
                     flashNow(self, "page-turn-landed")
                 end
             elseif cfg.flash_content then
-                flashNow(self, "content")
+                if open_t > 0 and (os.time() - open_t) < 8 then
+                else
+                    flashNow(self, "content")
+                end
             end
             return result
         end
     end
 
-    -- Open: one flash only (debounced; flash_open gate).
+    -- Open: restore the toggle-gated open flash (nextTick, so the catalog
+    -- is topmost by then and the gate passes). The delayed second flash is
+    -- handled by the content-suppression window below, not by removing this.
     local original_open = Catalog.init
     if type(original_open) == "function" then
         Catalog.init = function(self, ...)
             local result = original_open(self, ...)
+            open_t = os.time()
             if cfg.flash_ghosting and cfg.flash_open then
-                -- Defer slightly so init + first paint share one flash.
                 local ok_ui, UIManager = pcall(require, "ui/uimanager")
                 if ok_ui then
                     pcall(function()
@@ -1368,6 +1407,9 @@ local function hookCatalogFlash()
             return result
         end
     end
+    -- Content flashes in the first 8 s after open are the dashboard load
+    -- (sections arrive ~500 ms apart). Suppress them so they do not become
+    -- a second open flash; page-turn flashes are immediate and unaffected.
 
     -- goDashboard / boardFlip: leaving library/recent for the dashboard left a
     -- ghost of the previous view when flash-to-reduce-ghosting is on.
@@ -1433,6 +1475,79 @@ local function hookCatalogSwipeClose()
         return true
     end
     logger.info(TAG, "hooked BookOrbit catalog swipe (no close on swipe south)")
+    return true
+end
+
+-- ---- Resume pill colour -----------------------------------------------------------
+-- The hero Resume/Download pill is BoardUI.box({h = px(40), radius = px(20),
+-- bg = INK.white}). No other board box uses exactly 40/20 with a white fill
+-- (Shuffle is 38/19), so that shape is the discriminator. The play icon is
+-- baked into an SVG at build time, so it stays black: the palette below is
+-- light colours only, so black text/icon stay readable. Night mode needs no
+-- special case: the hero night wrapper inverts the tile and the screen
+-- inversion flips it back, so the chosen colour shows as chosen in both modes.
+local PILL_COLORS = {
+    { "White", "#FFFFFF" }, { "Silver", "#AAAAAA" }, { "Light grey", "#CCCCCC" },
+    { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" }, { "Gold", "#D4A017" },
+    { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
+}
+
+local function pillColorName(hex)
+    if type(hex) ~= "string" then return "White" end
+    for _i, c in ipairs(PILL_COLORS) do
+        if c[2]:upper() == hex:upper() then return c[1] end
+    end
+    return hex
+end
+
+local function pillColorValue(hex)
+    if type(hex) ~= "string" then return nil end
+    local r, g, b = hex:match("^#?(%x%x)(%x%x)(%x%x)$")
+    if not r then return nil end
+    r, g, b = tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+    local ok_bb, Blitbuffer = pcall(require, "ffi/blitbuffer")
+    if not ok_bb or type(Blitbuffer) ~= "table" then return nil end
+    if r == g and g == b then return Blitbuffer.Color8(r) end
+    return Blitbuffer.ColorRGB32(r, g, b, 0xFF)
+end
+
+local function hookResumePillColor()
+    if package.loaded["bookorbit_tweaks_pill_color"] then return true end
+    local ok_ui, BoardUI = pcall(require, "bookorbit_board_ui")
+    if not ok_ui or type(BoardUI) ~= "table" or type(BoardUI.box) ~= "function" then
+        return false
+    end
+    local ok_met, BoardMetrics = pcall(require, "bookorbit_board_metrics")
+    if not ok_met or type(BoardMetrics) ~= "table" or type(BoardMetrics.px) ~= "function" then
+        return false
+    end
+    package.loaded["bookorbit_tweaks_pill_color"] = true
+    local original_box = BoardUI.box
+    -- Never compare a Blitbuffer colour with == nil: its __eq calls
+    -- getColorRGB32 on the other side and crashes when that side is nil.
+    -- Most BoardUI.box calls have no bg at all, so that crash fired on the
+    -- first dashboard build after a non-white colour was picked.
+    local function isWhite(c)
+        if not c then return false end
+        local ok, rgb = pcall(function() return c:getColorRGB32() end)
+        return ok and rgb and rgb.r == 255 and rgb.g == 255 and rgb.b == 255
+    end
+    BoardUI.box = function(o, child)
+        if type(o) == "table" and type(cfg.resume_pill_color) == "string"
+                and cfg.resume_pill_color:upper() ~= "#FFFFFF"
+                and isWhite(o.bg) and o.h == BoardMetrics.px(40)
+                and o.radius == BoardMetrics.px(20) then
+            local col = pillColorValue(cfg.resume_pill_color)
+            if col then
+                local copy = {}
+                for k, v in pairs(o) do copy[k] = v end
+                copy.bg = col
+                return original_box(copy, child)
+            end
+        end
+        return original_box(o, child)
+    end
+    logger.info(TAG, "hooked BoardUI.box for Resume pill colour")
     return true
 end
 
@@ -2082,6 +2197,7 @@ hookSettingsPage()
 hookMenuPageRunAction()
 hookCatalogSwipeClose()
 hookSettingsFlash()
+hookResumePillColor()
 hookCatalogLibraryFilter()
 hookDispatcherOpen()
 
@@ -2112,6 +2228,7 @@ do
             hookMenuPageRunAction()
             hookCatalogSwipeClose()
             hookSettingsFlash()
+            hookResumePillColor()
             hookCatalogLibraryFilter()
             hookDispatcherOpen()
             hookPluginServerAddress(plugin)
@@ -2381,6 +2498,28 @@ local function buildMenu()
         {
             text = _("Library Filter"),
             sub_item_table_func = buildLibraryMenu,
+        },
+        {
+            text = _("Resume Pill Colour"),
+            sub_item_table_func = function()
+                local items = {}
+                for _i, c in ipairs(PILL_COLORS) do
+                    local name, hex = c[1], c[2]
+                    items[#items + 1] = {
+                        text = name,
+                        checked_func = function()
+                            return type(cfg.resume_pill_color) == "string"
+                                and cfg.resume_pill_color:upper() == hex
+                        end,
+                        callback = function()
+                            cfg.resume_pill_color = hex
+                            saveConfig()
+                            logger.info(TAG, "resume_pill_color =", hex)
+                        end,
+                    }
+                end
+                return items
+            end,
         },
         {
             text = _("Reopen BookOrbit At"),
