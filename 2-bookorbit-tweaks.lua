@@ -15,22 +15,23 @@ Purpose:
     while a buried catalog existed).
   * Option: reopen an already-open catalog at BookOrbit home, or where you
     left off.
-  * When BookOrbit closes, go back to SimpleUI home instead of the stock library.
+  * Option: when BookOrbit closes and SimpleUI home is gone, show SimpleUI
+    home instead of the stock library.
   * Optional e-ink flash on catalog page turns to reduce ghosting.
   * Option: loop catalog pages (swipe past last page → first, past first → last).
     When looping is off, a swipe at either end is a no-op and does not flash.
-  * Saved servers: save the current BookOrbit login and switch between
-    servers later (from the Tweaks menu, Sign-in, or Settings → Account → Server).
-  * Looping also works on the dashboard pages (Home / Insights / Library / Decor).
+  * Saved servers: snapshot the current BookOrbit login and switch between
+    them later (from Tweaks menu, Sign-in, or Settings → Account → Server).
+  * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
-This patch hooks bookorbit_catalog_widgets.
+This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.11.1"
+local VERSION = "2.14.0"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -56,6 +57,7 @@ local DEFAULTS = {
     flash_menu_sheet = true,   -- pull-down settings open + close
     flash_open = true,         -- single flash when BookOrbit opens
     loop_pages = false,
+    second_swipe_tools = true, -- second south swipe on settings sheet -> tools menu
     reopen_at = "last",
     after_close = "simpleui",
     library_filter_id = false,
@@ -280,6 +282,129 @@ local function hookBoardCover()
     end
 
     logger.info(TAG, "hooked BookOrbit board cover painter")
+    return true
+end
+
+-- ---- Continue reading hero card in night mode --------------------------------
+-- Night mode only; day mode is untouched (the wrapper paints the tile
+-- normally and returns). The hero tile is the only black-fill tile on
+-- the board (chrome "ink"). KOReader night mode inverts the whole
+-- screen, so every white tile becomes black with white text (which
+-- looks right) while the black hero becomes white with black text
+-- (which does not). Covers escape this because they are
+-- counter-inverted at paint time; tile backgrounds have no such step.
+-- This wraps the hero tile's paint: in night mode only, after the tile
+-- is painted normally, its whole rectangle is inverted once, so the
+-- screen-wide flip restores black background + white text. The cover
+-- is then inverted once more (see below), the four corner squares
+-- are repainted with the board background, and a black-in-buffer
+-- border is painted (white on screen) so the black card does not
+-- blend into the black board.
+-- Cover handling, two sources, in order: (1) rects the inner paint
+-- itself counter-inverted (BoardCover's invertRect, recorded through
+-- a proxy buffer); (2) if none were recorded, the cover widget's
+-- own dimen, which BoardCover.paintTo sets to its absolute position.
+-- Round 2 relied on (1) alone and the cover still came out inverted
+-- on-device, so (2) is the fallback and both counts are logged.
+local function hookHeroNight()
+    local ok_bw, BoardWidgets = pcall(require, "bookorbit_board_widgets")
+    if not ok_bw or type(BoardWidgets) ~= "table" or type(BoardWidgets.tile) ~= "function" then
+        return false
+    end
+    if BoardWidgets._bookorbit_tweaks_hero_night then return true end
+    BoardWidgets._bookorbit_tweaks_hero_night = true
+
+    local ok_dev, Device = pcall(require, "device")
+    local Screen = ok_dev and Device and Device.screen
+    if not Screen then return false end
+    local ok_w, Widget = pcall(require, "ui/widget/widget")
+    if not ok_w or type(Widget) ~= "table" then return false end
+    local ok_geom, Geom = pcall(require, "ui/geometry")
+    if not ok_geom or type(Geom) ~= "table" then return false end
+    local ok_bb, Blitbuffer = pcall(require, "ffi/blitbuffer")
+    if not ok_bb or type(Blitbuffer) ~= "table" then return false end
+    local ok_met, BoardMetrics = pcall(require, "bookorbit_board_metrics")
+    local radius = 12
+    if ok_met and type(BoardMetrics) == "table" and type(BoardMetrics.px) == "function" then
+        radius = BoardMetrics.px(12)
+    end
+
+    local function collectCoverDimens(root)
+        local out, seen = {}, {}
+        local function walk(node, depth)
+            if type(node) ~= "table" or seen[node] or depth > 12 then return end
+            seen[node] = true
+            local d = node.dimen
+            if type(node.path) == "string" and type(d) == "table"
+                    and type(d.x) == "number" and type(d.y) == "number"
+                    and type(d.w) == "number" and type(d.h) == "number"
+                    and d.w >= 20 and d.h >= 20 then
+                table.insert(out, { d.x, d.y, d.w, d.h })
+            end
+            for _k, v in pairs(node) do
+                if type(v) == "table" then walk(v, depth + 1) end
+            end
+        end
+        walk(root, 0)
+        return out
+    end
+
+    local HeroNightWidget = Widget:extend{}
+    function HeroNightWidget:getSize()
+        return self.dimen
+    end
+    function HeroNightWidget:paintTo(bb, x, y)
+        if not Screen.night_mode then
+            self.inner:paintTo(bb, x, y)
+            return
+        end
+        local cover_rects = {}
+        local proxy = setmetatable({}, {
+            __index = function(_, key)
+                local value = bb[key]
+                if type(value) ~= "function" then return value end
+                if key == "invertRect" then
+                    return function(_, rx, ry, rw, rh)
+                        table.insert(cover_rects, { rx, ry, rw, rh })
+                        return value(bb, rx, ry, rw, rh)
+                    end
+                end
+                return function(_, ...) return value(bb, ...) end
+            end,
+        })
+        self.inner:paintTo(proxy, x, y)
+        local dimen_rects = collectCoverDimens(self.inner)
+        local w, h = self.dimen.w, self.dimen.h
+        bb:invertRect(x, y, w, h)
+        local reverted = cover_rects
+        if #reverted == 0 then reverted = dimen_rects end
+        for _i, r in ipairs(reverted) do
+            bb:invertRect(r[1], r[2], r[3], r[4])
+        end
+        logger.info(TAG, "hero night: proxy cover rects=", #cover_rects, "dimen cover rects=", #dimen_rects)
+        bb:paintRect(x, y, radius, radius, Blitbuffer.COLOR_WHITE)
+        bb:paintRect(x + w - radius, y, radius, radius, Blitbuffer.COLOR_WHITE)
+        bb:paintRect(x, y + h - radius, radius, radius, Blitbuffer.COLOR_WHITE)
+        bb:paintRect(x + w - radius, y + h - radius, radius, radius, Blitbuffer.COLOR_WHITE)
+        local bw = 2
+        if ok_met and type(BoardMetrics) == "table" and type(BoardMetrics.px) == "function" then
+            bw = math.max(1, BoardMetrics.px(1.5))
+        end
+        bb:paintBorder(x, y, w, h, bw, Blitbuffer.COLOR_BLACK, radius)
+    end
+
+    local original_tile = BoardWidgets.tile
+    BoardWidgets.tile = function(ctx, item, w, h)
+        local result = original_tile(ctx, item, w, h)
+        if type(item) ~= "table" or item.type ~= "hero" or type(result) ~= "table" then
+            return result
+        end
+        return HeroNightWidget:new{
+            dimen = Geom:new{ w = w, h = h },
+            inner = result,
+        }
+    end
+    logger.info(TAG, "hooked BookOrbit hero tile for night mode")
     return true
 end
 
@@ -556,15 +681,40 @@ local function hookDispatcherOpen()
             local name = type(event) == "table" and event.name
             if name == "BookOrbitOpenDashboard" then
                 logger.info(TAG, "TRACE UIManager.sendEvent BookOrbitOpenDashboard")
-                -- Always force a clean open: buried catalog + menu sheet under
-                -- SimpleUI home is the common post-sleep state and raise alone
-                -- is not enough (home stays on top).
                 forceOpenBookOrbit("sendEvent")
                 return true
             end
+            -- Second swipe south while BookOrbit settings sheet is top -> tools menu.
+            -- Intercept here because the sheet's children often consume Swipe before
+            -- our instance onSwipe runs.
+            if cfg.second_swipe_tools and (name == "Swipe" or name == "Gesture") then
+                local stack = self._window_stack
+                local top = type(stack) == "table" and stack[#stack]
+                local w = top and top.widget
+                local is_sheet = type(w) == "table" and type(w.name) == "string"
+                        and w.name:find("bookorbit_menu_sheet", 1, true)
+                if is_sheet then
+                    local a = event.args
+                    local ges = type(a) == "table" and (a[2] or a[1]) or nil
+                    if type(ges) ~= "table" and name == "Gesture" then
+                        ges = a and a[1] or event
+                    end
+                    if type(ges) == "table" and ges.direction == "south" then
+                        logger.info(TAG, "sendEvent south on menu sheet -> tools menu")
+                        pcall(function() self:close(w) end)
+                        local FM = package.loaded["apps/filemanager/filemanager"]
+                        local fm = type(FM) == "table" and FM.instance
+                        local menu = type(fm) == "table" and fm.menu
+                        if type(menu) == "table" and type(menu.onShowMenu) == "function" then
+                            pcall(menu.onShowMenu, menu)
+                        end
+                        return true
+                    end
+                end
+            end
             return original_send(self, event, ...)
         end
-        logger.info(TAG, "hooked UIManager.sendEvent for BookOrbitOpenDashboard")
+        logger.info(TAG, "hooked UIManager.sendEvent for BookOrbitOpenDashboard + second swipe")
     end
 
     -- Resume/Suspend: wipe BookOrbit so SimpleUI home cannot bury a live catalog.
@@ -821,6 +971,74 @@ local function hookPluginOpen(plugin)
     if type(plugin.openMenuSheet) == "function" and not plugin._bookorbit_tweaks_menu_flash then
         plugin._bookorbit_tweaks_menu_flash = true
         local original_sheet = plugin.openMenuSheet
+
+        local function openToolsMenu()
+            local FM = package.loaded["apps/filemanager/filemanager"]
+            local fm = type(FM) == "table" and FM.instance
+            local menu = type(fm) == "table" and fm.menu
+            if type(menu) == "table" and type(menu.onShowMenu) == "function" then
+                logger.info(TAG, "opening tools menu")
+                pcall(menu.onShowMenu, menu)
+                return true
+            end
+            -- Fallback: broadcast ShowMenu
+            local ok_ev, Event = pcall(require, "ui/event")
+            local ok_ui, UIManager = pcall(require, "ui/uimanager")
+            if ok_ev and ok_ui then
+                pcall(function()
+                    UIManager:sendEvent(Event:new("ShowMenu"))
+                end)
+                return true
+            end
+            return false
+        end
+
+        local function gesDirection(ges_ev)
+            if type(ges_ev) ~= "table" then return nil end
+            return ges_ev.direction
+        end
+
+        local function attachSecondSwipe(widget)
+            if type(widget) ~= "table" or widget._bookorbit_tweaks_second_swipe then
+                return
+            end
+            widget._bookorbit_tweaks_second_swipe = true
+
+            local function maybeToolsFromSouth(ges_ev)
+                if not cfg.second_swipe_tools then return false end
+                if gesDirection(ges_ev) ~= "south" then return false end
+                logger.info(TAG, "menu sheet south swipe -> tools menu")
+                local ok_ui, UIManager = pcall(require, "ui/uimanager")
+                if ok_ui then
+                    pcall(function() UIManager:close(widget) end)
+                end
+                openToolsMenu()
+                return true
+            end
+
+            local original_swipe = widget.onSwipe
+            widget.onSwipe = function(this, arg, ges_ev)
+                if maybeToolsFromSouth(ges_ev) then return true end
+                if type(original_swipe) == "function" then
+                    return original_swipe(this, arg, ges_ev)
+                end
+            end
+
+            -- Menu builds Event:new("Swipe", args, ges) so ges is args[2].
+            local original_handle = widget.handleEvent
+            if type(original_handle) == "function" then
+                widget.handleEvent = function(this, event, ...)
+                    if type(event) == "table" and event.name == "Swipe" then
+                        local a = event.args
+                        local ges = type(a) == "table" and (a[2] or a[1]) or nil
+                        if maybeToolsFromSouth(ges) then return true end
+                    end
+                    return original_handle(this, event, ...)
+                end
+            end
+            logger.info(TAG, "attached second-swipe tools on menu sheet")
+        end
+
         plugin.openMenuSheet = function(self, ...)
             local res = original_sheet(self, ...)
             if cfg.flash_ghosting and cfg.flash_menu_sheet then
@@ -829,6 +1047,24 @@ local function hookPluginOpen(plugin)
                     pcall(function() UIManager:setDirty("all", "flashui") end)
                 end
             end
+            -- Attach after the sheet is on the stack (openMenuSheet may show async).
+            pcall(function()
+                local UIManager = require("ui/uimanager")
+                local function tryAttach()
+                    local stack = UIManager._window_stack
+                    if type(stack) ~= "table" then return end
+                    for i = #stack, 1, -1 do
+                        local w = stack[i] and stack[i].widget
+                        if type(w) == "table" and type(w.name) == "string"
+                                and w.name:find("bookorbit_menu_sheet", 1, true) then
+                            attachSecondSwipe(w)
+                            return
+                        end
+                    end
+                end
+                tryAttach()
+                UIManager:nextTick(tryAttach)
+            end)
             return res
         end
     end
@@ -873,13 +1109,16 @@ local function hookCatalogClose()
     Catalog.onCloseWidget = function(self, ...)
         local result = original(self, ...)
         if cfg.after_close == "simpleui" then
-            local ok_ui, UIManager = pcall(require, "ui/uimanager")
-            if ok_ui then
-                UIManager:nextTick(function()
-                    local ok_show, err = pcall(showSimpleUIHome)
-                    if not ok_show then logger.warn(TAG, "show SimpleUI home failed:", err) end
-                end)
-            end
+            -- Show home in the SAME step the catalog closes, not on the
+            -- next tick: UIManager:close removes the catalog from the
+            -- stack and repaints right after this returns, so a
+            -- nextTick show leaves one repaint where the file browser
+            -- is topmost (the stock-library flash). Showing it here
+            -- makes home topmost before that repaint. This mirrors the
+            -- Bookshelf close path, which shows home synchronously
+            -- after its close instead of deferring it.
+            local ok_show, err = pcall(showSimpleUIHome)
+            if not ok_show then logger.warn(TAG, "show SimpleUI home failed:", err) end
         end
         return result
     end
@@ -1274,7 +1513,7 @@ local function showSavedServerPicker(plugin, page)
         local InfoMessage = require("ui/widget/infomessage")
         local UIManager = require("ui/uimanager")
         UIManager:show(InfoMessage:new{
-            text = _("No saved servers yet.\nSign in once, then save it from BookOrbit Tweaks → Server Management → Save Current Server."),
+            text = _("No saved servers yet.\nSign in once, then use BookOrbit Tweaks → Saved servers → Save current server."),
             timeout = 4,
         })
         return
@@ -1302,7 +1541,7 @@ local function showSavedServerPicker(plugin, page)
                     end
                     local InfoMessage = require("ui/widget/infomessage")
                     UIManager:show(InfoMessage:new{
-                        text = _("Switching to") .. "\n" .. label,
+                        text = _("Switching To") .. "\n" .. label,
                         timeout = 3,
                     })
                 end,
@@ -1392,7 +1631,7 @@ local function hookSignInPage()
                                 end
                                 local InfoMessage = require("ui/widget/infomessage")
                                 UIManager:show(InfoMessage:new{
-                                    text = _("Switching to") .. "\n" .. label,
+                                    text = _("Switching To") .. "\n" .. label,
                                     timeout = 3,
                                 })
                             end,
@@ -1469,7 +1708,7 @@ local function showServerChooser(plugin, on_enter_new, on_switched)
                 if on_switched then pcall(on_switched, entry) end
                 local InfoMessage = require("ui/widget/infomessage")
                 UIManager:show(InfoMessage:new{
-                    text = _("Switching to") .. "\n" .. label,
+                    text = _("Switching To") .. "\n" .. label,
                     timeout = 3,
                 })
             end,
@@ -1699,6 +1938,53 @@ local function fetchLibrariesFromServer()
     return out
 end
 
+-- After a library change, ask about a restart: the dashboard and its
+-- cached lists do not reliably re-fetch on a menu change alone, so a
+-- restart is the sure way to apply the new library everywhere. The
+-- dialog is shown on the next tick so the menu callback has finished
+-- first; showing it synchronously inside the callback left it behind
+-- the menu on some routes. Cancel only dismisses the popup -- the
+-- new library stays saved and applies on the next restart.
+local function askRestartAfterLibraryChange(old_id, new_id)
+    if tostring(old_id or "") == tostring(new_id or "") then return end
+
+    local ok_ui, UIManager = pcall(require, "ui/uimanager")
+    if not ok_ui or type(UIManager) ~= "table" then return end
+    UIManager:nextTick(function()
+        local ok_bd, ButtonDialog = pcall(require, "ui/widget/buttondialog")
+        if not ok_bd or type(ButtonDialog) ~= "table" then return end
+        local dialog
+        dialog = ButtonDialog:new{
+            title = _("Library Changed"),
+            text = _("Restart KOReader to apply the new library?"),
+            buttons = {
+                {
+                    {
+                        text = _("Restart Now"),
+                        callback = function()
+                            if dialog then UIManager:close(dialog) end
+                            if type(UIManager.restartKOReader) == "function" then
+                                UIManager:restartKOReader()
+                            elseif type(UIManager.quit) == "function" then
+                                UIManager:quit(85)
+                            end
+                        end,
+                    },
+                },
+                {
+                    {
+                        text = _("Cancel"),
+                        callback = function()
+                            if dialog then UIManager:close(dialog) end
+                        end,
+                    },
+                },
+            },
+        }
+        UIManager:show(dialog)
+    end)
+end
+
 local function buildLibraryMenu()
     local items = {}
     local current_id = cfg.library_filter_id
@@ -1712,10 +1998,12 @@ local function buildLibraryMenu()
             return id == false or id == nil or id == ""
         end,
         callback = function(touchmenu_instance)
+            local old_id = cfg.library_filter_id
             cfg.library_filter_id = false
             cfg.library_filter_name = ""
             saveConfig()
             logger.info(TAG, "library filter: all")
+            askRestartAfterLibraryChange(old_id, false)
             if touchmenu_instance then
                 touchmenu_instance.item_table = buildLibraryMenu()
                 touchmenu_instance:updateItems()
@@ -1741,10 +2029,12 @@ local function buildLibraryMenu()
                     return tostring(cfg.library_filter_id) == tostring(lid)
                 end,
                 callback = function(touchmenu_instance)
+                    local old_id = cfg.library_filter_id
                     cfg.library_filter_id = lid
                     cfg.library_filter_name = label
                     saveConfig()
                     logger.info(TAG, "library filter:", label, lid)
+                    askRestartAfterLibraryChange(old_id, lid)
                     if touchmenu_instance then
                         touchmenu_instance.item_table = buildLibraryMenu()
                         touchmenu_instance:updateItems()
@@ -1785,6 +2075,7 @@ end
 -- Try immediately in case BookOrbit's modules have already been loaded.
 hookCatalogWidgets()
 hookBoardCover()
+hookHeroNight()
 hookCatalogFlash()
 hookSignInPage()
 hookSettingsPage()
@@ -1812,6 +2103,9 @@ do
             end
             if not hookBoardCover() then
                 logger.warn(TAG, "BookOrbit loaded but board cover painter was not found")
+            end
+            if not hookHeroNight() then
+                logger.warn(TAG, "BookOrbit loaded but hero tile was not found for night mode")
             end
             hookSignInPage()
             hookSettingsPage()
@@ -1867,7 +2161,7 @@ local function buildServerMenu()
     local current = currentBookOrbitCreds()
 
     table.insert(items, {
-        text = _("Show Server Chooser In Settings"),
+        text = _("Enable Server Selection In Settings"),
         checked_func = function() return cfg.server_chooser_in_settings ~= false end,
         callback = function()
             cfg.server_chooser_in_settings = not (cfg.server_chooser_in_settings ~= false)
@@ -1928,7 +2222,7 @@ local function buildServerMenu()
                         local InfoMessage = require("ui/widget/infomessage")
                         local UIManager = require("ui/uimanager")
                         UIManager:show(InfoMessage:new{
-                            text = _("Switching to") .. "\n" .. label,
+                            text = _("Switching To") .. "\n" .. label,
                             timeout = 2,
                         })
                     end
@@ -2076,6 +2370,15 @@ local function buildMenu()
             end,
         },
         {
+            text = _("Second Swipe Opens Tools Menu"),
+            checked_func = function() return cfg.second_swipe_tools == true end,
+            callback = function()
+                cfg.second_swipe_tools = not (cfg.second_swipe_tools == true)
+                saveConfig()
+                logger.info(TAG, "second_swipe_tools =", cfg.second_swipe_tools)
+            end,
+        },
+        {
             text = _("Library Filter"),
             sub_item_table_func = buildLibraryMenu,
         },
@@ -2099,64 +2402,76 @@ local function buildMenu()
                     end,
                 },
                 {
-                    text = _("Flash On Page Turns"),
+                    text = _("Flash Per Page"),
                     enabled_func = function() return cfg.flash_ghosting == true end,
-                    checked_func = function() return cfg.flash_page_turns == true end,
-                    callback = function(touchmenu_instance)
-                        if not cfg.flash_ghosting then return end
-                        cfg.flash_page_turns = not (cfg.flash_page_turns == true)
-                        saveConfig()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end,
+                    sub_item_table = {
+                        {
+                            text = _("Flash On Page Turns"),
+                            enabled_func = function() return cfg.flash_ghosting == true end,
+                            checked_func = function() return cfg.flash_page_turns == true end,
+                            callback = function(touchmenu_instance)
+                                if not cfg.flash_ghosting then return end
+                                cfg.flash_page_turns = not (cfg.flash_page_turns == true)
+                                saveConfig()
+                                if touchmenu_instance then touchmenu_instance:updateItems() end
+                            end,
+                        },
+                        {
+                            text = _("Flash On Content Load"),
+                            enabled_func = function() return cfg.flash_ghosting == true end,
+                            checked_func = function() return cfg.flash_content == true end,
+                            callback = function(touchmenu_instance)
+                                if not cfg.flash_ghosting then return end
+                                cfg.flash_content = not (cfg.flash_content == true)
+                                saveConfig()
+                                if touchmenu_instance then touchmenu_instance:updateItems() end
+                            end,
+                        },
+                        {
+                            text = _("Flash On Return To Dashboard"),
+                            enabled_func = function() return cfg.flash_ghosting == true end,
+                            checked_func = function() return cfg.flash_dashboard == true end,
+                            callback = function(touchmenu_instance)
+                                if not cfg.flash_ghosting then return end
+                                cfg.flash_dashboard = not (cfg.flash_dashboard == true)
+                                saveConfig()
+                                if touchmenu_instance then touchmenu_instance:updateItems() end
+                            end,
+                        },
+                        {
+                            text = _("Flash On Settings Menu"),
+                            enabled_func = function() return cfg.flash_ghosting == true end,
+                            checked_func = function() return cfg.flash_menu_sheet == true end,
+                            callback = function(touchmenu_instance)
+                                if not cfg.flash_ghosting then return end
+                                cfg.flash_menu_sheet = not (cfg.flash_menu_sheet == true)
+                                saveConfig()
+                                if touchmenu_instance then touchmenu_instance:updateItems() end
+                            end,
+                        },
+                        {
+                            text = _("Flash On Open"),
+                            enabled_func = function() return cfg.flash_ghosting == true end,
+                            checked_func = function() return cfg.flash_open == true end,
+                            callback = function(touchmenu_instance)
+                                if not cfg.flash_ghosting then return end
+                                cfg.flash_open = not (cfg.flash_open == true)
+                                saveConfig()
+                                if touchmenu_instance then touchmenu_instance:updateItems() end
+                            end,
+                        },
+                    },
                 },
                 {
-                    text = _("Flash On Content Load"),
+                    text = _("Frequency"),
                     enabled_func = function() return cfg.flash_ghosting == true end,
-                    checked_func = function() return cfg.flash_content == true end,
-                    callback = function(touchmenu_instance)
-                        if not cfg.flash_ghosting then return end
-                        cfg.flash_content = not (cfg.flash_content == true)
-                        saveConfig()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end,
+                    sub_item_table = {
+                        flashEveryItem(1),
+                        flashEveryItem(2),
+                        flashEveryItem(3),
+                        flashEveryItem(5),
+                    },
                 },
-                {
-                    text = _("Flash On Return To Dashboard"),
-                    enabled_func = function() return cfg.flash_ghosting == true end,
-                    checked_func = function() return cfg.flash_dashboard == true end,
-                    callback = function(touchmenu_instance)
-                        if not cfg.flash_ghosting then return end
-                        cfg.flash_dashboard = not (cfg.flash_dashboard == true)
-                        saveConfig()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end,
-                },
-                {
-                    text = _("Flash On Settings Menu"),
-                    enabled_func = function() return cfg.flash_ghosting == true end,
-                    checked_func = function() return cfg.flash_menu_sheet == true end,
-                    callback = function(touchmenu_instance)
-                        if not cfg.flash_ghosting then return end
-                        cfg.flash_menu_sheet = not (cfg.flash_menu_sheet == true)
-                        saveConfig()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end,
-                },
-                {
-                    text = _("Flash On Open"),
-                    enabled_func = function() return cfg.flash_ghosting == true end,
-                    checked_func = function() return cfg.flash_open == true end,
-                    callback = function(touchmenu_instance)
-                        if not cfg.flash_ghosting then return end
-                        cfg.flash_open = not (cfg.flash_open == true)
-                        saveConfig()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end,
-                },
-                flashEveryItem(1),
-                flashEveryItem(2),
-                flashEveryItem(3),
-                flashEveryItem(5),
             },
         },
         {
