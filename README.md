@@ -444,7 +444,7 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.11.0
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.1
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -476,6 +476,10 @@ Pick the library for the catalog (Books, not Comics, say) from the tweaks menu, 
 ### Night mode covers
 
 **Keep Covers Original In Night Mode** — catalog and dashboard covers keep their artwork instead of being inverted.
+
+### Resume pill colour
+
+**Resume Pill Colour** — pick the colour of the Resume pill on the dashboard (White by default).
 
 ### Flash to reduce ghosting
 
@@ -513,6 +517,7 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
+
 
 
 
