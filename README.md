@@ -31,7 +31,7 @@ All patches work independently and together. If one fails to attach (for example
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.5 |
-| [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.16.0 |
+| [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.0 |
 | [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.2 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
@@ -345,7 +345,7 @@ Adds **Shortcuts toolbar → Icon tweaks** for the shortcutstoolbar plugin. Work
 - **Menu Toggle and Bluetooth indicators:** a custom shortcut set to a menu action follows that item's own checkmark, and Bluetooth follows the Kobo plugin's Bluetooth state.
 - **Live network state:** the Wi-Fi icon and any Wi-Fi/SSH/Calibre indicator follow the real state, including background connects, failures, cancels, auto-disconnect and sleep.
 - **Toolbar stays open** after tapping custom SSH, Wi-Fi, Calibre or Night Mode shortcuts, so you see the icon change. Other actions still close it.
-- **Hold actions:** hold the built-in Wi-Fi button for the network list (Network Tweaks' picker when installed); hold the built-in Restart or Search button for Restart / Exit KOReader / Reboot / Power off; hold a custom SSH shortcut for Bluetooth from the Kobo plugin (turn it on or off, scan, paired devices); hold a custom Calibre shortcut to open BookOrbit directly. Tap does what it always did. Each one has its own on/off in Icon Tweaks → Hold Actions. Off gives the plugin's own hold back; for an SSH shortcut, that's its edit dialog.
+- **Hold actions:** hold the built-in Wi-Fi button for the network list (Network Tweaks' picker when installed); hold the built-in Restart or Search button for Restart / Exit KOReader / Reboot / Power off; hold a custom SSH shortcut for Bluetooth from the Kobo plugin (turn it on or off, scan, paired devices); hold a custom Calibre shortcut to open BookOrbit directly; hold a custom Bookshelf shortcut to open BookOrbit directly. Tap does what it always did, unless flipped. Each hold action is its own group in Icon Tweaks → Hold Actions, with its own on/off and its own Flip Tap And Hold (tap runs the hold action, hold runs the button's normal tap). Off gives the plugin's own hold back; for a shortcut, that's its edit dialog.
 - **Bluetooth notes:** the Kobo plugin's Bluetooth messages (scanning, on / off, failed to connect) show in Network Tweaks' note style (Banner / Minimal), like its Wi-Fi notes. With Normal, or without Network Tweaks, they stay as they are.
 - **Sleep:** an open reader or library top menu closes when the device goes to sleep, so you wake to the page, not the menu.
 

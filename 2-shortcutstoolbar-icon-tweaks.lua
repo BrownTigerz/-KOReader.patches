@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.16.0
+Version: 1.17.0
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -28,8 +28,10 @@ Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
     when installed). Hold the built-in Restart or Search button: Restart /
     Exit KOReader, Reboot, Power off. Hold an SSH shortcut: Bluetooth
     (Kobo plugin): turn it on or off, scan, paired devices. Hold a
-    Calibre shortcut: BookOrbit, directly, no menu. Tap does what
-    it always did.
+    Calibre shortcut: BookOrbit, directly, no menu. Hold a Bookshelf
+    shortcut: BookOrbit, directly, no menu. Each hold action can be
+    flipped on its own: tap runs the hold action, hold runs the normal
+    tap. Tap does what it always did, unless flipped.
   • The Kobo plugin's Bluetooth messages show in Network Tweaks' note style
     (Banner / Minimal), like its Wi-Fi notes. Each hold action can be
     turned off in Icon Tweaks → Hold Actions. Off gives the plugin's own
@@ -61,6 +63,13 @@ a D-Bus query), then reuse the answer for redraws. Nothing runs
 in the background or while asleep.
 
 Changelog
+  1.17.0 Hold a Bookshelf shortcut for BookOrbit directly, no menu: hold a
+         custom shortcut that goes to the Bookshelf home screen to open
+         BookOrbit. New per-hold Flip Tap And Hold: tap runs the hold
+         action, hold runs the button's normal tap. Hold Actions menu
+         restructured: each hold action is its own group with Enabled and
+         Flip Tap And Hold. Without the BookOrbit plugin, or with a hold
+         off, holding opens the shortcut's edit dialog as before.
   1.16.0 Hold a Calibre shortcut for BookOrbit directly, no menu: hold a
          custom shortcut that connects to (or disconnects from) Calibre to
          open BookOrbit. New Hold Actions toggle, on by default. Without
@@ -185,7 +194,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.16.0"
+local PATCH_VERSION = "1.17.0"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -1007,12 +1016,19 @@ local HOLD = {
     search  = holdPower, -- reader search button: tap searches, hold = power
     ssh     = holdBluetooth,
     bookorbit = holdBookOrbit,
+    bookshelf_bookorbit = holdBookOrbit,
 }
 local HOLD_BUILTIN = { wifi = "wifi", restart = "restart", search = "search" }
 
 local function holdOn(id)
     local h = loadSettings().hold
     return not (type(h) == "table" and h[id] == false)
+end
+
+-- Per-hold tap/hold swap: each hold action can be flipped on its own.
+local function flipOn(id)
+    local f = loadSettings().flip
+    return type(f) == "table" and f[id] == true
 end
 
 -- The hold action for a toolbar key, if it has one and it's on.
@@ -1025,6 +1041,8 @@ local function holdFor(key)
             elseif sc.dispatcher_action == "calibre_start_connection"
                     or sc.dispatcher_action == "calibre_close_connection" then
                 id = "bookorbit"
+            elseif sc.dispatcher_action == "bookshelf_go_home" then
+                id = "bookshelf_bookorbit"
             end
         end
     end
@@ -1111,8 +1129,23 @@ local function withCapture(config, fn, ...)
         if hid then
             -- the plugin's own hold stays as the fallback (e.g. no Kobo plugin)
             local own_hold, fn = btn.hold_callback, HOLD[hid]
-            btn.hold_callback = function(...)
-                if fn() == false and own_hold then return own_hold(...) end
+            if flipOn(hid) then
+                -- flipped: tap runs the hold action, hold runs the button's
+                -- normal tap (with its state refresh, as wrapped above).
+                -- A hold action that declines (no plugin) falls back to the
+                -- normal tap, same as the unflipped hold fallback.
+                local own_tap = btn.callback
+                btn.hold_callback = function(...)
+                    if own_tap then return own_tap(...) end
+                    if own_hold then return own_hold(...) end
+                end
+                btn.callback = function(...)
+                    if fn() == false and own_tap then return own_tap(...) end
+                end
+            else
+                btn.hold_callback = function(...)
+                    if fn() == false and own_hold then return own_hold(...) end
+                end
             end
         end
         -- Wi-Fi toggles rebuild the image via setIcon(); re-apply after.
@@ -1564,20 +1597,48 @@ local function buildMenu()
                     end,
                 }
             end
+            -- Each hold action is its own group: on/off, plus its own
+            -- tap/hold flip. A flip only matters while its hold is on.
+            -- The group row ticks when its hold is on.
+            local function holdGroup(text, id, help)
+                return {
+                    text = text,
+                    checked_func = function() return holdOn(id) end,
+                    sub_item_table = {
+                        holdItem(_("Enabled"), id, help),
+                        {
+                            text = _("Flip Tap And Hold"),
+                            help_text = _("Swap tap and hold for this action: tap runs the hold action, hold runs the button's normal tap. Off restores tap and hold as usual. No effect while the hold action is off."),
+                            keep_menu_open = true,
+                            checked_func = function() return flipOn(id) end,
+                            callback = function()
+                                local s2 = loadSettings()
+                                s2.flip = type(s2.flip) == "table" and s2.flip or {}
+                                if flipOn(id) then s2.flip[id] = nil else s2.flip[id] = true end
+                                if next(s2.flip) == nil then s2.flip = nil end
+                                saveSettings(s2)
+                                refreshViews()
+                            end,
+                        },
+                    },
+                }
+            end
             table.insert(t, {
                 text = _("Hold Actions"),
                 separator = true,
                 sub_item_table = {
-                    holdItem(_("Hold Wi-Fi: Network List"), "wifi",
+                    holdGroup(_("Hold Wi-Fi: Network List"), "wifi",
                         _("Hold the built-in Wi-Fi button for the network list. Off gives the plugin's own hold back.")),
-                    holdItem(_("Hold Restart: Power Options"), "restart",
+                    holdGroup(_("Hold Restart: Power Options"), "restart",
                         _("Hold the built-in Restart button for Restart / Exit / Reboot / Power Off. Off gives the plugin's own hold back.")),
-                    holdItem(_("Hold Search: Power Options"), "search",
+                    holdGroup(_("Hold Search: Power Options"), "search",
                         _("Hold the built-in Search button (reader) for the power options. Tap still searches. Off gives the plugin's own hold back.")),
-                    holdItem(_("Hold SSH Shortcut: Bluetooth"), "ssh",
+                    holdGroup(_("Hold SSH Shortcut: Bluetooth"), "ssh",
                         _("Hold a custom shortcut that toggles SSH for Bluetooth from the Kobo plugin: turn it on or off, scan, paired devices. Without the Kobo plugin, or with this off, holding opens the shortcut's edit dialog.")),
-                    holdItem(_("Hold Calibre Shortcut: BookOrbit"), "bookorbit",
+                    holdGroup(_("Hold Calibre Shortcut: BookOrbit"), "bookorbit",
                         _("Hold a custom shortcut that connects to Calibre for BookOrbit: opens BookOrbit directly, no menu. Without the BookOrbit plugin, or with this off, holding opens the shortcut's edit dialog.")),
+                    holdGroup(_("Hold Bookshelf Shortcut: BookOrbit"), "bookshelf_bookorbit",
+                        _("Hold a custom shortcut that goes to the Bookshelf home screen for BookOrbit: opens BookOrbit directly, no menu. Without the BookOrbit plugin, or with this off, holding opens the shortcut's edit dialog.")),
                 },
             })
             table.insert(t, {
