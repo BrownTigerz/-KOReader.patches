@@ -472,6 +472,7 @@ Pick the library for the catalog (Books, not Comics, say) from the tweaks menu, 
 
 - Save the current server, switch with a tap, **hold** for **Edit Server** (address, username, user key, display name) or **Remove**.
 - Optional: show a server chooser inside BookOrbit **Settings → Account** (toggle under Server Management).
+- **Enter A Different Address** from the server chooser opens the address entry on the first tap — no double chooser.
 
 ### Night mode covers
 
