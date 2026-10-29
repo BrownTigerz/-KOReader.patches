@@ -20,7 +20,8 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.4 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.7 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.5 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.8 |
@@ -53,8 +54,6 @@ The `debug/` folder holds temporary troubleshooting companions for the main patc
 
 ![Simpleui Currently Reading](images/simpleui-currently-reading.png)
 ![Simpleui Currently Reading 2](images/simpleui-currently-reading-2.png)
-![Simpleui Sidebar](images/simpleui-sidebar.png)
-![Simpleui Sidebar 2](images/simpleui-sidebar-2.png)
 
 Colour and typography control for the SimpleUI home screen, plus a Night Mode "day look" for use with a light wallpaper.
 
@@ -64,7 +63,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Currently Reading:** swipe left/right to step through your most recent books still in progress (4 by default, 2-6; finished ones skipped), with dots on the cover showing where you are. Tap opens the book shown.
 - **Tiny Critter bubble width** (SimpleUI 3.0): Modules → Critter Bubble Width — Default, **Dynamic**, Wide, Wider or Full Row, so longer lines fit on fewer rows. Its chat answers follow the bubble. **Dynamic** keeps SimpleUI's width for short lines and grows only as much as a long one needs (the critter and bubble then sit at the start of the row, like Full Row).
 - **Tiny Critter insights** (SimpleUI 3.0): Modules → Critter Insights, on by default. The critter tells you about your reading: your best reading day this month, book milestones this year (5, 10, 25, 50, 75, 100, then every 50), getting back on a roll after a break, the book you're on being 25 minutes or less from the end, the finish rate your yearly goal needs ("20 books to go, 69 days left. About one every 3 days catches you up.", worded for on pace or catching up), a gentle nudge after 3+ quiet days, and whether you read more on weekends or weekdays. They wait for the critter like its own reactions (book finished, comeback), at most 3 a day, and only when your stats back them: a milestone when you finish that book (once a year each), back on a roll once per comeback, a nudge once per quiet stretch, goal pace and weekend reading once a week (weekend reading needs 4+ weekend and 8+ weekday reading days in 8 weeks, and doesn't flip-flop). Best day is in minutes read. One statistics read a day, no timers. Its chat no longer suggests the same book twice in a day. Needs the critter's Reactions on.
-- **To Be Read side panel**: swipe in from the right (or left) edge of the home screen for your To Be Read list; tap a book to open it, hold it to remove it. Modules → **To Be Read Side Panel** picks the edge or turns it off, and **Side Panel Swipe Zone** sets how close to the edge the swipe has to start: **Narrow** (default) or **Edge Only**, so ordinary swipes don't open it by accident, or **Wide** (KOReader's edge zone, an eighth of the screen).
+- **Side panel:** moved out in 2.14.6 — see SimpleUI Side Panel below.
 - **Page Turn Flash** (SimpleUI Tweaks menu): SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. **Normal** adds a quick flash to each turn; **Strong** a full refresh, which also clears dark pages and night mode. **Off** (default) keeps turns as fast as they are now.
 - **Tiny Critter pep talk** (SimpleUI 3.0): Modules → **Critter Pep Talk**, on by default. SimpleUI's "minutes read today" and "pages turned today" lines grow with your reading instead of always saying "Nice work.": a nudge after a minute or two ("1 minute read today. A start is a start."), a groove at 15 minutes, a cheer at half an hour, a party past an hour ("2.2 hours read today! Marathon mode."). With a daily goal set, it counts you in once you're within 10 minutes ("Just 7 minutes to your daily goal!"). The line moves up a step next time the home screen draws as you read; the wording changes with each new phrase. No timers.
 - **Critter Mix** (2.14.2): Modules → **Critter Mix**, tick two or more critters (say Donny, Blu and Donny & Blu) and they take turns: the next one each time the critter picks something new to say (about every 20 minutes, a new part of the day, or a tap). Reading Log's critter takes turns too: a new remark or a tap there moves it along (Reading Log 1.10.0+). Fewer than two ticked: SimpleUI's own pick.
@@ -103,6 +102,17 @@ Custom pixel art critters for SimpleUI's Tiny Critter feature — Donny (tabby),
 ![The extra moods: reading, proud, hungry, cozy, sipping, dreamy, festive, spooky](images/critters-moods.png)
 
 Download: [critters.zip](critters.zip) — extract to `koreader/settings/simpleui/sui_critters/` on your Kobo.
+
+## SimpleUI Side Panel
+
+![Simpleui Sidebar](images/simpleui-sidebar.png)
+![Simpleui Sidebar 2](images/simpleui-sidebar-2.png)
+
+The edge-swipe panel for the SimpleUI home screen, split out of SimpleUI Tweaks in 2.14.6. Swipe in from the right (or left) edge for your To Be Read list, KOReader collections, newly added books, history, and BookOrbit views; tap a book to open it, hold it to remove it. Pick the edge or turn it off, and set how close to the edge the swipe has to start, so ordinary swipes don't open it by accident.
+
+Settings: Tools → SimpleUI Side Panel.
+
+If you used the panel inside SimpleUI Tweaks, your panel settings carry over.
 
 ## Add-ons menu
 
