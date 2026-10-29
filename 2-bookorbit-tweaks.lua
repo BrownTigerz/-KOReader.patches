@@ -26,6 +26,7 @@ Purpose:
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Option: change the Continue reading Resume pill colour (Tools > BookOrbit Tweaks > Resume Pill Colour).
   * Server chooser: "Enter A Different Address..." opens the plugin address entry on the first tap (no double chooser).
+  * Second swipe down on the settings sheet opens the tools menu.
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
@@ -33,7 +34,7 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.14.2"
+local VERSION = "2.14.3"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -688,9 +689,8 @@ local function hookDispatcherOpen()
                 return true
             end
             -- Second swipe south while BookOrbit settings sheet is top -> tools menu.
-            -- Intercept here because the sheet's children often consume Swipe before
-            -- our instance onSwipe runs.
-            if cfg.second_swipe_tools and (name == "Swipe" or name == "Gesture") then
+            -- Intercept here as a backup; primary path is onSwipePage on the sheet.
+            if cfg.second_swipe_tools and (name == "Swipe" or name == "Gesture" or name == "SwipePage") then
                 local stack = self._window_stack
                 local top = type(stack) == "table" and stack[#stack]
                 local w = top and top.widget
@@ -702,15 +702,37 @@ local function hookDispatcherOpen()
                     if type(ges) ~= "table" and name == "Gesture" then
                         ges = a and a[1] or event
                     end
+                    if type(ges) ~= "table" and type(event.ges) == "table" then
+                        ges = event.ges
+                    end
                     if type(ges) == "table" and ges.direction == "south" then
                         logger.info(TAG, "sendEvent south on menu sheet -> tools menu")
                         pcall(function() self:close(w) end)
-                        local FM = package.loaded["apps/filemanager/filemanager"]
-                        local fm = type(FM) == "table" and FM.instance
-                        local menu = type(fm) == "table" and fm.menu
-                        if type(menu) == "table" and type(menu.onShowMenu) == "function" then
-                            pcall(menu.onShowMenu, menu)
-                        end
+                        pcall(function()
+                            self:nextTick(function()
+                                local function tryMenu(mod_name)
+                                    local M = package.loaded[mod_name]
+                                    local inst = type(M) == "table" and M.instance
+                                    local menu = type(inst) == "table" and inst.menu
+                                    if type(menu) == "table" and type(menu.onShowMenu) == "function" then
+                                        pcall(menu.onShowMenu, menu)
+                                        return true
+                                    end
+                                    return false
+                                end
+                                if tryMenu("apps/filemanager/filemanager") then return end
+                                if tryMenu("apps/reader/readerui") then return end
+                                local ok_d, Dispatcher = pcall(require, "dispatcher")
+                                if ok_d and type(Dispatcher) == "table" and type(Dispatcher.execute) == "function" then
+                                    pcall(Dispatcher.execute, Dispatcher, "show_menu")
+                                    return
+                                end
+                                local ok_ev, Event = pcall(require, "ui/event")
+                                if ok_ev then
+                                    pcall(function() self:sendEvent(Event:new("ShowMenu")) end)
+                                end
+                            end)
+                        end)
                         return true
                     end
                 end
@@ -976,23 +998,42 @@ local function hookPluginOpen(plugin)
         local original_sheet = plugin.openMenuSheet
 
         local function openToolsMenu()
-            local FM = package.loaded["apps/filemanager/filemanager"]
-            local fm = type(FM) == "table" and FM.instance
-            local menu = type(fm) == "table" and fm.menu
-            if type(menu) == "table" and type(menu.onShowMenu) == "function" then
-                logger.info(TAG, "opening tools menu")
-                pcall(menu.onShowMenu, menu)
-                return true
+            -- Prefer the live FileManager or ReaderUI menu instance (original toolbar).
+            local function tryMenu(mod_name)
+                local M = package.loaded[mod_name]
+                local inst = type(M) == "table" and M.instance
+                local menu = type(inst) == "table" and inst.menu
+                if type(menu) == "table" and type(menu.onShowMenu) == "function" then
+                    logger.info(TAG, "opening tools menu via", mod_name)
+                    pcall(menu.onShowMenu, menu)
+                    return true
+                end
+                return false
             end
+            if tryMenu("apps/filemanager/filemanager") then return true end
+            if tryMenu("apps/reader/readerui") then return true end
+
+            -- Dispatcher path used by many gestures / toolbar shortcuts.
+            local ok_d, Dispatcher = pcall(require, "dispatcher")
+            if ok_d and type(Dispatcher) == "table" and type(Dispatcher.execute) == "function" then
+                local ok = pcall(Dispatcher.execute, Dispatcher, "show_menu")
+                if ok then
+                    logger.info(TAG, "opening tools menu via Dispatcher show_menu")
+                    return true
+                end
+            end
+
             -- Fallback: broadcast ShowMenu
             local ok_ev, Event = pcall(require, "ui/event")
             local ok_ui, UIManager = pcall(require, "ui/uimanager")
             if ok_ev and ok_ui then
+                logger.info(TAG, "opening tools menu via ShowMenu event")
                 pcall(function()
                     UIManager:sendEvent(Event:new("ShowMenu"))
                 end)
                 return true
             end
+            logger.warn(TAG, "openToolsMenu: no menu path available")
             return false
         end
 
@@ -1015,10 +1056,31 @@ local function hookPluginOpen(plugin)
                 if ok_ui then
                     pcall(function() UIManager:close(widget) end)
                 end
-                openToolsMenu()
+                -- Defer tools menu one tick so the sheet is fully closed first.
+                if ok_ui then
+                    pcall(function()
+                        UIManager:nextTick(function()
+                            openToolsMenu()
+                        end)
+                    end)
+                else
+                    openToolsMenu()
+                end
                 return true
             end
 
+            -- BookOrbit MenuPage registers ges_events.SwipePage → onSwipePage
+            -- (not onSwipe). That was why the second swipe never fired.
+            local original_swipe_page = widget.onSwipePage
+            widget.onSwipePage = function(this, arg, ges_ev)
+                if maybeToolsFromSouth(ges_ev) then return true end
+                if type(original_swipe_page) == "function" then
+                    return original_swipe_page(this, arg, ges_ev)
+                end
+                return true
+            end
+
+            -- Keep onSwipe too in case a future build or intermediate wrapper uses it.
             local original_swipe = widget.onSwipe
             widget.onSwipe = function(this, arg, ges_ev)
                 if maybeToolsFromSouth(ges_ev) then return true end
@@ -1027,19 +1089,28 @@ local function hookPluginOpen(plugin)
                 end
             end
 
-            -- Menu builds Event:new("Swipe", args, ges) so ges is args[2].
+            -- Also catch Event:new("Swipe", ...) / Gesture if they reach handleEvent.
             local original_handle = widget.handleEvent
             if type(original_handle) == "function" then
                 widget.handleEvent = function(this, event, ...)
-                    if type(event) == "table" and event.name == "Swipe" then
-                        local a = event.args
-                        local ges = type(a) == "table" and (a[2] or a[1]) or nil
-                        if maybeToolsFromSouth(ges) then return true end
+                    if type(event) == "table" then
+                        local ename = event.name
+                        if ename == "Swipe" or ename == "SwipePage" or ename == "Gesture" then
+                            local a = event.args
+                            local ges = type(a) == "table" and (a[2] or a[1]) or nil
+                            if type(ges) ~= "table" and ename == "Gesture" then
+                                ges = (a and a[1]) or event
+                            end
+                            if type(ges) ~= "table" and type(event.ges) == "table" then
+                                ges = event.ges
+                            end
+                            if maybeToolsFromSouth(ges) then return true end
+                        end
                     end
                     return original_handle(this, event, ...)
                 end
             end
-            logger.info(TAG, "attached second-swipe tools on menu sheet")
+            logger.info(TAG, "attached second-swipe tools on menu sheet (onSwipePage)")
         end
 
         plugin.openMenuSheet = function(self, ...)
@@ -1492,6 +1563,7 @@ local PILL_COLORS = {
     { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" }, { "Gold", "#D4A017" },
     { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
 }
+
 
 local function pillColorValue(hex)
     if type(hex) ~= "string" then return nil end
