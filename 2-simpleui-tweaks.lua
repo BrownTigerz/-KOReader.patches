@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.4
+Version 2.14.7
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,11 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.7 Menu reorganised: Modules, Critter, Appearance, Bars & Menus;
+         toggles listed above submenus in each group.
+  2.14.6 Side panel moved to 2-simpleui-sidepanel.lua (settings + BookOrbit +
+         view toggles). This patch only bridges the home swipe when that
+         patch is installed.
   2.14.4 Section label hook forwards SimpleUI 3.0.1's new `inside` param,
          so labels inside a module's box keep their inside styling.
   2.14.3 Wording pass: menu help texts and critter lines rewritten to
@@ -333,7 +338,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.4"
+local VERSION = "2.14.7"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -370,9 +375,6 @@ local DEFAULTS = {
     module_colors    = {},          -- per-module text: [module id] = { text, night }
     currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
     currently_books  = 4,           --   how many (current book included), 2-6
-    tbr_panel        = "right",     -- To Be Read side panel: swipe in from "right" / "left" edge, or "off"
-    tbr_panel_view   = "tbr",       --   which view it opens to: "tbr" / "coll:<name>" / "new" / "history" / "last"
-    tbr_panel_colls  = {},          --   more KOReader collections shown as panel views, in order: { "Book Club", ... }
     critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own, -1 = dynamic)
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
     critter_row      = 100,         -- Tiny Critter row height, % of SimpleUI's
@@ -384,7 +386,6 @@ local DEFAULTS = {
     page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
     critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
-    tbr_edge         = "narrow",    -- To Be Read panel swipe zone: "wide" (1/8, KOReader's) / "narrow" (1/14) / "edge" (1/24)
 }
 
 local userpatch  = require("userpatch")
@@ -2924,8 +2925,6 @@ do
     end
 end
 
-local hookHomeEdgeSwipe   -- To Be Read side panel: hooks SimpleUI home's swipes (defined below)
-
 -- ---- Keep SimpleUI home under windows opened from the menu ---------------------------
 -- SimpleUI closes its home whenever a full-screen window opens, and brings it
 -- back when that window closes, unless a dialog is still open. KOReader's
@@ -2982,8 +2981,11 @@ do
     if type(orig_show) == "function" and not ours[orig_show] then
         UIManager.show = mine(function(self, w, ...)
             if type(w) == "table" and w.name == "homescreen" then
-                local ok, err = pcall(hookHomeEdgeSwipe, w)
-                if not ok then logger.warn(TAG, "edge swipe hook:", err) end
+                -- Side panel lives in 2-simpleui-sidepanel.lua
+                if package.loaded.simpleui_sidepanel
+                        and type(package.loaded.simpleui_sidepanel.onHomeShow) == "function" then
+                    pcall(package.loaded.simpleui_sidepanel.onHomeShow, w)
+                end
                 local ok2, err2 = pcall(hookPageFlash, w)
                 if not ok2 then logger.warn(TAG, "page flash hook:", err2) end
             end
@@ -2994,606 +2996,6 @@ do
             end
             return orig_show(self, w, ...)
         end)
-    end
-end
-
--- ---- To Be Read side panel --------------------------------------------------------
--- Swipe in from the right (or left) edge of SimpleUI home: a panel slides in
--- with the To Be Read list, the KOReader collection Bookshelf's "Add to To Be
--- Read" and SimpleUI's TBR module both use. 5 books, one per line (cover,
--- title, author); "Show all (N)" when there are more. Tap a book to open it,
--- hold it to remove it from the list. Tap outside or swipe it back to close.
--- SimpleUI hands horizontal swipes that start at a screen edge on to
--- KOReader's gestures (they never turn its pages); we take only the one from
--- the chosen edge, on the home screen. Built only when opened.
-local TBR_COLL = "To Be Read"
-local TBR_ROWS = 5
--- How far in from the edge a swipe may start: Wide is KOReader's own edge
--- zone (1/8 of the screen); Narrow and Edge Only leave more room for page
--- swipes and only open the panel from right at the edge.
-local EDGE_RATIOS = { wide = 1 / 8, narrow = 1 / 14, edge = 1 / 24 }
-local function edgeRatio() return EDGE_RATIOS[cfg.tbr_edge] or EDGE_RATIOS.narrow end
-
-local function tbrList()
-    local okm, TBR = pcall(require, "modules/module_tbr")
-    if okm and type(TBR) == "table" and type(TBR.getTBRList) == "function" then
-        local ok, list = pcall(TBR.getTBRList)
-        if ok and type(list) == "table" then return list end
-    end
-    -- without SimpleUI's module: read the collection directly
-    local okr, RC = pcall(require, "readcollection")
-    local coll = okr and type(RC) == "table" and RC.coll and RC.coll[TBR_COLL]
-    if type(coll) ~= "table" then return {} end
-    local lfs = require("libs/libkoreader-lfs")
-    local items = {}
-    for _k, it in pairs(coll) do
-        if type(it) == "table" and it.file and lfs.attributes(it.file, "mode") == "file" then items[#items + 1] = it end
-    end
-    table.sort(items, function(a, b) return (a.order or 0) < (b.order or 0) end)
-    local fps = {}
-    for i, it in ipairs(items) do fps[i] = it.file end
-    return fps
-end
-
-local function tbrRemove(fp)
-    local okm, TBR = pcall(require, "modules/module_tbr")
-    if okm and type(TBR) == "table" and type(TBR.removeTBR) == "function" then
-        return pcall(TBR.removeTBR, fp)
-    end
-    local okr, RC = pcall(require, "readcollection")
-    if okr and type(RC) == "table" and type(RC.removeItem) == "function" then
-        return pcall(RC.removeItem, RC, fp, TBR_COLL)
-    end
-end
-
-local function newBooksList()
-    -- Newly added books via SimpleUI's new_books source (by file date)
-    local oks, Sources = pcall(require, "engines/sui_book_sources")
-    if oks and type(Sources) == "table" and type(Sources.bind) == "function" then
-        local okb, src = pcall(Sources.bind, "new_books")
-        if okb and type(src) == "table" and type(src.getFileList) == "function" then
-            local ok, list = pcall(src.getFileList)
-            if ok and type(list) == "table" then return list end
-        end
-    end
-    -- SimpleUI without book sources (2.7.5 release): same ranking as its
-    -- New Books module gets from this patch
-    local ok, fps = pcall(newestBooks)
-    return (ok and type(fps) == "table") and fps or {}
-end
-
-local function historyList()
-    -- Recently opened books from KOReader's reading history
-    local okh, RH = pcall(require, "readhistory")
-    local hist = okh and type(RH) == "table" and RH.hist
-    if type(hist) ~= "table" then return {} end
-    local lfs = require("libs/libkoreader-lfs")
-    local fps, seen = {}, {}
-    for i = 1, math.min(#hist, 30) do
-        local fp = hist[i] and hist[i].file
-        if type(fp) == "string" and not seen[fp] and lfs.attributes(fp, "mode") == "file" then
-            seen[fp] = true
-            fps[#fps + 1] = fp
-        end
-    end
-    return fps
-end
-
--- Other KOReader collections as panel views ("coll:<name>").
-local function collList(name)
-    local okr, RC = pcall(require, "readcollection")
-    local coll = okr and type(RC) == "table" and RC.coll and RC.coll[name]
-    if type(coll) ~= "table" then return {} end
-    local lfs = require("libs/libkoreader-lfs")
-    local items = {}
-    for _k, it in pairs(coll) do
-        if type(it) == "table" and it.file and lfs.attributes(it.file, "mode") == "file" then items[#items + 1] = it end
-    end
-    table.sort(items, function(a, b) return (a.order or 0) < (b.order or 0) end)
-    local fps = {}
-    for i, it in ipairs(items) do fps[i] = it.file end
-    return fps
-end
-
-local function collRemove(fp, name)
-    local okr, RC = pcall(require, "readcollection")
-    if okr and type(RC) == "table" and type(RC.removeItem) == "function" then
-        return pcall(RC.removeItem, RC, fp, name)
-    end
-end
-
--- All collection names except To Be Read (always in the panel), sorted.
-local function allCollectionNames()
-    local okr, RC = pcall(require, "readcollection")
-    local names = {}
-    if okr and type(RC) == "table" and type(RC.coll) == "table" then
-        for name in pairs(RC.coll) do
-            if type(name) == "string" and name ~= TBR_COLL then names[#names + 1] = name end
-        end
-    end
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
-    return names
-end
-
-local function collLabel(name)
-    if name == "favorites" then return _("Favorites") end
-    return name
-end
-
-local function isCollPicked(name)
-    for _i, n in ipairs(cfg.tbr_panel_colls or {}) do if n == name then return true end end
-    return false
-end
-
--- The swipe order: To Be Read, the picked collections that have books, Newly Added.
-local function panelViews()
-    local views = { "tbr" }
-    for _i, name in ipairs(cfg.tbr_panel_colls or {}) do
-        if type(name) == "string" and #collList(name) > 0 then views[#views + 1] = "coll:" .. name end
-    end
-    views[#views + 1] = "new"
-    return views
-end
-
--- Says why a picked collection isn't in the panel (no books yet). Once per
--- collection per KOReader start, so it doesn't nag on every open.
-local empty_noted = {}
-local panelNote   -- shows a short note (defined after the shared note helper)
-local function noteEmptyCollections(force_name)
-    local empty = {}
-    for _i, name in ipairs(cfg.tbr_panel_colls or {}) do
-        if (force_name == name or not empty_noted[name]) and #collList(name) == 0 then
-            empty_noted[name] = true
-            empty[#empty + 1] = collLabel(name)
-        end
-    end
-    if #empty > 0 and panelNote then
-        panelNote(string.format(_("%s has no books yet, so it isn't shown in the side panel. Add a book and it'll appear."),
-            table.concat(empty, ", ")))
-    end
-end
-
-local function bookMeta(fp)
-    local okb, SH = pcall(require, "modules/module_books_shared")
-    local bd = okb and type(SH) == "table" and type(SH.getBookData) == "function"
-        and select(2, pcall(SH.getBookData, fp))
-    local title = type(bd) == "table" and bd.title or nil
-    if not title or title == "" then
-        title = (fp:match("([^/]+)$") or fp):gsub("%.[^.]+$", "")
-    end
-    local percent = type(bd) == "table" and bd.percent or nil
-    local status = type(bd) == "table" and bd.status or nil
-    return title, type(bd) == "table" and bd.authors or "", okb and SH or nil, percent, status
-end
-
-local tbr_panel_open = false
-local tbr_panel_view = "tbr"   -- "tbr" | "new" | "history"
-local tbr_panel_prev_view = "tbr"   -- view to return to when leaving History
-local tbr_panel_root = nil   -- the open panel widget, for suspend-dismiss
-
--- reuse: the open panel, to rebuild in place (view switch): no close, no
--- repaint of the home behind it, just this panel's area refreshed.
-local function openTBRPanel(hs, view, switching, reuse)
-    if tbr_panel_open and not reuse then return end
-    -- Apply the configured default view on every open, unless set to "last"
-    -- (which keeps wherever you left off).
-    local dv = cfg.tbr_panel_view
-    if switching then
-        -- switching views inside an open panel: keep the view asked for
-    elseif dv == "last" then
-        -- keep tbr_panel_view as-is (where you left off)
-    elseif dv == "new" or dv == "history" then
-        tbr_panel_view = dv
-    elseif type(dv) == "string" and dv:sub(1, 5) == "coll:" and isCollPicked(dv:sub(6))
-            and #collList(dv:sub(6)) > 0 then
-        tbr_panel_view = dv
-    else
-        tbr_panel_view = "tbr"
-    end
-    -- a view switch has already set where "back" goes (history icon);
-    -- overwriting it here made back from History land on History again
-    if not switching then tbr_panel_prev_view = tbr_panel_view end
-    tbr_panel_view = view or tbr_panel_view or "tbr"
-    -- a collection view whose collection was unticked or emptied: back to To Be Read
-    if tbr_panel_view:sub(1, 5) == "coll:" then
-        local n = tbr_panel_view:sub(6)
-        if not isCollPicked(n) or #collList(n) == 0 then tbr_panel_view = "tbr" end
-    end
-    if not switching then pcall(noteEmptyCollections) end
-    local side = cfg.tbr_panel
-    local UIManager       = require("ui/uimanager")
-    local InputContainer  = require("ui/widget/container/inputcontainer")
-    local FrameContainer  = require("ui/widget/container/framecontainer")
-    local VerticalGroup   = require("ui/widget/verticalgroup")
-    local HorizontalGroup = require("ui/widget/horizontalgroup")
-    local VerticalSpan    = require("ui/widget/verticalspan")
-    local HorizontalSpan  = require("ui/widget/horizontalspan")
-    local LineWidget      = require("ui/widget/linewidget")
-    local TextWidget      = require("ui/widget/textwidget")
-    local TextBoxWidget   = require("ui/widget/textboxwidget")
-    local Font            = require("ui/font")
-    local Geom            = require("ui/geometry")
-    local GestureRange    = require("ui/gesturerange")
-    local Size            = require("ui/size")
-
-    local sw, sh = Screen:getWidth(), Screen:getHeight()
-    local pw = math.floor(sw * 0.42)
-    local px = (side == "left") and 0 or (sw - pw)
-    local panel_dimen = Geom:new{ x = px, y = 0, w = pw, h = sh }
-    local pad = Screen:scaleBySize(14)
-    local cover_h = Screen:scaleBySize(96)
-    local cover_w = math.floor(cover_h * 2 / 3)
-    local text_w = pw - pad * 3 - cover_w
-    -- View: "tbr" (To Be Read), "new" (Newly Added), "history" (Recent History)
-    local view = tbr_panel_view
-    local coll_name = view:sub(1, 5) == "coll:" and view:sub(6) or nil
-    local list, view_title
-    if coll_name then
-        list = collList(coll_name)
-        view_title = collLabel(coll_name)
-    elseif view == "new" then
-        list = newBooksList()
-        view_title = _("Newly Added")
-    elseif view == "history" then
-        list = historyList()
-        view_title = _("History")
-    else
-        list = tbrList()
-        view_title = _("To Be Read")
-    end
-    local changed = false
-
-    local root
-    if reuse then
-        root = reuse
-        for k = #root, 1, -1 do root[k] = nil end
-    else
-        root = InputContainer:new{
-            dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
-            modal = true,
-            name = "sui_tbr_panel",
-        }
-    end
-    -- close(true): only to reopen in another view right away. No refresh
-    -- here: the new view's own refresh covers the same area.
-    local function close(for_switch)
-        tbr_panel_open = false
-        tbr_panel_root = nil
-        if for_switch then
-            UIManager:close(root)
-            return
-        end
-        UIManager:close(root, "full", panel_dimen)
-        if changed and hs and type(hs._refreshImmediate) == "function" then
-            pcall(hs._refreshImmediate, hs, false)   -- the home's TBR module catches up
-        end
-    end
-    local function openBook(fp)
-        close()
-        local open_fn = hs and hs._ctx_cache and hs._ctx_cache.open_fn
-        if type(open_fn) == "function" then
-            open_fn(fp)
-        else
-            require("apps/reader/readerui"):showReader(fp)
-        end
-    end
-    local function showAll()
-        close()
-        local FM = package.loaded["apps/filemanager/filemanager"]
-        local fm = type(FM) == "table" and FM.instance
-        if not (fm and fm.collections and type(fm.collections.onShowColl) == "function") then return end
-        if hs then hs._navbar_closing_intentionally = true end   -- SimpleUI: keep the home's state
-        pcall(fm.collections.onShowColl, fm.collections, coll_name or TBR_COLL)
-        if hs then hs._navbar_closing_intentionally = nil end
-        local bm = fm.collections.booklist_menu
-        if type(bm) == "table" and type(bm.close_callback) == "function" then
-            bm.onReturn = function()   -- back goes home, not to the collections list
-                bm.close_callback()
-                pcall(showSimpleUIHome)
-            end
-        end
-    end
-
-    local title_face = Font:getFace("smalltfont")
-    local author_face = Font:getFace("cfont", 16)
-    local head_face = Font:getFace("tfont", 22)
-    local group = VerticalGroup:new{ align = "left" }
-    -- Header: title on the left, history icon on the right (top-right)
-    local title_text = (#list > 0) and string.format("%s (%d)", view_title, #list) or view_title
-    local title_widget = TextWidget:new{
-        text = title_text,
-        face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
-    }
-    -- Header icon (top-right): context-aware.
-    -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
-    -- In History view: "<" text → tap goes back to previous view.
-    -- (back.svg doesn't load reliably on-device; text always renders.)
-    local hist_size = Screen:scaleBySize(28)
-    local IconWidget = require("ui/widget/iconwidget")
-    local is_history_view = (view == "history")
-    local hist_icon_path = nil
-    if not is_history_view then
-        -- Use SimpleUI's own path resolver for the absolute plugin directory.
-        local okp, SuiPaths = pcall(require, "infra/sui_paths")
-        if okp and type(SuiPaths) == "table" and type(SuiPaths.getPluginDir) == "function" then
-            local okd, pdir = pcall(SuiPaths.getPluginDir)
-            if okd and type(pdir) == "string" and pdir ~= "" then
-                local p = pdir .. "icons/history.svg"
-                local lfs = require("libs/libkoreader-lfs")
-                if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
-            end
-        end
-        if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
-            local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
-            local lfs = require("libs/libkoreader-lfs")
-            if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
-        end
-    end
-    local hist_icon_child
-    if not is_history_view and hist_icon_path then
-        hist_icon_child = IconWidget:new{ file = hist_icon_path, width = hist_size, height = hist_size }
-    elseif is_history_view then
-        -- Simple text back arrow; always renders on Kobo
-        hist_icon_child = TextWidget:new{
-            text = "<", face = Font:getFace("tfont", 24), bold = true,
-        }
-    else
-        hist_icon_child = VerticalSpan:new{ width = hist_size }
-    end
-    local hist_icon = InputContainer:new{
-        dimen = Geom:new{ w = hist_size, h = hist_size },
-        hist_icon_child,
-    }
-    hist_icon.ges_events = {
-        TapHist = { GestureRange:new{ ges = "tap", range = hist_icon.dimen } },
-    }
-    function hist_icon:onTapHist()
-        local v = tbr_panel_view
-        if v == "history" then
-            -- back to the view we came from
-            tbr_panel_view = tbr_panel_prev_view
-        else
-            -- remember where we were, go to history
-            tbr_panel_prev_view = v
-            tbr_panel_view = "history"
-        end
-        openTBRPanel(hs, tbr_panel_view, true, root)
-        return true
-    end
-    local header = HorizontalGroup:new{ align = "center" }
-    header[#header + 1] = title_widget
-    header[#header + 1] = HorizontalSpan:new{ width = pad }
-    header[#header + 1] = hist_icon
-    group[#group + 1] = header
-    group[#group + 1] = VerticalSpan:new{ width = pad }
-    if #list == 0 then
-        local empty_text
-        if view == "new" then
-            empty_text = _("No new books. Add books to your library and they'll show up here.")
-        elseif view == "history" then
-            empty_text = _("No reading history yet. Open a book and it'll show up here.")
-        else
-            empty_text = _("Nothing here yet. Hold a book in Bookshelf and choose To Be Read to add it.")
-        end
-        group[#group + 1] = TextBoxWidget:new{
-            text = empty_text,
-            face = author_face, width = pw - pad * 2,
-        }
-    end
-    local SH
-    for i = 1, math.min(TBR_ROWS, #list) do
-        local fp = list[i]
-        local title, authors, sh_mod, percent, status = bookMeta(fp)
-        SH = SH or sh_mod
-        local cover = SH and SH.getBookCover and SH.getBookCover(fp, cover_w, cover_h)
-        if not cover and SH and SH.coverPlaceholder then cover = SH.coverPlaceholder(title, authors, cover_w, cover_h) end
-        cover = cover or FrameContainer:new{ bordersize = Size.border.thin, padding = 0,
-            dimen = Geom:new{ w = cover_w, h = cover_h }, VerticalSpan:new{ width = cover_h - 2 } }
-        local meta = VerticalGroup:new{ align = "left",
-            TextBoxWidget:new{ text = title, face = title_face, bold = true, width = text_w,
-                               height = title_face.size * 3, height_adjust = true, height_overflow_show_ellipsis = true },
-        }
-        if authors ~= "" then
-            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
-            meta[#meta + 1] = TextWidget:new{ text = authors, face = author_face, max_width = text_w }
-        end
-        -- History view: show completion status or progress
-        if view == "history" then
-            local prog_text
-            if status == "complete" or (percent and percent >= 1) then
-                prog_text = _("Completed")
-            elseif percent and percent > 0 then
-                prog_text = string.format(_("%d%% read"), math.floor(percent * 100))
-            else
-                prog_text = _("Not started")
-            end
-            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
-            meta[#meta + 1] = TextWidget:new{ text = prog_text, face = author_face, max_width = text_w }
-        end
-        local row = InputContainer:new{
-            dimen = Geom:new{ w = pw - pad * 2, h = cover_h },
-            HorizontalGroup:new{ align = "center", cover, HorizontalSpan:new{ width = pad }, meta },
-        }
-        row.ges_events = {
-            TapRow  = { GestureRange:new{ ges = "tap",  range = function() return row.dimen end } },
-            HoldRow = { GestureRange:new{ ges = "hold", range = function() return row.dimen end } },
-        }
-        function row:onTapRow() openBook(fp) return true end
-        function row:onHoldRow()
-            if view ~= "tbr" and not coll_name then return false end   -- remove: To Be Read and collections
-            local ButtonDialog = require("ui/widget/buttondialog")
-            local dlg
-            dlg = ButtonDialog:new{
-                title = title, title_align = "center",
-                buttons = {
-                    {{ text = string.format(_("Remove from %s"), coll_name and collLabel(coll_name) or _("To Be Read")),
-                       callback = function()
-                        UIManager:close(dlg)
-                        if coll_name then collRemove(fp, coll_name) else tbrRemove(fp) end
-                        changed = true
-                        close()
-                        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view, true) end)   -- reopen with the new list, same view
-                    end }},
-                    {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
-                },
-            }
-            UIManager:show(dlg)
-            return true
-        end
-        group[#group + 1] = row
-        group[#group + 1] = VerticalSpan:new{ width = pad }
-        group[#group + 1] = LineWidget:new{ dimen = Geom:new{ w = pw - pad * 2, h = Size.line.thin } }
-        group[#group + 1] = VerticalSpan:new{ width = pad }
-    end
-    if (view == "tbr" or coll_name) and #list > TBR_ROWS then
-        local more = InputContainer:new{
-            dimen = Geom:new{ w = pw - pad * 2, h = Screen:scaleBySize(40) },
-            TextWidget:new{ text = string.format(_("Show all (%d)"), #list) .. "  \226\128\186",
-                            face = title_face, bold = true },
-        }
-        more.ges_events = { TapMore = { GestureRange:new{ ges = "tap", range = function() return more.dimen end } } }
-        function more:onTapMore() showAll() return true end
-        group[#group + 1] = more
-    end
-
-    -- View indicators at the bottom: 2 dots for the swipeable views
-    -- (To Be Read / Newly Added). Filled dot = current view.
-    -- History is tap-only via the icon, not swipeable.
-    -- Same drawn-dot style as Currently Reading.
-    local views = panelViews()
-    local cur
-    for i, v in ipairs(views) do if v == view then cur = i end end
-    if cur then
-    do
-        local dots = HorizontalGroup:new{ align = "center" }
-        local dot_r = Screen:scaleBySize(4)
-        local dot_gap = Screen:scaleBySize(10)
-        for i = 1, #views do
-            local dot = InputContainer:new{
-                dimen = Geom:new{ w = dot_r * 2, h = dot_r * 2 },
-            }
-            local filled = (i == cur)
-            dot.paintTo = function(self, bb, x, y)
-                local cx, cy = x + dot_r, y + dot_r
-                local col = Blitbuffer.COLOR_BLACK
-                if filled then
-                    -- filled circle
-                    for dy = -dot_r, dot_r do
-                        local hw = math.floor(math.sqrt(dot_r * dot_r - dy * dy))
-                        bb:paintRect(cx - hw, cy + dy, hw * 2, 1, col)
-                    end
-                else
-                    -- outline circle (8 segments)
-                    for s = 0, 7 do
-                        local a1, a2 = (s * 2 * math.pi) / 8, ((s + 1) * 2 * math.pi) / 8
-                        local x1, y1 = cx + dot_r * math.cos(a1), cy + dot_r * math.sin(a1)
-                        local x2, y2 = cx + dot_r * math.cos(a2), cy + dot_r * math.sin(a2)
-                        bb:paintRect(math.min(x1, x2), math.min(y1, y2),
-                                     math.abs(x2 - x1) + 2, math.abs(y2 - y1) + 2, col)
-                    end
-                end
-            end
-            dots[#dots + 1] = dot
-            if i < #views then dots[#dots + 1] = HorizontalSpan:new{ width = dot_gap } end
-        end
-        group[#group + 1] = VerticalSpan:new{ width = pad }
-        group[#group + 1] = dots
-    end
-    end
-
-    local frame = FrameContainer:new{
-        width = pw, height = sh,
-        background = Blitbuffer.COLOR_WHITE,
-        bordersize = 0, padding = pad, margin = 0,
-        group,
-    }
-    local edge = LineWidget:new{ dimen = Geom:new{ w = Size.border.thick, h = sh } }
-    root[1] = FrameContainer:new{ bordersize = 0, padding = 0, margin = 0, frame }
-    -- paint just the panel (and its edge line) at its side; the home stays visible beside it
-    root.paintTo = function(self, bb, x, y)
-        frame:paintTo(bb, x + px, y)
-        edge:paintTo(bb, (side == "left") and (x + pw - Size.border.thick) or (x + px), y)
-    end
-    root.ges_events = {
-        TapOutside = { GestureRange:new{ ges = "tap", range = root.dimen } },
-        SwipeClose = { GestureRange:new{ ges = "swipe", range = root.dimen } },
-    }
-    function root:onTapOutside(_, ges)
-        if ges and ges.pos and not panel_dimen:contains(ges.pos) then close() end
-        return true
-    end
-    function root:onSwipeClose(_, ges)
-        local dir = ges and ges.direction
-        if dir ~= "west" and dir ~= "east" then return true end
-        -- Swipe cycles between the 2 swipeable views (TBR / New).
-        -- History is tap-only via the icon. Never closes on swipe;
-        -- only tapping outside the panel closes it.
-        local v = tbr_panel_view
-        if v == "history" then return true end  -- no swipe in History view
-        -- west = next view, east = previous; loops around
-        local order = panelViews()
-        local at = 1
-        for i, ov in ipairs(order) do if ov == v then at = i end end
-        local step = (dir == "west") and 1 or -1
-        local okbd, BD = pcall(require, "ui/bidi")
-        if okbd and type(BD) == "table" and BD.mirroredUILayout and BD.mirroredUILayout() then step = -step end
-        local next_view = order[(at - 1 + step) % #order + 1]
-        tbr_panel_view = next_view
-        openTBRPanel(hs, next_view, true, root)
-        return true
-    end
-    tbr_panel_open = true
-    tbr_panel_root = root
-    -- "full" (one flash of just the panel area) on open and close: a plain
-    -- "ui" refresh left ghosts of the covers/home behind. "full" also isn't
-    -- downgraded by "Avoid mandatory black flashes in UI".
-    -- Switching views inside the open panel uses a quick "ui" refresh
-    -- (~0.15 s instead of ~0.6 s); any faint ghost from it is cleared by
-    -- the full flash when the panel closes.
-    if reuse then
-        UIManager:setDirty(root, function() return "ui", panel_dimen end)
-    else
-        UIManager:show(root, switching and "ui" or "full", panel_dimen)
-    end
-end
-
-hookHomeEdgeSwipe = function(hs)
-    if rawget(hs, "_sui_tbr_hooked") or type(hs.onScreenSwipe) ~= "function" then return end
-    rawset(hs, "_sui_tbr_hooked", true)
-    local orig = hs.onScreenSwipe
-    hs.onScreenSwipe = function(self, args, ges, ...)
-        local side = cfg.tbr_panel
-        if side ~= "off" and type(ges) == "table" and ges.pos then
-            local sw = Screen:getWidth()
-            local dir = ges.direction
-            local edge = math.floor(sw * edgeRatio())
-            if (side == "left" and dir == "east" and ges.pos.x <= edge)
-                    or (side ~= "left" and dir == "west" and ges.pos.x >= sw - edge) then
-                local ok, err = pcall(openTBRPanel, self)
-                if not ok then tbr_panel_open = false logger.warn(TAG, "To Be Read panel:", err) end
-                return true
-            end
-        end
-        return orig(self, args, ges, ...)
-    end
-end
-
--- Dismiss the TBR side panel on suspend: it should not stay open over the
--- sleep screen. Hooks UIManager.broadcastEvent for the onSuspend event,
--- the same pattern Network Tweaks uses.
-do
-    local ok, UIManager = pcall(require, "ui/uimanager")
-    if ok and type(UIManager) == "table" and type(UIManager.broadcastEvent) == "function" then
-        local orig_broadcast = UIManager.broadcastEvent
-        UIManager.broadcastEvent = function(self, event, ...)
-            local handler = type(event) == "table" and event.handler
-            if handler == "onSuspend" and tbr_panel_open and tbr_panel_root then
-                local root, open = tbr_panel_root, tbr_panel_open
-                tbr_panel_open, tbr_panel_root = false, nil
-                pcall(UIManager.close, UIManager, root)
-            end
-            return orig_broadcast(self, event, ...)
-        end
     end
 end
 
@@ -3626,11 +3028,6 @@ local function shared_note(banner_text, minimal_text, timeout)
     return false
 end
 
-panelNote = function(text)
-    if shared_note(text, text, 4) then return end
-    local ok, Notification = pcall(orig_require, "ui/widget/notification")
-    if ok and type(Notification) == "table" then Notification:notify(text) end
-end
 
 local function askRestart()
     local UIManager = orig_require("ui/uimanager")
@@ -4199,26 +3596,10 @@ local function buildMenu()
     return {
         text = _("SimpleUI Tweaks"),
         sub_item_table = {
+            -- Modules: toggles first, then colour options
             {
                 text = _("Modules"),
                 sub_item_table = {
-                    { text = _("Text Colour"),
-                      sub_item_table = text_colour_items },
-                    { text = _("Also Recolour Grey Text"),
-                      checked_func = function() return cfg.recolor_all end,
-                      callback = function() set("recolor_all", not cfg.recolor_all, true) end,
-                      separator = true },
-                    { text = _("Progress & Borders Colour"),
-                      sub_item_table = colorMenu("accent", true) },
-                    { text = _("Progress Track Colour"),
-                      sub_item_table = colorMenu("track", true) },
-                    { text = _("Use Progress Colours In"),
-                      sub_item_table = accent_items,
-                      separator = true },
-                    { text = _("Quick Actions Icons Keep Original Colours In Night Mode"),
-                      checked_func = function() return cfg.qa_icons_original end,
-                      callback = function() set("qa_icons_original", not cfg.qa_icons_original) end,
-                      separator = true },
                     { text = _("Currently Reading: Swipe Between Books"),
                       help_text = _("Swipe left or right on Currently Reading to step through your most recent books still in progress. Dots on the cover show where you are."),
                       checked_func = function() return cfg.currently_swipe end,
@@ -4237,6 +3618,57 @@ local function buildMenu()
                           return items
                       end,
                       separator = true },
+                    { text = _("Also Recolour Grey Text"),
+                      checked_func = function() return cfg.recolor_all end,
+                      callback = function() set("recolor_all", not cfg.recolor_all, true) end,
+                      separator = true },
+                    { text = _("Quick Actions Icons Keep Original Colours In Night Mode"),
+                      checked_func = function() return cfg.qa_icons_original end,
+                      callback = function() set("qa_icons_original", not cfg.qa_icons_original) end,
+                      separator = true },
+                    { text = _("Text Colour"),
+                      sub_item_table = text_colour_items },
+                    { text = _("Progress & Borders Colour"),
+                      sub_item_table = colorMenu("accent", true) },
+                    { text = _("Progress Track Colour"),
+                      sub_item_table = colorMenu("track", true) },
+                    { text = _("Use Progress Colours In"),
+                      sub_item_table = accent_items,
+                      separator = true },
+                },
+            },
+            -- Critter: all Tiny Critter settings in one place (toggles first)
+            {
+                text = _("Critter"),
+                sub_item_table = {
+                    { text = _("Critter Insights"),
+                      help_text = _("The Tiny Critter tells you about your reading: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
+                      checked_func = function() return cfg.critter_insights ~= false end,
+                      callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
+                    { text = _("Critter Pep Talk"),
+                      help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line moves up a step next time the home screen draws as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
+                      checked_func = function() return cfg.critter_pep ~= false end,
+                      callback = function() setHome("critter_pep", cfg.critter_pep == false) end },
+                    { text = _("Critter Wanders (Dynamic)"),
+                      help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment take over when this is off."),
+                      enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
+                      checked_func = function() return cfg.critter_wander ~= false end,
+                      callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
+                    { text_func = function()
+                          local names = { wander = _("SimpleUI's / wanders"), left = _("Left"), right = _("Right"), edges = _("Left or right") }
+                          return string.format(_("Critter Position: %s"), names[cfg.critter_pos] or names.wander)
+                      end,
+                      help_text = _("Where in its row the critter and its speech bubble go. Left or Right keeps them at that end, so the middle of the row (and your wallpaper behind it) stays clear. The third choice picks one end each time, never the middle. The first choice uses SimpleUI's Alignment, or wanders left, centre and right with Critter Wanders on. A bubble that needs the whole row can't move."),
+                      enabled_func = function() return critter_bubble ~= nil end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { "wander", _("SimpleUI's own (wanders with Critter Wanders)") }, { "left", _("Left") }, { "right", _("Right") }, { "edges", _("Left or right (never the middle)") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (cfg.critter_pos or "wander") == opt[1] end,
+                                  callback = function() setHome("critter_pos", opt[1]) end }
+                          end
+                          return items
+                      end },
                     { text_func = function()
                           local w = tonumber(cfg.critter_bubble) or 0
                           local names = { [0] = _("Default"), [360] = _("Wide"), [440] = _("Wider"), [2000] = _("Full Row"), [-1] = _("Dynamic") }
@@ -4258,14 +3690,6 @@ local function buildMenu()
                           return items
                       end,
                       separator = true },
-                    { text = _("Critter Insights"),
-                      help_text = _("The Tiny Critter tells you about your reading: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
-                      checked_func = function() return cfg.critter_insights ~= false end,
-                      callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
-                    { text = _("Critter Pep Talk"),
-                      help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line moves up a step next time the home screen draws as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
-                      checked_func = function() return cfg.critter_pep ~= false end,
-                      callback = function() setHome("critter_pep", cfg.critter_pep == false) end },
                     { text_func = function()
                           local m = type(cfg.critter_mix) == "table" and cfg.critter_mix or {}
                           return #m >= 2 and _("Critter Mix: ") .. #m .. " " .. _("critters") or _("Critter Mix: off")
@@ -4303,11 +3727,6 @@ local function buildMenu()
                           end
                           return items
                       end },
-                    { text = _("Critter Wanders (Dynamic)"),
-                      help_text = _("With Critter Bubble Width > Dynamic: each time the home screen draws the row, the critter and its bubble move to the left, centre or right, with the critter on either side of the bubble. SimpleUI's own Side and Alignment take over when this is off."),
-                      enabled_func = function() return critter_bubble ~= nil and (tonumber(cfg.critter_bubble) or 0) < 0 end,
-                      checked_func = function() return cfg.critter_wander ~= false end,
-                      callback = function() setHome("critter_wander", cfg.critter_wander == false) end },
                     { text_func = function()
                           local names = { auto = _("Auto"), white = _("White"), black = _("Black") }
                           return string.format(_("Critter Text Colour: %s"), names[cfg.critter_text] or names.auto)
@@ -4320,21 +3739,6 @@ local function buildMenu()
                               items[#items + 1] = { text = opt[2], radio = true,
                                   checked_func = function() return (cfg.critter_text or "auto") == opt[1] end,
                                   callback = function() setHome("critter_text", opt[1]) end }
-                          end
-                          return items
-                      end },
-                    { text_func = function()
-                          local names = { wander = _("SimpleUI's / wanders"), left = _("Left"), right = _("Right"), edges = _("Left or right") }
-                          return string.format(_("Critter Position: %s"), names[cfg.critter_pos] or names.wander)
-                      end,
-                      help_text = _("Where in its row the critter and its speech bubble go. Left or Right keeps them at that end, so the middle of the row (and your wallpaper behind it) stays clear. The third choice picks one end each time, never the middle. The first choice uses SimpleUI's Alignment, or wanders left, centre and right with Critter Wanders on. A bubble that needs the whole row can't move."),
-                      enabled_func = function() return critter_bubble ~= nil end,
-                      sub_item_table_func = function()
-                          local items = {}
-                          for _i, opt in ipairs({ { "wander", _("SimpleUI's own (wanders with Critter Wanders)") }, { "left", _("Left") }, { "right", _("Right") }, { "edges", _("Left or right (never the middle)") } }) do
-                              items[#items + 1] = { text = opt[2], radio = true,
-                                  checked_func = function() return (cfg.critter_pos or "wander") == opt[1] end,
-                                  callback = function() setHome("critter_pos", opt[1]) end }
                           end
                           return items
                       end },
@@ -4387,94 +3791,13 @@ local function buildMenu()
                           end
                           return items
                       end,
-                      separator = true },
-                    { text_func = function()
-                          local names = { right = _("Right Edge"), left = _("Left Edge"), off = _("Off") }
-                          return string.format(_("To Be Read Side Panel: %s"), names[cfg.tbr_panel] or cfg.tbr_panel)
-                      end,
-                      help_text = _("Swipe in from this edge of the home screen to open your To Be Read list (Bookshelf's \"To Be Read\" and SimpleUI's TBR). Tap a book to open it, hold it to remove it from the list."),
-                      sub_item_table = {
-                          { text = _("Right Edge"), radio = true,
-                            checked_func = function() return cfg.tbr_panel == "right" end,
-                            callback = function() cfg.tbr_panel = "right" saveConfig() end },
-                          { text = _("Left Edge"), radio = true,
-                            checked_func = function() return cfg.tbr_panel == "left" end,
-                            callback = function() cfg.tbr_panel = "left" saveConfig() end },
-                          { text = _("Off"), radio = true,
-                            checked_func = function() return cfg.tbr_panel == "off" end,
-                            callback = function() cfg.tbr_panel = "off" saveConfig() end },
-                      } },
-                    { text_func = function()
-                          local names = { wide = _("Wide"), narrow = _("Narrow"), edge = _("Edge Only") }
-                          return string.format(_("Side Panel Swipe Zone: %s"), names[cfg.tbr_edge] or names.narrow)
-                      end,
-                      help_text = _("How close to the screen edge a swipe has to start to open the To Be Read panel. Wide is KOReader's edge zone (an eighth of the screen); Narrow and Edge Only need the swipe to start nearer the edge, so ordinary swipes don't open it by accident."),
-                      enabled_func = function() return cfg.tbr_panel ~= "off" end,
-                      sub_item_table_func = function()
-                          local items = {}
-                          for _i, opt in ipairs({ { "wide", _("Wide (an eighth of the screen)") }, { "narrow", _("Narrow") }, { "edge", _("Edge Only") } }) do
-                              items[#items + 1] = { text = opt[2], radio = true,
-                                  checked_func = function() return (cfg.tbr_edge or "narrow") == opt[1] end,
-                                  callback = function() cfg.tbr_edge = opt[1]; saveConfig() end }
-                          end
-                          return items
-                      end },
-                    { text_func = function()
-                          local n = #(cfg.tbr_panel_colls or {})
-                          return n > 0 and string.format(_("Collections In Panel: %d"), n) or _("Collections In Panel")
-                      end,
-                      help_text = _("Pick more collections to show in the side panel, after To Be Read. Swipe left or right in the panel to switch between them. A collection with no books isn't shown until you add one."),
-                      sub_item_table_func = function()
-                          local items = {}
-                          for _i, name in ipairs(allCollectionNames()) do
-                              items[#items + 1] = {
-                                  text = collLabel(name),
-                                  checked_func = function() return isCollPicked(name) end,
-                                  keep_menu_open = true,
-                                  callback = function()
-                                      local list = cfg.tbr_panel_colls or {}
-                                      local out, found = {}, false
-                                      for _j, n in ipairs(list) do
-                                          if n == name then found = true else out[#out + 1] = n end
-                                      end
-                                      if not found then out[#out + 1] = name end
-                                      cfg.tbr_panel_colls = out
-                                      if found and cfg.tbr_panel_view == "coll:" .. name then cfg.tbr_panel_view = "tbr" end
-                                      saveConfig()
-                                      if not found then pcall(noteEmptyCollections, name) end
-                                  end,
-                              }
-                          end
-                          if #items == 0 then
-                              items[1] = { text = _("No other collections yet"), enabled = false }
-                          end
-                          return items
-                      end },
-                    { text_func = function()
-                          local names = { tbr = _("To Be Read"), new = _("Newly Added"), history = _("History"), last = _("Last View") }
-                          local v = cfg.tbr_panel_view
-                          local label = names[v] or (type(v) == "string" and v:sub(1, 5) == "coll:" and collLabel(v:sub(6))) or v
-                          return string.format(_("Panel Opens To: %s"), label)
-                      end,
-                      help_text = _("Which view the To Be Read side panel opens to. Last View reopens wherever you left off."),
-                      sub_item_table_func = function()
-                          local function opt(label, value)
-                              return { text = label, radio = true,
-                                       checked_func = function() return cfg.tbr_panel_view == value end,
-                                       callback = function() cfg.tbr_panel_view = value saveConfig() end }
-                          end
-                          local items = { opt(_("To Be Read"), "tbr") }
-                          for _i, name in ipairs(cfg.tbr_panel_colls or {}) do
-                              items[#items + 1] = opt(collLabel(name), "coll:" .. name)
-                          end
-                          items[#items + 1] = opt(_("Newly Added"), "new")
-                          items[#items + 1] = opt(_("History"), "history")
-                          items[#items + 1] = opt(_("Last View"), "last")
-                          return items
-                      end },
+                      separator = true }
                 },
             },
             {
+                text = _("Appearance"),
+                sub_item_table = {
+                    {
                 text_func = function()
                     local names = { off = _("Off"), normal = _("Normal"), strong = _("Strong") }
                     return string.format(_("Page Turn Flash: %s"), names[cfg.page_flash] or names.off)
@@ -4490,11 +3813,26 @@ local function buildMenu()
                     return items
                 end,
             },
-            {
+                    {
                 text = _("Section Titles"),
                 sub_item_table = titles_items,
             },
+                    {
+                text = _("Status Bar"),
+                sub_item_table = {
+                    item(_("Bold"), toggle(boldTbl, "topbar", refreshTopbarNow)),
+                    { text = _("Day Look In Night Mode"),
+                      checked_func = function() return cfg.topbar_day_night end,
+                      callback = function() set("topbar_day_night", not cfg.topbar_day_night) end },
+                },
+                separator = true,
+            }
+                },
+            },
             {
+                text = _("Bars & Menus"),
+                sub_item_table = {
+                    {
                 text = _("Nav Bar"),
                 sub_item_table = {
                     { text = _("Day Look In Night Mode"),
@@ -4505,7 +3843,7 @@ local function buildMenu()
                       callback = function() set("nav_icons_original", not cfg.nav_icons_original) end },
                 },
             },
-            {
+                    {
                 text = _("KOReader Menu"),
                 sub_item_table = {
                     { text_func = function()
@@ -4520,16 +3858,8 @@ local function buildMenu()
                       checked_func = function() return cfg.menu_icons.arrows end,
                       callback = function() cfg.menu_icons.arrows = not cfg.menu_icons.arrows; saveConfig() end },
                 },
-            },
-            {
-                text = _("Status Bar"),
-                sub_item_table = {
-                    item(_("Bold"), toggle(boldTbl, "topbar", refreshTopbarNow)),
-                    { text = _("Day Look In Night Mode"),
-                      checked_func = function() return cfg.topbar_day_night end,
-                      callback = function() set("topbar_day_night", not cfg.topbar_day_night) end },
+            }
                 },
-                separator = true,
             },
             {
                 text = _("Reset To Defaults"),
@@ -4552,6 +3882,7 @@ local function buildMenu()
             },
         },
     }
+
 end
 
 -- The top-level entry is cheap; the ~475-item submenu is only built when it's
