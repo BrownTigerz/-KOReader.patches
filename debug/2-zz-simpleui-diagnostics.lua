@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.12.1
+Version 2.14.1
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -68,6 +68,25 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.14.1 FLASH "by": a patch's pass-through wrapper of UIManager show /
+         close / setDirty is skipped, so the line names who really asked
+         (the side panel's own open and close flashes were put down to
+         2-bookorbit-tweaks.lua, which only wraps show and close).
+  2.14.0 Drawing time, part by part, for SimpleUI home and the side
+         panel. A paint of 80 ms+ gets a line: "draw: SimpleUI home
+         painted in 310 ms (module coverdeck 1 = 120 ms, covers 9 = 90
+         ms, text 40 = 50 ms, module critter 1 = 30 ms, rest 20 ms)".
+         Each home module's build of 80 ms+ is logged ("draw: built home
+         module currently in 140 ms"), and the side panel's build from
+         the swipe or tap to the panel showing. Per-minute summary adds
+         paint and build totals.
+  2.13.0 Slow taps and swipes now say who: the window on top and the
+         patch or plugin it comes from, plus any BookOrbit server calls
+         made while it ran and who made them (needs BookOrbit
+         diagnostics 1.4.0+). Example: "slow: Gesture swipe handled in
+         1300 ms | on top: sui_tbr_panel (2-simpleui-sidepanel.lua) |
+         waited on 2 server calls, 1120 ms: BookOrbit GET
+         /catalog/books 560 ms from 2-simpleui-sidepanel.lua:830".
   2.12.1 Ghosting check found KOReader's refresh table through the
          patches that wrap the screen redraw (2.12.0 said "not found").
   2.12.0 Ghosting check: every screen update compared with what was on
@@ -288,7 +307,7 @@ local function where(fn)
 end
 
 -- Hard expiry: first run kept in the state file.
-local DIAG_VERSION = "2.12.1"
+local DIAG_VERSION = "2.14.1"
 do
     -- version on line 1, first run on line 2: another version (or an
     -- older state file with just a time) starts a new 3 days
@@ -1432,16 +1451,75 @@ if ok_ui and type(UIManager) == "table" then
         end
         return h
     end
+    -- Which file a window comes from, from where its own functions (and its
+    -- class's) were defined: a plugin, with any patch that wraps it
+    -- ("bookorbit.koplugin, patched by 2-bookorbit-tweaks.lua"), or a patch
+    -- alone (the side panel). Only run for slow events.
+    local function ownerOf(w)
+        if type(w) ~= "table" or type(debug) ~= "table" or not debug.getinfo then return nil end
+        local tbl, plugin_hit, patch_hit = w, nil, nil
+        for _depth = 1, 3 do
+            if type(tbl) ~= "table" then break end
+            for _k, v in next, tbl do
+                if type(v) == "function" then
+                    local info = debug.getinfo(v, "S")
+                    local src = info and info.source or ""
+                    local file = src:match("patches/([^/]+)$")
+                    if file and not patch_hit and not file:find("diagnostics", 1, true) then patch_hit = file end
+                    if not plugin_hit then
+                        local plug = src:match("plugins/([^/]+%.koplugin)/")
+                        if plug then plugin_hit = plug end
+                    end
+                end
+            end
+            local mt = getmetatable(tbl)
+            local nxt = type(mt) == "table" and rawget(mt, "__index") or mt
+            if type(nxt) ~= "table" or nxt == tbl then break end
+            tbl = nxt
+        end
+        if plugin_hit and patch_hit then return plugin_hit .. ", patched by " .. patch_hit end
+        return plugin_hit or patch_hit
+    end
+    local function whoSlow(net_seq0)
+        local bits = {}
+        local stack = UIManager._window_stack
+        local top = type(stack) == "table" and stack[#stack] and stack[#stack].widget
+        if type(top) == "table" then
+            local owner = ownerOf(top)
+            bits[#bits + 1] = "on top: " .. tostring(top.name or top.title or "?")
+                .. (owner and (" (" .. owner .. ")") or "")
+        end
+        local NET = package.loaded.__diag_net_calls
+        if type(NET) == "table" and type(NET.list) == "table" and (NET.seq or 0) > net_seq0 then
+            local n, ms, parts = 0, 0, {}
+            for _i, c in ipairs(NET.list) do
+                if c.seq > net_seq0 then
+                    n, ms = n + 1, ms + (c.ms or 0)
+                    if #parts < 3 then
+                        parts[#parts + 1] = string.format("%s %d ms from %s", c.what, c.ms or 0, tostring(c.from))
+                    end
+                end
+            end
+            bits[#bits + 1] = string.format("waited on %d server call%s, %d ms: %s",
+                n, n == 1 and "" or "s", ms, table.concat(parts, "; "))
+        end
+        return #bits > 0 and (" | " .. table.concat(bits, " | ")) or ""
+    end
     local orig_send = UIManager.sendEvent
     if type(orig_send) == "function" then
         UIManager.sendEvent = function(self, event, ...)
             if not on() then return orig_send(self, event, ...) end
+            local NET = package.loaded.__diag_net_calls
+            local seq0 = type(NET) == "table" and NET.seq or 0
             local t0 = now_ms()
             local res = pk(orig_send(self, event, ...))
             local dt = now_ms() - t0
             local n = evName(event)
             note("event " .. n, dt)
-            if dt >= SLOW_MS then log("slow: %s handled in %d ms", n, dt) end
+            if dt >= SLOW_MS then
+                local okw, extra = pcall(whoSlow, seq0)
+                log("slow: %s handled in %d ms%s", n, dt, okw and extra or "")
+            end
             return unpack(res, 1, res.n)
         end
     end
@@ -1506,6 +1584,165 @@ if ok_ui and type(UIManager) == "table" then
 end
 
 -- --------------------------------------------------------------------------
+-- 6b. Drawing time, part by part (2.14.0): SimpleUI home and the side panel
+-- Home: each module's build and paint (Currently Reading, Cover Deck,
+-- critter, book grid, ...). Both windows: cover images and text inside
+-- them. Parts are timed "self only" (a cover inside a module counts as
+-- cover, once). Side panel build = from the swipe or tap to the panel
+-- being shown. A paint or build of 80 ms+ gets a line; totals go in the
+-- per-minute summary. Off with the logging window.
+-- --------------------------------------------------------------------------
+if ok_ui and type(UIManager) == "table" then
+    local ok_t, ktime = pcall(require, "ui/time")
+    local function now_us()
+        if ok_t and type(ktime) == "table" and ktime.now then return ktime.now() end
+        return os.clock() * 1e6
+    end
+    local SLOW_US = 80000
+    local ms = function(us) return math.floor(us / 1000) end
+    local TOT = {}   -- window -> { paints, us, max }
+    local BUILD = { n = 0, us = 0 }
+    local frame, stack = nil, {}
+
+    local function timed(cat, f, ...)
+        if not frame then return f(...) end
+        stack[#stack + 1] = { cat, now_us(), 0 }
+        local res = { pcall(f, ...) }
+        local top = table.remove(stack)
+        local took = now_us() - top[2]
+        local e = frame.parts[cat]
+        if not e then e = { 0, 0 }; frame.parts[cat] = e end
+        e[1], e[2] = e[1] + 1, e[2] + (took - top[3])
+        local parent = stack[#stack]
+        if parent then parent[3] = parent[3] + took end
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2)
+    end
+
+    -- Cover images and text, only counted inside a home / panel paint.
+    for _i, c in ipairs({
+        { "ui/widget/imagewidget", "covers" },
+        { "ui/widget/textwidget", "text" },
+        { "ui/widget/textboxwidget", "text" },
+    }) do
+        local ok, W = pcall(require, c[1])
+        if ok and type(W) == "table" and type(W.paintTo) == "function" then
+            local orig = W.paintTo
+            W.paintTo = function(self, ...)
+                if not frame then return orig(self, ...) end
+                return timed(c[2], orig, self, ...)
+            end
+        end
+    end
+
+    local function windowLabel(w)
+        if w.name == "homescreen" then return "SimpleUI home" end
+        if w.name == "sui_tbr_panel" then return "side panel" end
+    end
+
+    -- Module builds and paints: wrap each module's build once.
+    local mods_wrapped = setmetatable({}, { __mode = "k" })
+    local function wrapModules()
+        local ok, Registry = pcall(require, "modules/moduleregistry")
+        if not ok or type(Registry) ~= "table" or type(Registry.list) ~= "function" then return end
+        local okl, list = pcall(Registry.list)
+        if not okl or type(list) ~= "table" then return end
+        for _k, mod in pairs(list) do
+            if type(mod) == "table" and type(mod.build) == "function" and not mods_wrapped[mod] then
+                mods_wrapped[mod] = true
+                local id = tostring(mod.id or "?")
+                local orig = mod.build
+                mod.build = function(...)
+                    if not on() then return orig(...) end
+                    local t0 = now_us()
+                    local res = { pcall(orig, ...) }
+                    local took = now_us() - t0
+                    BUILD.n, BUILD.us = BUILD.n + 1, BUILD.us + took
+                    if took >= SLOW_US then log("draw: built home module %s in %d ms", id, ms(took)) end
+                    if not res[1] then error(res[2], 0) end
+                    local w = res[2]
+                    if type(w) == "table" and type(w.paintTo) == "function" and not rawget(w, "_diag_mod") then
+                        w._diag_mod = true
+                        local inner = w.paintTo
+                        local cat = "module " .. id
+                        w.paintTo = function(this, ...) return timed(cat, inner, this, ...) end
+                    end
+                    return unpack(res, 2)
+                end
+            end
+        end
+    end
+
+    -- The swipe or tap being handled right now (side panel build time).
+    local ev_t0 = nil
+    local orig_send7 = UIManager.sendEvent
+    if type(orig_send7) == "function" then
+        UIManager.sendEvent = function(self, ...)
+            if not on() or ev_t0 then return orig_send7(self, ...) end
+            ev_t0 = now_us()
+            local res = { pcall(orig_send7, self, ...) }
+            ev_t0 = nil
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2)
+        end
+    end
+
+    local orig_show7 = UIManager.show
+    UIManager.show = function(self, w, ...)
+        local label = on() and type(w) == "table" and windowLabel(w)
+        if label then
+            if label == "SimpleUI home" then pcall(wrapModules) end
+            if label == "side panel" and ev_t0 then
+                local took = now_us() - ev_t0
+                BUILD.n, BUILD.us = BUILD.n + 1, BUILD.us + took
+                if took >= SLOW_US then log("draw: built side panel in %d ms (from the swipe or tap)", ms(took)) end
+            end
+            if type(w.paintTo) == "function" and not rawget(w, "_diag_frame") then
+                w._diag_frame = true
+                local inner = w.paintTo
+                w.paintTo = function(this, ...)
+                    if not on() or frame then return inner(this, ...) end
+                    frame, stack = { parts = {} }, {}
+                    local t0 = now_us()
+                    local res = { pcall(inner, this, ...) }
+                    local took = now_us() - t0
+                    local parts = frame.parts
+                    frame = nil
+                    local t = TOT[label]
+                    if not t then t = { 0, 0, 0 }; TOT[label] = t end
+                    t[1], t[2] = t[1] + 1, t[2] + took
+                    if took > t[3] then t[3] = took end
+                    if took >= SLOW_US then
+                        local list, sum = {}, 0
+                        for k, e in pairs(parts) do list[#list + 1] = { k, e[1], e[2] }; sum = sum + e[2] end
+                        table.sort(list, function(a, b) return a[3] > b[3] end)
+                        local bits = {}
+                        for i = 1, math.min(7, #list) do
+                            bits[#bits + 1] = string.format("%s %d = %d ms", list[i][1], list[i][2], ms(list[i][3]))
+                        end
+                        bits[#bits + 1] = string.format("rest %d ms", ms(math.max(0, took - sum)))
+                        log("draw: %s painted in %d ms (%s)", label, ms(took), table.concat(bits, ", "))
+                    end
+                    if not res[1] then error(res[2], 0) end
+                    return unpack(res, 2)
+                end
+            end
+        end
+        return orig_show7(self, w, ...)
+    end
+
+    SUMMARY_EXTRA[#SUMMARY_EXTRA + 1] = function()
+        local bits = {}
+        for label, t in pairs(TOT) do
+            bits[#bits + 1] = string.format("%s %d paints %d ms (slowest %d)", label, t[1], ms(t[2]), ms(t[3]))
+        end
+        if BUILD.n > 0 then bits[#bits + 1] = string.format("%d builds %d ms", BUILD.n, ms(BUILD.us)) end
+        TOT, BUILD = {}, { n = 0, us = 0 }
+        if #bits > 0 then log("  drawing: %s", table.concat(bits, "; ")) end
+    end
+end
+
+-- --------------------------------------------------------------------------
 -- 7. White flashes: which refreshes flash, and why
 -- KOReader flashes the panel (briefly white/black) for "full", "flashui"
 -- and "flashpartial" refreshes. Some are asked for directly; others are
@@ -1519,12 +1756,17 @@ if ok_ui and type(UIManager) == "table" and type(UIManager._refresh) == "functio
     local flashes = {}
     local function pk7(...) return { n = select("#", ...), ... } end
 
+    -- A patch's wrapper around UIManager:show / close / setDirty only passes
+    -- the call on (BookOrbit Tweaks wraps show and close), so it isn't who
+    -- asked: skip it and name the code that called it.
+    local PASS = { show = true, close = true, setDirty = true, sendEvent = true, broadcastEvent = true }
     local function src(from)
-        for lvl = from, from + 6 do
-            local info = debug.getinfo(lvl, "Sl")
+        for lvl = from, from + 10 do
+            local info = debug.getinfo(lvl, "Sln")
             if not info then break end
             local f = info.short_src or "?"
-            if not f:find("uimanager%.lua") and not f:find("diagnostics") then
+            local wrapper = PASS[info.name or ""] and f:find("patches/", 1, true)
+            if not wrapper and not f:find("uimanager%.lua") and not f:find("diagnostics") then
                 return (f:gsub("^%./", ""):gsub("^.-plugins/", "plugins/")) .. ":" .. tostring(info.currentline)
             end
         end
