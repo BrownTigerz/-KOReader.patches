@@ -1,7 +1,14 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.18
+-- Version 1.11.19
 -- Changelog:
+--   1.11.19  Sleep ends a sync that's still running: its 2-minute Wi-Fi
+--            safety net and 60 s BookOrbit-step timeout are stopped and
+--            the sync is wrapped up there and then (sleep turns Wi-Fi off
+--            anyway, and the sync was already dropped on wake). Before,
+--            both timers waited through sleep, and after waking the safety
+--            net could switch off the Wi-Fi that reconnected on wake.
+--            Leftover comments from the 1.11.18 trim removed.
 --   1.11.18  Trim: 20 unused vendored login-module methods and the inert
 --            Goodreads login tracer (its enable switch was never wired,
 --            so it never logged anything) are gone. No behavior change:
@@ -80,7 +87,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.18"
+local PATCH_VERSION = "1.11.19"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -102,7 +109,20 @@ local CACHE = {
     after_wake = {}, -- updates to finish on wake (their retry was cancelled)
     relink_timers = {}, -- [fn] = true: autolink retries after a connect
     net_waits = {}, -- [token] = stop fn: syncs waiting for Wi-Fi, stopped on sleep
+    guards = {}, -- [fn] = true: safety timeouts, run early (and stopped) on sleep (1.11.19)
+    suspending = false, -- true while sleep wraps up running syncs
 }
+
+-- Safety timeouts (Wi-Fi safety net, BookOrbit step): on sleep they're
+-- stopped and their work (wrapping up the sync) runs right away.
+local function guardIn(delay, fn)
+    CACHE.guards[fn] = true
+    require("ui/uimanager"):scheduleIn(delay, fn)
+end
+local function guardOff(fn)
+    CACHE.guards[fn] = nil
+    require("ui/uimanager"):unschedule(fn)
+end
 -- Login: single attempt (no hidden 2s/4s sleep-and-retry that freezes the
 -- screen), 10s socket timeout instead of 15. Saved login = one tap to retry.
 local LOGIN_OPTS = { attempts = 1, timeout = 10 }
@@ -913,6 +933,21 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     UIManager:unschedule(fn)
                     CACHE.relink_timers[fn] = nil
                 end
+                -- A sync still running ends here: stop its safety timeouts
+                -- and wrap it up now (lease released, Wi-Fi bookkeeping
+                -- cleared). Wi-Fi isn't switched off from here: sleep does
+                -- that itself. Once, however many engines get the event.
+                local fns = {}
+                for fn in pairs(CACHE.guards) do fns[#fns + 1] = fn end
+                CACHE.suspending = true
+                for _i, fn in ipairs(fns) do
+                    guardOff(fn)
+                    local ok_g, err_g = pcall(fn)
+                    if not ok_g then
+                        require("logger").warn("ShelfSync tweaks: ending a sync for sleep failed: " .. tostring(err_g))
+                    end
+                end
+                CACHE.suspending = false
                 -- Syncs still waiting for Wi-Fi: stop waiting, give up now
                 local waits = CACHE.net_waits
                 CACHE.net_waits = {}
@@ -1345,6 +1380,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         CACHE.net_users = math.max(0, CACHE.net_users - 1)
         if CACHE.net_users == 0 and CACHE.net_ours then
             CACHE.net_ours = false
+            -- going to sleep: the device turns Wi-Fi off itself
+            if CACHE.suspending then return end
             local NetworkMgr = require("ui/network/manager")
             NetworkMgr:turnOffWifi(function()
                 NetworkMgr.wifi_was_on = false
@@ -1419,7 +1456,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             stopWaiting()
             -- the safety-net timer has nothing left to do: don't leave it
             -- waiting (it would sit in the queue, through sleep, for 2 min)
-            UIManager:unschedule(finish)
+            guardOff(finish)
             if release_lease then release_lease(); release_lease = nil end
             if restore_after then releaseNetwork() end
         end
@@ -1433,7 +1470,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 -- Joining Wi-Fi we (or ShelfSync) turned on: same safety net,
                 -- so neither can be kept on forever
                 if CACHE.net_ours or release_lease then
-                    UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
+                    guardIn(WIFI_SAFETY_TIMEOUT, finish)
                 end
             end
             return run(finish)
@@ -1473,7 +1510,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             -- Safety net: if a provider never reports back (error, cancelled
             -- request), don't leave Wi-Fi on draining the battery.
             if restore_after and (CACHE.net_ours or release_lease) then
-                UIManager:scheduleIn(WIFI_SAFETY_TIMEOUT, finish)
+                guardIn(WIFI_SAFETY_TIMEOUT, finish)
             end
             run(finish)
         end
@@ -1671,11 +1708,11 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             local function resolve()
                 if resolved then return end
                 resolved = true
-                if timeout_fn then UIManager:unschedule(timeout_fn) end
+                if timeout_fn then guardOff(timeout_fn) end
                 return done()
             end
             timeout_fn = function() resolve() end
-            UIManager:scheduleIn(BOOKORBIT_TIMEOUT, timeout_fn)
+            guardIn(BOOKORBIT_TIMEOUT, timeout_fn)
             local ok_call = pcall(plugin.onBookOrbitSyncBook, plugin, {
                 quiet = true, -- BookOrbit's own toasts off; the chain reports
                 on_done = function(err)
@@ -2098,14 +2135,6 @@ local function emit(level, ...)
 end
 
 function Logging.warn(...) emit("WARN", ...) end
--- Redacted trace that is also appended to a small file next to the plugin
--- settings, so a failed on-device login can always be diagnosed over USB
--- regardless of how KOReader persists its own log.
--- Diagnostics that go ONLY to the local login.log (never the shared KOReader
--- system log), so troubleshooting can be verbose without flooding anything.
--- Enable/disable file logging (wired to the user's "Diagnostic logging" setting).
--- Build a support-safe diagnostic summary. Only allowlisted scalar fields are
--- included; book titles, authors, credentials, and response bodies never are.
 Logging.LEVELS = LEVELS
 Logging.VERSION = Constants.VERSION
 
