@@ -1,5 +1,8 @@
 -- critter-phrases.lua - what the Tiny Critter says
 -- Shared by SimpleUI Tweaks (2-simpleui-tweaks.lua) and Reading Log.
+-- The Tiny Critter and the voices system are SimpleUI's, by Doctor
+-- Hetfield (https://github.com/doctorhetfield-cmd/simpleui.koplugin).
+-- Donny, Blu and Donny & Blu's own lines here are TK's.
 --
 -- Install: koreader/patches/critter-phrases.lua (next to the patch). The
 -- name doesn't start with a number, so KOReader doesn't run it as a patch.
