@@ -25,8 +25,8 @@ Purpose:
   * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Option: change the Continue reading Resume pill colour (Tools > BookOrbit Tweaks > Resume Pill Colour).
-  * Server chooser: "Enter A Different Address..." opens the plugin address entry on the first tap (no double chooser).
-  * Second swipe down on the settings sheet opens the tools menu.
+  * Option: keep BookOrbit open through sleep, so it comes back instantly
+    instead of reloading after every wake (off by default).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
     supplied by 2-tweaks-menu.lua).
 
@@ -34,7 +34,7 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 ]]
 
-local VERSION = "2.14.3"
+local VERSION = "2.14.5"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -67,6 +67,7 @@ local DEFAULTS = {
     library_filter_id = false,
     library_filter_name = "",
     server_chooser_in_settings = true,
+    keep_open_sleep = false,   -- keep the catalog through sleep instead of closing it
 }
 
 local cfg = {}
@@ -85,6 +86,16 @@ do
     end
     -- Menu option removed: always restore SimpleUI home when BookOrbit closes.
     cfg.after_close = "simpleui"
+end
+
+-- Real (wall) time in seconds. os.clock is CPU time, which barely moves while
+-- the device idles, so it made the flash debounce windows run long.
+local function nowS()
+    local ok, time = pcall(require, "ui/time")
+    if ok and type(time) == "table" and time.now and time.to_s then
+        return time.to_s(time.now())
+    end
+    return os.time()
 end
 
 local function saveConfig()
@@ -377,15 +388,15 @@ local function hookHeroNight()
             end,
         })
         self.inner:paintTo(proxy, x, y)
-        local dimen_rects = collectCoverDimens(self.inner)
         local w, h = self.dimen.w, self.dimen.h
         bb:invertRect(x, y, w, h)
+        -- The widget-tree search is only a fallback: run it when the paint
+        -- itself did not show where the cover went.
         local reverted = cover_rects
-        if #reverted == 0 then reverted = dimen_rects end
+        if #reverted == 0 then reverted = collectCoverDimens(self.inner) end
         for _i, r in ipairs(reverted) do
             bb:invertRect(r[1], r[2], r[3], r[4])
         end
-        logger.info(TAG, "hero night: proxy cover rects=", #cover_rects, "dimen cover rects=", #dimen_rects)
         bb:paintRect(x, y, radius, radius, Blitbuffer.COLOR_WHITE)
         bb:paintRect(x + w - radius, y, radius, radius, Blitbuffer.COLOR_WHITE)
         bb:paintRect(x, y + h - radius, radius, radius, Blitbuffer.COLOR_WHITE)
@@ -567,6 +578,45 @@ local function closeAllBookOrbitCatalogs(reason)
     return closed
 end
 
+-- Close BookOrbit sheets, dialogs and toasts but keep the catalog itself.
+local function closeBookOrbitExtras(reason)
+    local ok_ui, UIManager = pcall(require, "ui/uimanager")
+    if not ok_ui or type(UIManager) ~= "table" or type(UIManager._window_stack) ~= "table" then return 0 end
+    local stack, to_close = UIManager._window_stack, {}
+    for i = #stack, 1, -1 do
+        local w = stack[i] and stack[i].widget
+        if isBookOrbitRelated(w) and not isBookOrbitWidget(w) then
+            to_close[#to_close + 1] = w
+        end
+    end
+    for _i, w in ipairs(to_close) do pcall(UIManager.close, UIManager, w) end
+    if #to_close > 0 then
+        logger.info(TAG, "closed BookOrbit extras:", reason or "?", #to_close)
+    end
+    return #to_close
+end
+
+-- One entry point for every sleep/wake hook (broadcast, event_handlers,
+-- plugin onSuspend/onResume all fire on Kobo). Only the first hook of each
+-- phase does the work; the rest return at once.
+local sleep_phase = nil
+local wake_task = nil
+local function sleepWipe(phase, reason)
+    if phase == "Suspend" and wake_task then
+        local ok_ui, UIManager = pcall(require, "ui/uimanager")
+        if ok_ui then pcall(UIManager.unschedule, UIManager, wake_task) end
+        wake_task = nil
+    end
+    if sleep_phase == phase then return 0 end
+    sleep_phase = phase
+    if cfg.keep_open_sleep then
+        if phase == "Suspend" then return closeBookOrbitExtras(reason) end
+        return 0
+    end
+    logger.info(TAG, "TRACE sleep wipe:", reason or phase)
+    return closeAllBookOrbitCatalogs(reason)
+end
+
 -- Nuclear open: close any leftover catalog, then open fresh via the live plugin.
 local function forceOpenBookOrbit(reason)
     logger.info(TAG, "TRACE forceOpenBookOrbit:", reason or "?")
@@ -630,6 +680,33 @@ local function forceOpenBookOrbit(reason)
     return opened
 end
 
+-- Keep-open mode: bring the catalog that survived sleep back instead of
+-- reloading it. Closes BookOrbit sheets above it and SimpleUI home.
+-- Returns false when there is no catalog to bring back.
+local function raiseKeptCatalog(reason)
+    local idx, stack, UIManager = findCatalogOnStack(nil)
+    if not idx or not stack or not UIManager then return false end
+    local above = {}
+    for i = #stack, idx + 1, -1 do
+        local w = stack[i] and stack[i].widget
+        if isBookOrbitRelated(w) then above[#above + 1] = w end
+    end
+    for _i, w in ipairs(above) do pcall(UIManager.close, UIManager, w) end
+    local _raised, widget = raiseCatalogWindow(nil)
+    if not widget then return false end
+    if cfg.reopen_at == "home" and type(widget.dashboardMode) == "function"
+            and type(widget.goDashboard) == "function" and not widget:dashboardMode() then
+        pcall(widget.goDashboard, widget)
+    end
+    logger.info(TAG, "kept catalog brought back:", reason or "?")
+    return true, widget
+end
+
+local function openOrRaise(reason)
+    if cfg.keep_open_sleep and raiseKeptCatalog(reason) then return true end
+    return forceOpenBookOrbit(reason)
+end
+
 -- Global open intercept: Dispatcher + UIManager events.
 
 -- Flash when the BookOrbit settings/menu sheet closes (swipe back up).
@@ -668,7 +745,7 @@ local function hookDispatcherOpen()
                 logger.info(TAG, "TRACE Dispatcher.execute bookorbit_open_dashboard")
                 -- After sleep the catalog is often buried under SimpleUI home and
                 -- the normal early-return path does nothing. Always force a clean open.
-                forceOpenBookOrbit("dispatcher")
+                openOrRaise("dispatcher")
                 return true
             end
             return original(self, action_id, ...)
@@ -685,17 +762,25 @@ local function hookDispatcherOpen()
             local name = type(event) == "table" and event.name
             if name == "BookOrbitOpenDashboard" then
                 logger.info(TAG, "TRACE UIManager.sendEvent BookOrbitOpenDashboard")
-                forceOpenBookOrbit("sendEvent")
+                openOrRaise("sendEvent")
                 return true
             end
-            -- Second swipe south while BookOrbit settings sheet is top -> tools menu.
-            -- Intercept here as a backup; primary path is onSwipePage on the sheet.
+            -- Second swipe south on any BookOrbit menu/settings chrome -> tools menu.
             if cfg.second_swipe_tools and (name == "Swipe" or name == "Gesture" or name == "SwipePage") then
                 local stack = self._window_stack
                 local top = type(stack) == "table" and stack[#stack]
                 local w = top and top.widget
-                local is_sheet = type(w) == "table" and type(w.name) == "string"
-                        and w.name:find("bookorbit_menu_sheet", 1, true)
+                local is_sheet = false
+                if type(w) == "table" and type(w.name) == "string" then
+                    local n = w.name
+                    is_sheet = n:find("bookorbit_menu_sheet", 1, true)
+                        or n:find("bookorbit_settings", 1, true)
+                        or n:find("bookorbit_sign_in", 1, true)
+                        or n:find("bookorbit_status", 1, true)
+                        or n:find("bookorbit_diagnostics", 1, true)
+                        or n:find("bookorbit_menu", 1, true)
+                        or n:find("bookorbit_server", 1, true)
+                end
                 if is_sheet then
                     local a = event.args
                     local ges = type(a) == "table" and (a[2] or a[1]) or nil
@@ -740,6 +825,31 @@ local function hookDispatcherOpen()
             return original_send(self, event, ...)
         end
         logger.info(TAG, "hooked UIManager.sendEvent for BookOrbitOpenDashboard + second swipe")
+        -- Attach second-swipe handler whenever a BookOrbit menu/settings widget is shown
+        if not UIManager._bookorbit_tweaks_show_second_swipe then
+            UIManager._bookorbit_tweaks_show_second_swipe = true
+            local original_show = UIManager.show
+            UIManager.show = function(self, widget, ...)
+                local res = original_show(self, widget, ...)
+                if cfg.second_swipe_tools and type(widget) == "table" and type(widget.name) == "string" then
+                    local n = widget.name
+                    if n:find("bookorbit_menu_sheet", 1, true)
+                            or n:find("bookorbit_settings", 1, true)
+                            or n:find("bookorbit_sign_in", 1, true)
+                            or n:find("bookorbit_status", 1, true)
+                            or n:find("bookorbit_diagnostics", 1, true)
+                            or n:find("bookorbit_menu", 1, true)
+                            or n:find("bookorbit_server", 1, true) then
+                        local attach = package.loaded.bookorbit_tweaks_attach_second_swipe
+                        if type(attach) == "function" then
+                            pcall(attach, widget)
+                        end
+                    end
+                end
+                return res
+            end
+            logger.info(TAG, "hooked UIManager.show for second swipe on BO settings")
+        end
     end
 
     -- Resume/Suspend: wipe BookOrbit so SimpleUI home cannot bury a live catalog.
@@ -751,19 +861,21 @@ local function hookDispatcherOpen()
         UIManager.broadcastEvent = function(self, event, ...)
             local name = type(event) == "table" and event.name or event
             if name == "Suspend" or name == "Resume" then
-                logger.info(TAG, "TRACE broadcastEvent", tostring(name), "- wiping BookOrbit")
-                pcall(closeAllBookOrbitCatalogs, tostring(name))
+                pcall(sleepWipe, name, "broadcast-" .. tostring(name))
             end
             local res = original_broadcast(self, event, ...)
-            if name == "Resume" then
+            if name == "Resume" and not cfg.keep_open_sleep then
                 pcall(function()
                     self:nextTick(function()
                         closeAllBookOrbitCatalogs("resume-nextTick")
                     end)
-                    -- One more pass after SimpleUI shows home.
-                    self:scheduleIn(0.5, function()
+                    -- One more pass after SimpleUI shows home. Cancelled if
+                    -- the device sleeps again first.
+                    wake_task = function()
+                        wake_task = nil
                         closeAllBookOrbitCatalogs("resume-0.5s")
-                    end)
+                    end
+                    self:scheduleIn(0.5, wake_task)
                 end)
             end
             return res
@@ -777,14 +889,15 @@ local function hookDispatcherOpen()
             handlers._bookorbit_tweaks_resume = true
             local original_resume_handler = handlers.Resume
             handlers.Resume = function(...)
-                logger.info(TAG, "TRACE event_handlers.Resume - wiping BookOrbit")
-                pcall(closeAllBookOrbitCatalogs, "event_handlers.Resume")
+                pcall(sleepWipe, "Resume", "event_handlers.Resume")
                 local res = original_resume_handler(...)
-                pcall(function()
-                    UIManager:nextTick(function()
-                        closeAllBookOrbitCatalogs("handler-nextTick")
+                if not cfg.keep_open_sleep then
+                    pcall(function()
+                        UIManager:nextTick(function()
+                            closeAllBookOrbitCatalogs("handler-nextTick")
+                        end)
                     end)
-                end)
+                end
                 return res
             end
             logger.info(TAG, "hooked UIManager.event_handlers.Resume")
@@ -793,8 +906,7 @@ local function hookDispatcherOpen()
             handlers._bookorbit_tweaks_suspend = true
             local original_suspend_handler = handlers.Suspend
             handlers.Suspend = function(...)
-                logger.info(TAG, "TRACE event_handlers.Suspend - wiping BookOrbit")
-                pcall(closeAllBookOrbitCatalogs, "event_handlers.Suspend")
+                pcall(sleepWipe, "Suspend", "event_handlers.Suspend")
                 return original_suspend_handler(...)
             end
             logger.info(TAG, "hooked UIManager.event_handlers.Suspend")
@@ -838,6 +950,13 @@ local function hookPluginOpen(plugin)
                 end
             end
             if polluted then
+                if cfg.keep_open_sleep then
+                    local ok_k, widget_k = raiseKeptCatalog("ensure-visible")
+                    if ok_k then
+                        if self.catalog_browser == nil then self.catalog_browser = widget_k end
+                        return true
+                    end
+                end
                 logger.info(TAG, "TRACE ensureCatalogVisible: stack polluted, forceOpen")
                 forceOpenBookOrbit("ensure-visible")
                 return true
@@ -917,14 +1036,12 @@ local function hookPluginOpen(plugin)
     -- no-ops. Closing under the ScreenSaver during Suspend is unreliable, so
     -- wipe the catalog on Resume instead — next open is always clean.
     local function wipeCatalogAfterResume(self)
-        logger.info(TAG, "TRACE plugin Resume: wiping BookOrbit catalog")
-        closeAllBookOrbitCatalogs("plugin-resume")
-        self.catalog_browser = nil
+        sleepWipe("Resume", "plugin-resume")
+        if not cfg.keep_open_sleep then self.catalog_browser = nil end
     end
     local function wipeCatalogBeforeSuspend(self)
-        logger.info(TAG, "TRACE plugin Suspend: wiping BookOrbit catalog")
-        closeAllBookOrbitCatalogs("plugin-suspend")
-        self.catalog_browser = nil
+        sleepWipe("Suspend", "plugin-suspend")
+        if not cfg.keep_open_sleep then self.catalog_browser = nil end
     end
     if type(plugin.onResume) == "function" and not plugin._bookorbit_tweaks_resume_wipe then
         plugin._bookorbit_tweaks_resume_wipe = true
@@ -969,14 +1086,15 @@ local function hookPluginOpen(plugin)
             handlers._bookorbit_tweaks_resume = true
             local original_resume_handler = handlers.Resume
             handlers.Resume = function(...)
-                logger.info(TAG, "TRACE event_handlers.Resume (late) - wiping")
-                pcall(closeAllBookOrbitCatalogs, "late-handler-Resume")
+                pcall(sleepWipe, "Resume", "late-handler-Resume")
                 local res = original_resume_handler(...)
-                pcall(function()
-                    UIManager:nextTick(function()
-                        closeAllBookOrbitCatalogs("late-handler-nextTick")
+                if not cfg.keep_open_sleep then
+                    pcall(function()
+                        UIManager:nextTick(function()
+                            closeAllBookOrbitCatalogs("late-handler-nextTick")
+                        end)
                     end)
-                end)
+                end
                 return res
             end
         end
@@ -984,8 +1102,7 @@ local function hookPluginOpen(plugin)
             handlers._bookorbit_tweaks_suspend = true
             local original_suspend_handler = handlers.Suspend
             handlers.Suspend = function(...)
-                logger.info(TAG, "TRACE event_handlers.Suspend (late) - wiping")
-                pcall(closeAllBookOrbitCatalogs, "late-handler-Suspend")
+                pcall(sleepWipe, "Suspend", "late-handler-Suspend")
                 return original_suspend_handler(...)
             end
         end
@@ -1110,7 +1227,9 @@ local function hookPluginOpen(plugin)
                     return original_handle(this, event, ...)
                 end
             end
-            logger.info(TAG, "attached second-swipe tools on menu sheet (onSwipePage)")
+            logger.info(TAG, "attached second-swipe tools on BookOrbit chrome (onSwipePage)")
+            -- Expose for MenuPage / UIManager.show hooks
+            package.loaded.bookorbit_tweaks_attach_second_swipe = attachSecondSwipe
         end
 
         plugin.openMenuSheet = function(self, ...)
@@ -1129,10 +1248,18 @@ local function hookPluginOpen(plugin)
                     if type(stack) ~= "table" then return end
                     for i = #stack, 1, -1 do
                         local w = stack[i] and stack[i].widget
-                        if type(w) == "table" and type(w.name) == "string"
-                                and w.name:find("bookorbit_menu_sheet", 1, true) then
-                            attachSecondSwipe(w)
-                            return
+                        if type(w) == "table" and type(w.name) == "string" then
+                            local n = w.name
+                            if n:find("bookorbit_menu_sheet", 1, true)
+                                    or n:find("bookorbit_settings", 1, true)
+                                    or n:find("bookorbit_sign_in", 1, true)
+                                    or n:find("bookorbit_status", 1, true)
+                                    or n:find("bookorbit_diagnostics", 1, true)
+                                    or n:find("bookorbit_menu", 1, true)
+                                    or n:find("bookorbit_server", 1, true) then
+                                attachSecondSwipe(w)
+                                return
+                            end
                         end
                     end
                 end
@@ -1304,7 +1431,7 @@ local function hookCatalogFlash()
             if ok_fp then fp = res_fp end
         end
         if why == "content" and fp and fp == last_flashed_fp then
-            local now_c = (os.clock and os.clock()) or os.time()
+            local now_c = nowS()
             if (now_c - last_flashed_clock) < 3 then
                 return
             end
@@ -1313,18 +1440,28 @@ local function hookCatalogFlash()
         -- loads used to flash on the file browser, then KOReader's show flash
         -- fired on the catalog -- the double flash on open. Fail open if the
         -- window stack is unreadable, so flash never silently dies.
+        -- Only the topmost real window counts (toasts and modals are skipped);
+        -- the old loop scanned the whole stack and its answer was never used.
         if catalog then
             local ok_ui2, UIManager2 = pcall(require, "ui/uimanager")
             if ok_ui2 and type(UIManager2) == "table" and type(UIManager2._window_stack) == "table" then
-                local top = false
-                for i = #UIManager2._window_stack, 1, -1 do
-                    local w = UIManager2._window_stack[i] and UIManager2._window_stack[i].widget
-                    if w == catalog or w == (catalog.show_parent or nil) then top = true break end
-                    if type(w) == "table" and type(w.name) == "string" and w.name:lower():find("bookorbit", 1, true) then top = true break end
+                local top = true
+                local st = UIManager2._window_stack
+                for i = #st, 1, -1 do
+                    local w = st[i] and st[i].widget
+                    local n = type(w) == "table" and type(w.name) == "string" and w.name or ""
+                    local transient = type(w) == "table" and (w.modal
+                        or n:find("toast", 1, true) or n:find("InfoMessage", 1, true))
+                    if not transient then
+                        top = (w == catalog) or (w == catalog.show_parent)
+                            or n:lower():find("bookorbit", 1, true) ~= nil
+                        break
+                    end
                 end
+                if not top then return end
             end
         end
-        local now = (os.clock and os.clock()) or os.time()
+        local now = nowS()
         if why ~= "page-turn" and (now - last_flash_t) < FLASH_DEBOUNCE then
             return
         end
@@ -1449,7 +1586,7 @@ local function hookCatalogFlash()
                     flashNow(self, "page-turn-landed")
                 end
             elseif cfg.flash_content then
-                if open_t > 0 and (os.time() - open_t) < 8 then
+                if open_t > 0 and (nowS() - open_t) < 8 then
                 else
                     flashNow(self, "content")
                 end
@@ -1465,7 +1602,7 @@ local function hookCatalogFlash()
     if type(original_open) == "function" then
         Catalog.init = function(self, ...)
             local result = original_open(self, ...)
-            open_t = os.time()
+            open_t = nowS()
             if cfg.flash_ghosting and cfg.flash_open then
                 local ok_ui, UIManager = pcall(require, "ui/uimanager")
                 if ok_ui then
@@ -1564,6 +1701,13 @@ local PILL_COLORS = {
     { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
 }
 
+local function pillColorName(hex)
+    if type(hex) ~= "string" then return "White" end
+    for _i, c in ipairs(PILL_COLORS) do
+        if c[2]:upper() == hex:upper() then return c[1] end
+    end
+    return hex
+end
 
 local function pillColorValue(hex)
     if type(hex) ~= "string" then return nil end
@@ -1628,6 +1772,13 @@ local function hookSettingsFlash()
     local original_refresh = MenuPage.refresh
     MenuPage.refresh = function(self, mode, ...)
         local result = original_refresh(self, mode, ...)
+        -- Second swipe (original tools menu) on settings / menu pages
+        if cfg.second_swipe_tools then
+            local attach = package.loaded.bookorbit_tweaks_attach_second_swipe
+            if type(attach) == "function" then
+                pcall(attach, self)
+            end
+        end
         if not cfg.flash_ghosting or not cfg.flash_menu_sheet then return result end
         local name = self and self.name
         if type(name) == "string" and (
@@ -2574,6 +2725,16 @@ local function buildMenu()
                 cfg.loop_pages = not (cfg.loop_pages == true)
                 saveConfig()
                 logger.info(TAG, "loop_pages =", cfg.loop_pages)
+            end,
+        },
+        {
+            text = _("Keep BookOrbit Open Through Sleep"),
+            help_text = _("Off: BookOrbit is closed on sleep and reloads the next time you open it. On: it stays open and comes straight back after wake."),
+            checked_func = function() return cfg.keep_open_sleep == true end,
+            callback = function()
+                cfg.keep_open_sleep = not (cfg.keep_open_sleep == true)
+                saveConfig()
+                logger.info(TAG, "keep_open_sleep =", cfg.keep_open_sleep)
             end,
         },
         {
