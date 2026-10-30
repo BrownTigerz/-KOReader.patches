@@ -560,7 +560,7 @@ Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics
 
 These patches wouldn't exist without the plugins they build on and the people behind them:
 
-- **[SimpleUI](https://github.com/doctorhetfield-cmd/simpleui.koplugin)** by Doctor Hetfield — the home screen the SimpleUI Tweaks patch extends.
+- **[SimpleUI](https://github.com/doctorhetfield-cmd/simpleui.koplugin)** by Doctor Hetfield — the home screen the SimpleUI Tweaks patch extends, and the Tiny Critter whose 3.0.2 voices system critter-phrases.lua builds on.
 - **[Shortcut Toolbar](https://github.com/xusoo/shortcutstoolbar.koplugin)** by xusoo — the toolbar the Icon Tweaks and Quick Shelf patches customize.
 - **[Reading Insights](https://github.com/peterboda236/readinginsights.koplugin)** by peterboda236 — the stats plugin the Reading Insights Tweaks patch builds on.
 - **[ReadMastery](https://github.com/Lalocaballero/readmastery.koplugin)** by Lalocaballero — the gamification plugin the ReadMastery patches hook into.
