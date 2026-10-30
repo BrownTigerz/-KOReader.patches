@@ -1,6 +1,6 @@
 --[[
 2-zz-bookorbit-diagnostics.lua - TEMPORARY troubleshooting patch for BookOrbit
-Version 1.3.1
+Version 1.5.1
 
 For the hang where opening BookOrbit does nothing and KOReader has to be
 restarted, and for the freeze after sleep. It changes nothing about how
@@ -8,6 +8,22 @@ BookOrbit runs: it only writes lines to the shared log, so the last line
 before a freeze shows exactly where it stopped.
 
 Changelog
+  1.5.1 Build totals count a dashboard page built inside a catalog page
+        once (they were added twice); its line says "(inside the one
+        below)".
+  1.5.0 Drawing time. Every BookOrbit catalog paint of 80 ms or more gets
+        a line splitting it by part: "draw: BookOrbit painted in 420 ms
+        (covers 12 = 310 ms, tile hero 1 = 40 ms, art 3 = 20 ms, rest 50
+        ms)". Covers, catalog cover images, art (pets, decor), snapshots
+        and each dashboard tile type are counted on their own (a cover
+        inside a tile counts once, as a cover). Building the screen is
+        timed too ("draw: built dashboard page in 190 ms"), and the
+        once-a-minute line adds paint and build totals.
+  1.4.0 Each server call now says who made it: "from
+        2-simpleui-sidepanel.lua:830" when a patch called BookOrbit
+        directly, "from BookOrbit" when it was BookOrbit's own tap or
+        timer. The SimpleUI diagnostic (2.13.0+) also reads these, so a
+        slow swipe line lists the server calls made while it ran.
   1.3.1 Wording only: header and log text rewritten direct and plain;
         no functionality, behavior, or menu changes.
   1.3.0 Shared perf core (the same block the SimpleUI and other
@@ -129,7 +145,7 @@ local WINDOW_MIN = 30
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 3 * 24 * 3600
 local STATE = DataStorage:getDataDir() .. "/bookorbit-diagnostics.state"
-local DIAG_VERSION = "1.3.1"
+local DIAG_VERSION = "1.5.1"
 local DIAG_TAG = "bookorbit"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
@@ -405,6 +421,40 @@ local function timed(tbl, key, label, state_fn)
 end
 
 -- API wrapper: same timing, plus method + path (query stripped, no body).
+-- Who made this server call: the nearest frame on the call stack that is not
+-- BookOrbit's own code (or a diagnostic, or C). A patch there means that patch
+-- called BookOrbit directly; KOReader's own code there (UIManager, a widget)
+-- means BookOrbit was running its own tap, timer or screen.
+local function callerOf()
+    if type(debug) ~= "table" or type(debug.getinfo) ~= "function" then return nil end
+    for lvl = 3, 40 do
+        local info = debug.getinfo(lvl, "Sl")
+        if not info then break end
+        local src = info.source or ""
+        if src:sub(1, 1) == "@" and not src:find("bookorbit.koplugin", 1, true)
+                and not src:find("diagnostics", 1, true) then
+            local file = src:match("patches/([^/]+)$")
+            if file then return file .. ":" .. tostring(info.currentline) end
+            local plug = src:match("plugins/([^/]+)%.koplugin/")
+            if plug then return plug .. " (" .. (src:match("[^/]+$") or "?") .. ":" .. tostring(info.currentline) .. ")" end
+            return "BookOrbit"
+        end
+    end
+    return "BookOrbit"
+end
+
+-- Shared with other diagnostics (SimpleUI reads it to name what a slow
+-- swipe or tap waited on): the last 30 server calls, each with a number.
+local NET = package.loaded.__diag_net_calls or { seq = 0, list = {} }
+package.loaded.__diag_net_calls = NET
+local function noteNet(label, method, path, took, caller)
+    NET.seq = NET.seq + 1
+    local l = NET.list
+    l[#l + 1] = { seq = NET.seq, what = "BookOrbit " .. tostring(method) .. " " .. tostring(path),
+        ms = took, from = caller }
+    if #l > 30 then table.remove(l, 1) end
+end
+
 local function timedApi(tbl, key, label)
     if type(tbl) ~= "table" then return false end
     local f = tbl[key]
@@ -417,12 +467,14 @@ local function timedApi(tbl, key, label)
     tbl[key] = function(self, method, path, ...)
         if not on() then return f(self, method, path, ...) end
         local clean_path = type(path) == "string" and path:gsub("%?.*$", "") or q(path)
-        log(">> %s %s %s (wifi connected=%s)", label, q(method), clean_path, connected())
+        local caller = callerOf()
+        log(">> %s %s %s (wifi connected=%s) from %s", label, q(method), clean_path, connected(), caller)
         local t0 = now_ms()
         local res = { pcall(f, self, method, path, ...) }
         local took = now_ms() - t0
+        pcall(noteNet, label, q(method), clean_path, took, caller)
         if not res[1] then
-            log("<< %s %s FAILED after %d ms: %s", label, q(method), took, tostring(res[2]))
+            log("<< %s %s FAILED after %d ms: %s (from %s)", label, q(method), took, tostring(res[2]), caller)
             error(res[2], 0)
         end
         local second = res[3]
@@ -430,7 +482,7 @@ local function timedApi(tbl, key, label)
             (type(second) == "number" and tostring(second)) or
             (type(second) == "string" and (#second <= 120 and second or second:sub(1, 120) .. "...")) or
             ("(" .. type(second) .. ")")
-        log("<< %s %s done in %d ms, result=%s", label, q(method), took, second_txt)
+        log("<< %s %s done in %d ms, result=%s (from %s)", label, q(method), took, second_txt, caller)
         return unpack(res, 2)
     end
     log("hook %s: applied", label)
@@ -550,6 +602,184 @@ end
 local function basename(path)
     if type(path) ~= "string" then return "(none)" end
     return path:match("([^/]+)$") or path
+end
+
+-- ---- Drawing time ----------------------------------------------------------
+local DRAW = { paints = 0, paint_us = 0, slowest_us = 0, builds = 0, build_us = 0 }
+local draw_installed = false
+local function installDrawTiming()
+    if draw_installed then return end
+    draw_installed = true
+    local ok_t, ktime = pcall(require, "ui/time")
+    local function now_us()
+        if ok_t and type(ktime) == "table" and ktime.now then return ktime.now() end
+        return os.clock() * 1e6
+    end
+    local SLOW_US = 80000
+
+    -- Current catalog paint: totals per part, and a stack for self-time.
+    local frame, stack = nil, {}
+    local function enter(cat)
+        if not frame then return false end
+        stack[#stack + 1] = { cat, now_us(), 0 }
+        return true
+    end
+    local function leave()
+        local top = table.remove(stack)
+        if not top then return end
+        local took = now_us() - top[2]
+        local own = took - top[3]
+        local e = frame.parts[top[1]]
+        if not e then e = { 0, 0 }; frame.parts[top[1]] = e end
+        e[1], e[2] = e[1] + 1, e[2] + own
+        local parent = stack[#stack]
+        if parent then parent[3] = parent[3] + took end
+    end
+    local function timed(cat, f, ...)
+        if not enter(cat) then return f(...) end
+        local res = { pcall(f, ...) }
+        leave()
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2)
+    end
+
+    -- Wrap a widget class's paintTo once, found from an instance.
+    local wrapped = setmetatable({}, { __mode = "k" })
+    local function wrapClassOf(w, cat)
+        if type(w) ~= "table" then return end
+        local class = getmetatable(w)
+        if type(class) ~= "table" or wrapped[class] then return end
+        local orig = rawget(class, "paintTo")
+        if type(orig) ~= "function" then return end
+        wrapped[class] = true
+        class.paintTo = function(self, ...) return timed(cat, orig, self, ...) end
+    end
+    -- Wrap a constructor so the class of what it returns is timed.
+    local function viaCtor(mod, key, cat)
+        local ok, M = pcall(require, mod)
+        if not ok or type(M) ~= "table" or type(M[key]) ~= "function" then
+            log("draw hook %s.%s: not found", mod, key)
+            return
+        end
+        local orig = M[key]
+        M[key] = function(...)
+            local w = orig(...)
+            if type(w) == "table" then pcall(wrapClassOf, w, cat) end
+            return w
+        end
+    end
+    viaCtor("bookorbit_board_ui", "cover", "covers")
+    viaCtor("bookorbit_board_ui", "snapshot", "snapshots")
+    viaCtor("bookorbit_board_art", "svg", "art")
+    viaCtor("bookorbit_board_art", "sprite", "art")
+    viaCtor("bookorbit_board_art", "glyph", "art")
+
+    -- Catalog grid covers are ImageWidgets: count them only inside a
+    -- catalog paint (everything else in KOReader passes straight through).
+    local ok_iw, ImageWidget = pcall(require, "ui/widget/imagewidget")
+    if ok_iw and type(ImageWidget) == "table" and type(ImageWidget.paintTo) == "function" then
+        local orig_iw = ImageWidget.paintTo
+        ImageWidget.paintTo = function(self, ...)
+            if not frame then return orig_iw(self, ...) end
+            return timed("images", orig_iw, self, ...)
+        end
+    end
+
+    -- Dashboard tiles by type: each tile built gets its own timed paint.
+    local ok_bw, BoardWidgets = pcall(require, "bookorbit_board_widgets")
+    if ok_bw and type(BoardWidgets) == "table" and type(BoardWidgets.tile) == "function" then
+        local orig_tile = BoardWidgets.tile
+        BoardWidgets.tile = function(ctx, item, w, h)
+            local t = orig_tile(ctx, item, w, h)
+            if on() and type(t) == "table" and type(t.paintTo) == "function" then
+                local kind = "tile " .. tostring(type(item) == "table" and item.type or "?")
+                local inner = t.paintTo
+                t.paintTo = function(self, ...) return timed(kind, inner, self, ...) end
+            end
+            return t
+        end
+    end
+
+    -- Building: the functions that make a screen's widgets.
+    local build_depth = 0
+    local function timeBuild(tbl, key, label)
+        if type(tbl) ~= "table" or type(tbl[key]) ~= "function" then return end
+        local orig = tbl[key]
+        tbl[key] = function(...)
+            if not on() then return orig(...) end
+            local t0 = now_us()
+            build_depth = build_depth + 1
+            local res = { pcall(orig, ...) }
+            build_depth = build_depth - 1
+            local took = now_us() - t0
+            -- a dashboard page built inside a catalog page counts once in
+            -- the totals (the outer one); both still get their line
+            if build_depth == 0 then
+                DRAW.builds, DRAW.build_us = DRAW.builds + 1, DRAW.build_us + took
+            end
+            if took >= SLOW_US then
+                log("draw: built %s in %d ms%s", label, math.floor(took / 1000),
+                    build_depth > 0 and " (inside the one below)" or "")
+            end
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2)
+        end
+    end
+    local ok_cat, Catalog = pcall(require, "bookorbit_catalog")
+    if ok_cat and type(Catalog) == "table" then
+        timeBuild(Catalog, "boardBuildScreen", "dashboard page")
+        timeBuild(Catalog, "boardRefreshTile", "one dashboard tile")
+        timeBuild(Catalog, "updateItems", "catalog page")
+    end
+    for _i, b in ipairs({
+        { "bookorbit_board_data", "build", "dashboard data" },
+        { "bookorbit_detail_data", "build", "book detail data" },
+        { "bookorbit_detail_view", "build", "book detail view" },
+        { "bookorbit_list_view", "build", "list view" },
+    }) do
+        local ok, M = pcall(require, b[1])
+        if ok then timeBuild(M, b[2], b[3]) end
+    end
+
+    -- Painting: the catalog window as a whole, parts inside it.
+    if ok_cat and type(Catalog) == "table" and type(Catalog.paintTo) == "function" then
+        local orig_paint = Catalog.paintTo
+        Catalog.paintTo = function(self, ...)
+            if not on() or frame then return orig_paint(self, ...) end
+            frame, stack = { parts = {} }, {}
+            local t0 = now_us()
+            local res = { pcall(orig_paint, self, ...) }
+            local took = now_us() - t0
+            local parts = frame.parts
+            frame = nil
+            DRAW.paints, DRAW.paint_us = DRAW.paints + 1, DRAW.paint_us + took
+            if took > DRAW.slowest_us then DRAW.slowest_us = took end
+            if took >= SLOW_US then
+                local list, sum = {}, 0
+                for k, e in pairs(parts) do list[#list + 1] = { k, e[1], e[2] }; sum = sum + e[2] end
+                table.sort(list, function(a, b) return a[3] > b[3] end)
+                local bits = {}
+                for i = 1, math.min(6, #list) do
+                    bits[#bits + 1] = string.format("%s %d = %d ms", list[i][1], list[i][2], math.floor(list[i][3] / 1000))
+                end
+                bits[#bits + 1] = string.format("rest %d ms", math.floor(math.max(0, took - sum) / 1000))
+                log("draw: BookOrbit painted in %d ms (%s)", math.floor(took / 1000), table.concat(bits, ", "))
+            end
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2)
+        end
+        log("draw timing: applied")
+    else
+        log("draw timing: catalog paint not found (not in this plugin version)")
+    end
+end
+
+local function drawSummary()
+    local s = string.format("drawing: %d paints %d ms (slowest %d), %d builds %d ms",
+        DRAW.paints, math.floor(DRAW.paint_us / 1000), math.floor(DRAW.slowest_us / 1000),
+        DRAW.builds, math.floor(DRAW.build_us / 1000))
+    DRAW.paints, DRAW.paint_us, DRAW.slowest_us, DRAW.builds, DRAW.build_us = 0, 0, 0, 0, 0
+    return s
 end
 
 local function hookPlugin(plugin)
@@ -766,6 +996,16 @@ local function hookPlugin(plugin)
     else
         log("hook board:BoardUI.cover: not found (not in this plugin version)")
     end
+
+    -- Drawing time (1.5.0). Two halves of a BookOrbit screen:
+    --   build: making the widgets (board screen, list, detail, data)
+    --   paint: drawing them into the screen buffer, split by part:
+    --          covers, catalog cover images, art (pets, decor), snapshots,
+    --          and each dashboard tile by type (hero, stats, ...).
+    -- Parts are timed "self only": a cover inside a tile counts as cover,
+    -- not twice. Each catalog paint of 80 ms+ gets a line; the
+    -- once-a-minute line has the totals. All of it is off when logging is.
+    pcall(installDrawTiming)
 
     log("plugin hooks done")
 end
@@ -1049,5 +1289,5 @@ DiagCore.client({
     on = on,
     errors = false, -- BookOrbit's own warnings and errors are caught above
     busy = function() return catalog_open end,
-    extra = function() return "covers built " .. cover_count end,
+    extra = function() return "covers built " .. cover_count .. " | " .. drawSummary() end,
 })
