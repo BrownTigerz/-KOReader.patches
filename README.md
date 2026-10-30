@@ -20,27 +20,27 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.7 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.5 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.8 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.17 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.8 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.0 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.18 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.19 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.5 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.0 |
-| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.2.2 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.3.1 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.4 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | n/a |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.14.3 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.14.5 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -65,6 +65,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Tiny Critter insights** (SimpleUI 3.0): Modules → Critter Insights, on by default. The critter tells you about your reading: your best reading day this month, book milestones this year (5, 10, 25, 50, 75, 100, then every 50), getting back on a roll after a break, the book you're on being 25 minutes or less from the end, the finish rate your yearly goal needs ("20 books to go, 69 days left. About one every 3 days catches you up.", worded for on pace or catching up), a gentle nudge after 3+ quiet days, and whether you read more on weekends or weekdays. They wait for the critter like its own reactions (book finished, comeback), at most 3 a day, and only when your stats back them: a milestone when you finish that book (once a year each), back on a roll once per comeback, a nudge once per quiet stretch, goal pace and weekend reading once a week (weekend reading needs 4+ weekend and 8+ weekday reading days in 8 weeks, and doesn't flip-flop). Best day is in minutes read. One statistics read a day, no timers. Its chat no longer suggests the same book twice in a day. Needs the critter's Reactions on.
 - **Side panel:** moved out in 2.14.6 — see SimpleUI Side Panel below.
 - **Page Turn Flash** (SimpleUI Tweaks menu): SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. **Normal** adds a quick flash to each turn; **Strong** a full refresh, which also clears dark pages and night mode. **Off** (default) keeps turns as fast as they are now.
+- **Early Page Turn** (Page Turns, off by default): a sideways swipe turns the page once your finger has moved 35 dp (or 50 / 80), without waiting for the lift. Books in page mode, plus full-screen lists (file browser, history, collections, TOC, bookmarks, search) with **Also In Lists**. One turn per swipe; taps aren't changed. Turns itself off if `2-earlyturn.lua` is installed.
 - **Tiny Critter pep talk** (SimpleUI 3.0): Modules → **Critter Pep Talk**, on by default. SimpleUI's "minutes read today" and "pages turned today" lines grow with your reading instead of always saying "Nice work.": a nudge after a minute or two ("1 minute read today. A start is a start."), a groove at 15 minutes, a cheer at half an hour, a party past an hour ("2.2 hours read today! Marathon mode."). With a daily goal set, it counts you in once you're within 10 minutes ("Just 7 minutes to your daily goal!"). The line moves up a step next time the home screen draws as you read; the wording changes with each new phrase. No timers.
 - **Critter Mix** (2.14.2): Modules → **Critter Mix**, tick two or more critters (say Donny, Blu and Donny & Blu) and they take turns: the next one each time the critter picks something new to say (about every 20 minutes, a new part of the day, or a tap). Reading Log's critter takes turns too: a new remark or a tap there moves it along (Reading Log 1.10.0+). Fewer than two ticked: SimpleUI's own pick.
 - **More critter moods** (2.14.1): reading, proud, hungry, cozy, sipping, dreamy, festive, spooky (Donny and Blu have them, see Tiny Critters). A critter without one shows its base pose (reading as neutral, proud as cheer...) instead of plain neutral. Party is festive in December and spooky from October 25, when the critter has those pictures.
@@ -113,6 +114,10 @@ The edge-swipe panel for the SimpleUI home screen, split out of SimpleUI Tweaks 
 Settings: Tools → SimpleUI Side Panel.
 
 If you used the panel inside SimpleUI Tweaks, your panel settings carry over.
+
+**BookOrbit views are instant:** opening and swiping the panel never waits on the BookOrbit server. The list shows from what's saved, and when it's more than 30 minutes old (and Wi-Fi is on) it refreshes in the background and redraws in place, at most once per panel open (the view you stop on); views you swipe to after that show their saved list. A pending refresh is cancelled when the panel closes or the device sleeps.
+
+The header shows the view's whole name: a long one ("Book Club Anthology", "BookOrbit Newly Added") wraps onto two lines at full size (one that nearly fits gets slightly smaller text instead), so it isn't cut off.
 
 ## Add-ons menu
 
@@ -245,6 +250,7 @@ Checked against ShelfSync 1.8.1; the bundled Goodreads login code is a goodreads
   - Hide Providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph, LibraryThing (all off). Hiding a provider also stops it from syncing. Menu changes show after reopening the book / file browser.
 - **Link & Update:** every enabled provider's Link Book and Update Status in one menu, with three gesture actions that jump straight to them (Link & Update Menu, Link Book (All Providers), Update Status (All Providers)).
 - **ShelfSync All: Update Progress** (gesture), turns Wi-Fi on if needed, syncs every linked, enabled provider that tracks reading progress (one retry each — LibraryThing doesn't track progress, so it's skipped), lists providers still unlinked, then BookOrbit syncs the same book if it's installed, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first, chains BookOrbit the same way, and off after.
+  A sync can't hold Wi-Fi on forever: a 2-minute safety net (60 s for the BookOrbit step) ends it. Going to sleep ends a sync that's still running: its timers stop and it's wrapped up right there (sleep turns Wi-Fi off itself), so nothing waits through sleep and nothing turns Wi-Fi off after you wake.
 - **Autolink retry on connect:** books opened offline get linked when Wi-Fi connects.
 - **Auto re-login:** if a saved-login session expires, it signs in again and sends the open book's progress again, at most once per provider per 30 minutes. You'll still be asked for a Goodreads verification code or captcha.
 - **Security:** logins stay on the device (`koreader/settings/shelfsync_*_login.lua`), encrypted with a device-local key. That protects against casual browsing, not full device access.
@@ -371,6 +377,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 - **Quick Shelf Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf Shows.
 - Covers come from thumbnails SimpleUI or CoverBrowser already keeps. A book is never opened to pull its cover. A book with no saved thumbnail gets a title tile.
 - **Cost:** nothing until you swipe. The strip builds on the first swipe of a menu open and is reused after that. Covers are kept already sized between menu opens, up to 10. A swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweaks.
+- **Book Panel Tap** (Shortcuts toolbar → Book Panel Tap, off by default): **Opens BookOrbit "This Book"** makes a tap on the book panel open BookOrbit's This book sheet (sync status, Sync now, progress) instead of KOReader's book details. **Hold Opens Book Details** (on by default) keeps the details a long-press away. Without BookOrbit, a tap does what it always did.
 
 ---
 
@@ -454,7 +461,7 @@ Adds a star rating and reading progress bar to CoverBrowser's list ("detailed li
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.1
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.5
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -474,6 +481,8 @@ Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → B
 
 BookOrbit closes cleanly when the device sleeps and when it wakes, so SimpleUI home can't leave a catalog stuck underneath it. Opening it from the SimpleUI nav bar or Shortcuts Toolbar after wake opens it fresh, on top.
 
+**Keep BookOrbit Open Through Sleep** (off by default) — BookOrbit stays open through sleep and comes straight back after wake instead of reloading. Only its menu sheets and pop-ups close on sleep; SimpleUI home is moved out of the way when you open it again.
+
 ### Library filter
 
 Pick the library for the catalog (Books, not Comics, say) from the tweaks menu, instead of opening BookOrbit → Filter every time. **Refresh Library List** pulls the names from the server, and the active one is marked.
@@ -484,6 +493,10 @@ Pick the library for the catalog (Books, not Comics, say) from the tweaks menu, 
 - Optional: show a server chooser inside BookOrbit **Settings → Account** (toggle under Server Management).
 - **Enter A Different Address** from the server chooser opens the address entry on the first tap — no double chooser.
 - Second swipe down on the BookOrbit settings sheet opens the tools menu.
+
+### Flash
+
+Flashes only fire while BookOrbit is the window on top (no stray flash on the file browser while it's loading), and the flash spacing runs on real time.
 
 ### Night mode covers
 
