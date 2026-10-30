@@ -1,7 +1,11 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.17
+-- Version 1.11.18
 -- Changelog:
+--   1.11.18  Trim: 20 unused vendored login-module methods and the inert
+--            Goodreads login tracer (its enable switch was never wired,
+--            so it never logged anything) are gone. No behavior change:
+--            login, Sync All and the BookOrbit chain untouched.
 --   1.11.17  Sync All chain fix: look up the running BookOrbit instance
 --            (ReaderUI's "bookorbit" module), not the plugin class table
 --            from the loader — the class has no settings or open book, so
@@ -76,7 +80,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.17"
+local PATCH_VERSION = "1.11.18"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -2038,9 +2042,6 @@ local Logging = {}
 local LEVELS = { DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 }
 
 local current_level = LEVELS.INFO
--- File/system logging is opt-in: off by default so nothing is written unless the
--- user enables "Diagnostic logging" in Settings.
-local logging_enabled = false
 local prefix = "[goodreads]"
 
 local ok, klogger = pcall(require, "logger")
@@ -2096,110 +2097,15 @@ local function emit(level, ...)
     end
 end
 
-function Logging.setLevel(level)
-    if LEVELS[level] then current_level = LEVELS[level] end
-end
-
-function Logging.getLevel()
-    for name, value in pairs(LEVELS) do
-        if value == current_level then return name end
-    end
-    return "INFO"
-end
-
-function Logging.debug(...) emit("DEBUG", ...) end
-function Logging.info(...) emit("INFO", ...) end
 function Logging.warn(...) emit("WARN", ...) end
-function Logging.error(...) emit("ERROR", ...) end
-
 -- Redacted trace that is also appended to a small file next to the plugin
 -- settings, so a failed on-device login can always be diagnosed over USB
 -- regardless of how KOReader persists its own log.
-local function trace_path()
-    local has_ds, DataStorage = pcall(require, "datastorage")
-    if has_ds and DataStorage and type(DataStorage.getSettingsDir) == "function" then
-        local got, dir = pcall(function() return DataStorage:getSettingsDir() end)
-        if got and dir and dir ~= "" then
-            return dir .. "/goodreadskosync/login.log"
-        end
-    end
-    return "./login.log"
-end
-
-local function append_trace(line)
-    local path = trace_path()
-    local file = io.open(path, "a")
-    if not file then
-        local dir = path:match("^(.*)[/\\][^/\\]*$")
-        if dir then
-            if os.getenv("OS") ~= nil then
-                os.execute('mkdir "' .. dir:gsub("/", "\\") .. '" 2>nul')
-            else
-                os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
-            end
-        end
-        file = io.open(path, "a")
-    end
-    if file then
-        file:write(line)
-        file:close()
-    end
-end
-
-function Logging.trace(...)
-    if not logging_enabled then return end
-    emit("INFO", ...)
-    if current_level <= LEVELS.INFO then
-        local parts = {}
-        for i = 1, select("#", ...) do
-            parts[#parts + 1] = Logging.redact((select(i, ...)))
-        end
-        append_trace(os.date("%Y-%m-%d %H:%M:%S ")
-            .. table.concat(parts, " ") .. "\n")
-    end
-end
-
 -- Diagnostics that go ONLY to the local login.log (never the shared KOReader
 -- system log), so troubleshooting can be verbose without flooding anything.
-function Logging.diag(...)
-    if not logging_enabled then return end
-    if current_level > LEVELS.INFO then return end
-    local parts = {}
-    for i = 1, select("#", ...) do
-        parts[#parts + 1] = Logging.redact((select(i, ...)))
-    end
-    append_trace(os.date("%Y-%m-%d %H:%M:%S ") .. "diag: "
-        .. table.concat(parts, " ") .. "\n")
-end
-
 -- Enable/disable file logging (wired to the user's "Diagnostic logging" setting).
-function Logging.setEnabled(value)
-    logging_enabled = value and true or false
-end
-
-function Logging.isEnabled()
-    return logging_enabled
-end
-
 -- Build a support-safe diagnostic summary. Only allowlisted scalar fields are
 -- included; book titles, authors, credentials, and response bodies never are.
-function Logging.diagnosticSummary(fields)
-    fields = fields or {}
-    local order = {
-        "koreader_version", "plugin_version", "device_family", "provider",
-        "provider_available", "last_stage", "http_status", "queue_size",
-        "mappings_count", "last_sync_at",
-    }
-    local lines = {}
-    for _, key in ipairs(order) do
-        local value = fields[key]
-        if value ~= nil then
-            lines[#lines + 1] = string.format("%s=%s", key, Logging.redact(value))
-        end
-    end
-    return table.concat(lines, "\n")
-end
-
 Logging.LEVELS = LEVELS
 Logging.VERSION = Constants.VERSION
 
@@ -2393,10 +2299,6 @@ function Storage.getBaseDir()
     return "./.goodreads-test"
 end
 
-function Storage.setBaseDir(dir)
-    base_dir_override = dir
-end
-
 function Storage.open(name)
     local path = Storage.getBaseDir() .. "/" .. name .. ".lua"
     if LuaSettings and not base_dir_override then
@@ -2406,27 +2308,6 @@ function Storage.open(name)
 end
 
 -- Test helper: remove every storage file and reset the override.
-function Storage.reset()
-    local dir = Storage.getBaseDir()
-    local names = {
-        Constants.STORAGE.ACCOUNT,
-        Constants.STORAGE.SESSION,
-        Constants.STORAGE.CREDENTIALS,
-        Constants.STORAGE.MAPPINGS,
-        Constants.STORAGE.BOOK_SETTINGS,
-        Constants.STORAGE.SYNC_STATE,
-        Constants.STORAGE.QUEUE,
-        Constants.STORAGE.SEARCH_CACHE,
-        Constants.STORAGE.SETTINGS,
-        "mock_state",
-        "mock_account",
-    }
-    for _, name in ipairs(names) do
-        os.remove(dir .. "/" .. name .. ".lua")
-        os.remove(dir .. "/" .. name .. ".lua.tmp")
-    end
-end
-
 Storage.serialize = serialize
 Storage._fallback_store = fallback_store
 
@@ -2667,61 +2548,10 @@ function Session.new()
     }
 end
 
-function Session.load()
-    local data = store():get("current", {})
-    local session = Session.new()
-    for key, value in pairs(data or {}) do session[key] = value end
-    if session.cookies_encrypted then
-        session.cookies = CryptoUtil.unprotect(session.cookies, true)
-        session.cookies_encrypted = nil
-    end
-    return session
-end
-
-function Session.save(session)
-    session = session or Session.new()
-    session.updated_at = os.time()
-    local stored = {}
-    for key, value in pairs(session) do stored[key] = value end
-    if type(session.cookies) == "string" and session.cookies ~= "" then
-        local blob, encrypted = CryptoUtil.protect(session.cookies)
-        stored.cookies = blob
-        stored.cookies_encrypted = encrypted and true or false
-    end
-    local s = store()
-    s:set("current", stored)
-    return s:flush()
-end
-
-function Session.clear()
-    local s = store()
-    s:set("current", Session.new())
-    return s:flush()
-end
-
-function Session.is_valid(session)
-    return type(session) == "table"
-        and (session.state == "valid" or session.state == "unknown")
-        and type(session.cookies) == "string"
-        and session.cookies ~= ""
-end
-
 function Session.mark_valid(session, fields)
     session.state = "valid"
     session.last_error = nil
     for key, value in pairs(fields or {}) do session[key] = value end
-    return session
-end
-
-function Session.mark_expired(session, reason)
-    session.state = "expired"
-    session.last_error = reason or Constants.ERROR.AUTH_REQUIRED
-    return session
-end
-
-function Session.mark_blocked(session, reason)
-    session.state = "blocked"
-    session.last_error = reason or Constants.ERROR.SIGNIN_BLOCKED
     return session
 end
 
@@ -2735,21 +2565,6 @@ function Session.absorb(session, http)
 end
 
 -- Build an http.lua object preloaded with this session.
-function Session.to_http(session, opts)
-    local Http = require("shelfsync_grlogin.goodreads.http")
-    opts = opts or {}
-    local http = Http:new{
-        cookies = session and session.cookies or "",
-        csrf_token = session and session.csrf_token or nil,
-        user_id = session and session.user_id or nil,
-        base_url = opts.base_url,
-        timeout = opts.timeout,
-        transport = opts.transport,
-    }
-    http.csrf_at = session and session.csrf_at or nil
-    return http
-end
-
 return Session
 
 end
@@ -2965,14 +2780,6 @@ end
 
 function Http:get_cookie_header()
     return self.cookies
-end
-
-function Http:set_cookie_header(cookie)
-    self.cookies = Http.sanitizeCookie(cookie or "")
-end
-
-function Http:has_cookies()
-    return self.cookies ~= nil and self.cookies ~= ""
 end
 
 local function base_headers(self, method)
@@ -3383,20 +3190,6 @@ local BAD_CREDENTIALS_MARKERS = {
 }
 
 -- A compact, non-secret fingerprint of a page, for diagnostics only.
-local function page_markers(body)
-    local l = lower(body)
-    local markers = {
-        "form=" .. tostring(l:find("<form", 1, true) ~= nil),
-        "password=" .. tostring(l:find('type="password"', 1, true) ~= nil),
-        "email=" .. tostring(l:find('name="email"', 1, true) ~= nil),
-        "signin=" .. tostring(l:find("sign_in", 1, true) ~= nil or l:find("signin", 1, true) ~= nil),
-        "check=" .. tostring(contains_any(body, CHALLENGE_MARKERS)),
-        "consent=" .. tostring(l:find("consent", 1, true) ~= nil),
-        "intercept=" .. tostring(l:find("challenge", 1, true) ~= nil),
-    }
-    return table.concat(markers, " ")
-end
-
 function AmazonWeb:new(opts)
     opts = opts or {}
     return setmetatable({
@@ -3419,22 +3212,13 @@ end
 
 -- Fetch the sign-in page and locate the credential form.
 -- Returns ctx or nil, error.
-local function host_of(url)
-    if type(url) ~= "string" then return "?" end
-    return url:match("^https?://([^/]+)") or url
-end
-
 function AmazonWeb:start()
     local http = self:_new_http()
     local resp = http:get(self.base_url .. "/user/sign_in", {
         follow = true,
         detect_auth = false,
     })
-    Logging.trace("login/start: sign_in status=", tostring(resp.status),
-        "url=", tostring(resp.url), "bytes=", tostring(resp.body and #resp.body),
-        "error=", tostring(resp.error))
     if resp.body then
-        Logging.trace("login/start: sign_in page ", page_markers(resp.body))
     end
 
     if resp.error == Constants.ERROR.SIGNIN_BLOCKED then
@@ -3445,23 +3229,15 @@ function AmazonWeb:start()
     local form = parse_form_with_password(resp.body)
     if form and form.action then
         form.action = require("shelfsync_grlogin.goodreads.http").absolute(self.base_url, form.action)
-        Logging.trace("login/start: direct form host=", host_of(form.action))
         return { http = http, form = form }
     end
 
     local link = sign_in_link(resp.body)
     if not link then
-        Logging.trace("login/start: no sign-in link found")
         return nil, Constants.ERROR.INVALID_RESPONSE
     end
-    Logging.trace("login/start: following sign-in link host=", host_of(link))
     local form_resp = http:get(link, { follow = true, detect_auth = false })
-    Logging.trace("login/start: form page status=", tostring(form_resp.status),
-        "url=", tostring(form_resp.url),
-        "bytes=", tostring(form_resp.body and #form_resp.body),
-        "error=", tostring(form_resp.error))
     if form_resp.body then
-        Logging.trace("login/start: form page ", page_markers(form_resp.body))
     end
 
     if form_resp.error == Constants.ERROR.SIGNIN_BLOCKED then
@@ -3473,7 +3249,6 @@ function AmazonWeb:start()
     if not form or not form.action then
         local challenge = parse_challenge(form_resp.body)
         if challenge then
-            Logging.trace("login/start: challenge on the form page")
             return {
                 http = http,
                 challenge = challenge,
@@ -3483,18 +3258,13 @@ function AmazonWeb:start()
         if contains_any(form_resp.body, CHALLENGE_MARKERS) then
             return nil, Constants.ERROR.SIGNIN_BLOCKED
         end
-        Logging.trace("login/start: no credential form on form page")
         return nil, Constants.ERROR.INVALID_RESPONSE
     end
     form.action = require("shelfsync_grlogin.goodreads.http").absolute(form_resp.url, form.action)
-    Logging.trace("login/start: form action host=", host_of(form.action))
     return { http = http, form = form }
 end
 
 function AmazonWeb:_interpret(ctx, resp)
-    Logging.trace("login/interpret: status=", tostring(resp.status),
-        "url=", tostring(resp.url), "bytes=", tostring(resp.body and #resp.body),
-        "error=", tostring(resp.error))
 
     local body = resp.body or ""
     ctx.last_body = body
@@ -3505,8 +3275,6 @@ function AmazonWeb:_interpret(ctx, resp)
     local challenge = parse_challenge(body)
     if challenge then
         ctx.challenge = challenge
-        Logging.trace("login/interpret: challenge image host=",
-            host_of(challenge.image_url), " input=", tostring(challenge.input_name))
         return {
             ok = false,
             needs_challenge = true,
@@ -3533,21 +3301,16 @@ function AmazonWeb:_interpret(ctx, resp)
     -- Ordinary pages that merely mention it must NOT land here, or a successful
     -- login would be reported as blocked.
     if contains_any(body, CHALLENGE_MARKERS) then
-        Logging.trace("login/interpret: challenge page without a parseable image ",
-            page_markers(body))
         return { ok = false, error = Constants.ERROR.SIGNIN_BLOCKED, stage = "challenge" }
     end
     if contains_any(body, OTP_MARKERS) then
-        Logging.trace("login/interpret: OTP/MFA required")
         return { ok = false, needs_otp = true, ctx = ctx, stage = "otp" }
     end
     if contains_any(body, BAD_CREDENTIALS_MARKERS) then
-        Logging.trace("login/interpret: bad credentials marker present")
         return { ok = false, error = Constants.ERROR.INVALID_CREDENTIALS, stage = "credentials" }
     end
     -- If the response is still a credential form, the attempt did not progress.
     if parse_form_with_password(body) then
-        Logging.trace("login/interpret: still on credential form")
         return { ok = false, error = Constants.ERROR.INVALID_CREDENTIALS, stage = "credentials" }
     end
 
@@ -3564,12 +3327,6 @@ function AmazonWeb:_finalize(ctx)
     local user_id = body:match("/user/show/(%d+)")
     local csrf = body:match(
         '<meta%s+[^>]-name=["\']csrf%-token["\']%s+[^>]-content=["\']([^"\']+)["\']')
-    Logging.trace("login/finalize: status=", tostring(resp.status),
-        "url=", tostring(resp.url), "bytes=", tostring(resp.body and #resp.body),
-        "error=", tostring(resp.error),
-        "user_id=", tostring(user_id),
-        "csrf=", tostring(csrf ~= nil),
-        "looks_like_signin=", tostring(looks_signin))
 
     if resp.error == Constants.ERROR.SIGNIN_BLOCKED then
         return { ok = false, error = Constants.ERROR.SIGNIN_BLOCKED, stage = "blocked" }
@@ -3609,8 +3366,6 @@ function AmazonWeb:submit(ctx, email, password)
     local remember_field = ctx.form.remember_field or "rememberMe"
     if not fields[remember_field] then fields[remember_field] = "true" end
 
-    Logging.trace("login/submit: posting to host=", host_of(ctx.form.action),
-        "email_field=", tostring(ctx.form.email_field))
 
     local resp = ctx.http:post_form(ctx.form.action, fields, {
         follow = true,
@@ -3654,7 +3409,6 @@ function AmazonWeb:submit_challenge(ctx, answer)
         return { ok = false, error = Constants.ERROR.INVALID_RESPONSE, stage = "challenge" }
     end
 
-    Logging.trace("login/challenge: submitting answer to host=", host_of(action))
     local resp = ctx.http:post_form(action, fields, {
         follow = true,
         detect_auth = false,
