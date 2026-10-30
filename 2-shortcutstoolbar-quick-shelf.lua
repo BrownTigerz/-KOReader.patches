@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.2.2
+Version: 1.3.1
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -29,7 +29,20 @@ row, so the menu doesn't resize. No timers.
 Install: drop in koreader/patches/ and restart KOReader. Loads after
 2-shortcutstoolbar-icon-tweaks.lua (file order), which it works with.
 
+Tap the book panel (1.3.0, optional): Shortcuts toolbar → Book Panel Tap →
+Opens BookOrbit "This Book" makes a tap on the book panel open BookOrbit's
+This book sheet (sync status, sync now, progress) instead of KOReader's
+book details. Hold Opens Book Details (on by default) keeps the details a
+long-press away. Without BookOrbit, or not signed in, a tap does what it
+always did.
+
 Changelog
+  1.3.1  Book Panel Tap: more reliable BookOrbit This Book (Dispatcher/event fallbacks;
+         pager forwards taps on the book panel page).
+  1.3.0  Book Panel Tap (Shortcuts toolbar menu): tap the book panel to
+         open BookOrbit's This book sheet, with Hold Opens Book Details
+         so KOReader's book details stay a long-press away. Off by
+         default; nothing changes until you turn it on.
   1.2.2  Covers are kept between menu opens, already sized, so the first
          swipe of a menu open doesn't resize them again (about 25 ms a
          cover on a Clara Colour). Up to 10 covers are kept. A SimpleUI
@@ -54,7 +67,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.2.2"
+local PATCH_VERSION = "1.3.1"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -71,12 +84,27 @@ local function source()
     return (type(s) == "table" and s.source == "tbr") and "tbr" or "reading"
 end
 
+-- Book panel tap (1.3.0): { tap_bookorbit = bool, hold_details = bool }
+local function opt(key, default)
+    local s = G_reader_settings:readSetting(SETTINGS_KEY)
+    if type(s) == "table" and s[key] ~= nil then return s[key] end
+    return default
+end
+local function setOpt(key, value)
+    local s = G_reader_settings:readSetting(SETTINGS_KEY) or {}
+    s[key] = value
+    G_reader_settings:saveSetting(SETTINGS_KEY, s)
+end
+
 local function setSource(id)
     local s = G_reader_settings:readSetting(SETTINGS_KEY) or {}
     s.source = id
     G_reader_settings:saveSetting(SETTINGS_KEY, s)
     G_reader_settings:delSetting(OLD_SETTINGS_KEY)
 end
+
+-- openThisBook / showBookDetails are assigned later; pager closes over these locals.
+local openThisBook, showBookDetails
 
 -- --------------------------------------------------------------------------
 -- Book lists
@@ -405,7 +433,36 @@ local function makePager(panel, avail_w)
 
     pager.ges_events = {
         SwipePager = { GestureRange:new{ ges = "swipe", range = function() return pager.dimen end } },
+        TapPager = { GestureRange:new{ ges = "tap", range = function() return pager.dimen end } },
+        HoldPager = { GestureRange:new{ ges = "hold", range = function() return pager.dimen end } },
     }
+    -- When on the book panel page, forward tap/hold so BookOrbit This Book works
+    function pager:onTapPager(...)
+        if self.page ~= 1 then return false end
+        local p = self.pages[1]
+        if type(p) == "table" then
+            if opt("tap_bookorbit", false) and openThisBook() then return true end
+            if type(p.onTap) == "function" then return p:onTap(...) end
+            for _, n in ipairs({ "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+                if type(p[n]) == "function" then return p[n](p, ...) end
+            end
+        end
+        if opt("tap_bookorbit", false) and openThisBook() then return true end
+        showBookDetails()
+        return true
+    end
+    function pager:onHoldPager(...)
+        if self.page ~= 1 then return false end
+        local p = self.pages[1]
+        if type(p) == "table" and type(p.onHoldBookPanel) == "function" then
+            return p:onHoldBookPanel(...)
+        end
+        if opt("tap_bookorbit", false) and opt("hold_details", true) then
+            showBookDetails()
+            return true
+        end
+        return false
+    end
     function pager:onSwipePager(_arg, ges)
         local dir = ges and BD.flipDirectionIfMirroredUILayout(ges.direction)
         -- Left or right both go to the other page (two pages: it loops).
@@ -467,6 +524,118 @@ local function makePager(panel, avail_w)
 end
 
 -- --------------------------------------------------------------------------
+-- Book panel tap and hold (1.3.0)
+-- --------------------------------------------------------------------------
+
+-- The open book's BookOrbit plugin, when it's there.
+local function bookOrbit()
+    local RUI = package.loaded["apps/reader/readerui"]
+    local ui = type(RUI) == "table" and RUI.instance
+    if type(ui) ~= "table" then return nil end
+    for _, key in ipairs({ "bookorbit", "BookOrbit" }) do
+        local bo = ui[key]
+        if type(bo) == "table" and (
+                type(bo.onBookOrbitThisBook) == "function"
+                or type(bo.openBookSheet) == "function") then
+            return bo
+        end
+    end
+    -- Last resort: scan ui plugins
+    for _k, v in pairs(ui) do
+        if type(v) == "table" and type(v.onBookOrbitThisBook) == "function" then
+            return v
+        end
+    end
+    return nil
+end
+
+showBookDetails = function()
+    local Event = require("ui/event")
+    UIManager:broadcastEvent(Event:new("ShowBookStatus"))
+end
+
+-- BookOrbit's This book sheet (it asks you to sign in when you're not).
+-- Returns false when BookOrbit isn't installed, so the tap falls back.
+openThisBook = function()
+    logger.info("shortcutstoolbar quick shelf: openThisBook")
+    local bo = bookOrbit()
+    if bo then
+        if type(bo.onBookOrbitThisBook) == "function" then
+            local ok, err = pcall(bo.onBookOrbitThisBook, bo)
+            if ok then return true end
+            logger.warn("shortcutstoolbar quick shelf: onBookOrbitThisBook failed:", err)
+        end
+        if type(bo.openBookSheet) == "function" then
+            local ok, err = pcall(bo.openBookSheet, bo)
+            if ok then return true end
+            logger.warn("shortcutstoolbar quick shelf: openBookSheet failed:", err)
+        end
+    end
+    -- Dispatcher / event paths (same as the registered gesture action)
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if ok_d and type(Dispatcher) == "table" and type(Dispatcher.execute) == "function" then
+        local ok = pcall(Dispatcher.execute, Dispatcher, "bookorbit_this_book")
+        if ok then
+            logger.info("shortcutstoolbar quick shelf: This book via Dispatcher")
+            return true
+        end
+    end
+    local ok_ev, Event = pcall(require, "ui/event")
+    if ok_ev then
+        local ok = pcall(function()
+            UIManager:sendEvent(Event:new("BookOrbitThisBook"))
+        end)
+        if ok then
+            logger.info("shortcutstoolbar quick shelf: This book via event")
+            return true
+        end
+    end
+    logger.warn("shortcutstoolbar quick shelf: BookOrbit This book unavailable")
+    return false
+end
+
+-- The plugin's panel is an InputContainer whose tap shows the book details.
+-- With the option on, the tap opens BookOrbit's This book instead, and a
+-- long-press (Hold Opens Book Details) still shows the details.
+local function wireTaps(panel)
+    if type(panel) ~= "table" or type(panel.ges_events) ~= "table" or panel.__qs_taps then return end
+    panel.__qs_taps = true
+    local GestureRange = require("ui/gesturerange")
+    -- Hook every common tap handler name the stock panel may use
+    local function handleTap(...)
+        if opt("tap_bookorbit", false) and openThisBook() then return true end
+        return nil -- fall through
+    end
+    for _, name in ipairs({ "onTap", "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+        local orig = panel[name]
+        if type(orig) == "function" or name == "onTap" then
+            panel[name] = function(self, ...)
+                local handled = handleTap(...)
+                if handled then return true end
+                if type(orig) == "function" then return orig(self, ...) end
+                if name == "onTap" then
+                    showBookDetails()
+                    return true
+                end
+            end
+        end
+    end
+    -- Ensure a Tap gesture range exists so InputContainer dispatches
+    if not panel.ges_events.Tap and not panel.ges_events.TapBookInfo then
+        panel.ges_events.Tap = { GestureRange:new{ ges = "tap", range = function() return panel.dimen end } }
+    end
+    panel.ges_events.HoldBookPanel = { GestureRange:new{ ges = "hold", range = function() return panel.dimen end } }
+    function panel:onHoldBookPanel()
+        if not opt("tap_bookorbit", false) then return false end
+        if opt("hold_details", true) then
+            showBookDetails()
+            return true
+        end
+        return false
+    end
+end
+
+-- --------------------------------------------------------------------------
 -- Hook: wrap the plugin's book panel builder (reader toolbar only)
 -- --------------------------------------------------------------------------
 
@@ -514,6 +683,7 @@ local function hookPanel()
     debug.setupvalue(builder, idx, function(avail_w, ...)
         local panel = orig_panel(avail_w, ...)
         if not panel then return panel end
+        pcall(wireTaps, panel)
         local ok_p, pager = pcall(makePager, panel, avail_w)
         if ok_p then return pager end
         logger.warn("shortcutstoolbar quick shelf:", pager)
@@ -548,6 +718,30 @@ local function menuItem()
     }
 end
 
+local function tapMenuItem()
+    return {
+        text_func = function()
+            return opt("tap_bookorbit", false) and _("Book Panel Tap: BookOrbit This Book") or _("Book Panel Tap: Book Details")
+        end,
+        help_text = _("What a tap on the toolbar's book panel (the cover and title at the top) opens while reading."),
+        sub_item_table = {
+            {
+                text = _("Opens BookOrbit \"This Book\""),
+                help_text = _("Tap the book panel to open BookOrbit's This book sheet: whether this book is synced, Sync now, and its BookOrbit progress. Without BookOrbit installed the tap shows the book details as before."),
+                checked_func = function() return opt("tap_bookorbit", false) == true end,
+                callback = function() setOpt("tap_bookorbit", not opt("tap_bookorbit", false)) end,
+            },
+            {
+                text = _("Hold Opens Book Details"),
+                help_text = _("With the tap on BookOrbit: a long-press on the book panel shows KOReader's book details (status, rating, review)."),
+                enabled_func = function() return opt("tap_bookorbit", false) == true end,
+                checked_func = function() return opt("hold_details", true) == true end,
+                callback = function() setOpt("hold_details", not opt("hold_details", true)) end,
+            },
+        },
+    }
+end
+
 logger.info("shortcutstoolbar quick shelf v" .. PATCH_VERSION)
 
 userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
@@ -561,6 +755,7 @@ userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
         local root = menu_items.shortcutstoolbar
         if root and root.sub_item_table then
             table.insert(root.sub_item_table, menuItem())
+            table.insert(root.sub_item_table, tapMenuItem())
         end
     end
 end)
