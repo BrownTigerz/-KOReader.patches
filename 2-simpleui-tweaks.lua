@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.8
+Version 2.14.10
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,16 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.10 Critter Insights in Donny, Blu and Donny & Blu's own voice:
+         critter-phrases.lua's insight_voices section. With SimpleUI
+         3.0.2 a critter with its own wording of an insight uses it about
+         half the time, the shared lines the rest.
+  2.14.9 Donny, Blu and Donny & Blu talk in their own voice, like
+         SimpleUI 3.0.2's critters (Suey, Hazel...): their lines are in
+         critter-phrases.lua (voices) and join SimpleUI's voice lines, so
+         the home screen and Reading Log Tweaks both use them. Same
+         situations as SimpleUI's: greetings, streak, today, books this
+         year, the current book, goal, Monday, weekend, any time.
   2.14.8 Early Page Turn (Page Turns, off by default): a sideways swipe
          turns the page once your finger has moved 35 dp (or 50 / 80),
          without waiting for the lift. Books in page mode and full-screen
@@ -344,7 +354,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.8"
+local VERSION = "2.14.10"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1777,6 +1787,24 @@ function CF.bank()
             end
         end
     end
+    if type(b.voices) == "table" then out.voices = b.voices end
+    -- insight_voices[critter][kind]: lists of lines, checked like the insights
+    if type(b.insight_voices) == "table" then
+        out.insight_voices = {}
+        for cid, kinds in pairs(b.insight_voices) do
+            if type(cid) == "string" and type(kinds) == "table" then
+                local per = {}
+                for kind, list in pairs(kinds) do
+                    if type(kind) == "string" and kind:match("^tw_") and type(list) == "table" then
+                        local good = {}
+                        for _i, l in ipairs(list) do if lineOk(l) then good[#good + 1] = l end end
+                        if #good > 0 then per[kind] = good end
+                    end
+                end
+                out.insight_voices[cid] = per
+            end
+        end
+    end
     if stepsOk(b.minutes) then out.minutes = b.minutes end
     if stepsOk(b.pages) then out.pages = b.pages end
     logger.info(TAG, string.format("critter phrases: %d insight lines, minutes %s, pages %s from %s",
@@ -2176,6 +2204,21 @@ local function install()
                 L.LINES[#L.LINES + 1] = line
             end
         end
+        -- 2.14.10: Donny, Blu and Donny & Blu's own wording (SimpleUI 3.0.2
+        -- picks a critter's own line about half the time when it has one)
+        if b and type(b.insight_voices) == "table" then
+            for cid, kinds in pairs(b.insight_voices) do
+                for kind, list in pairs(kinds) do
+                    if LINES[kind] then
+                        for n, l in ipairs(list) do
+                            L.LINES[#L.LINES + 1] = { id = kind .. "_" .. cid .. "_" .. n, kind = kind, group = "tw",
+                                critter = cid, mood = l.mood, text = l.text, sub = l.sub, by_tier = l.by_tier,
+                                when = function(d) return type(d) == "table" end }
+                        end
+                    end
+                end
+            end
+        end
     end
     -- the chat's book suggestion: not the same book twice in a day
     local Rec = package.loaded["modules/critter/recommend"]
@@ -2371,7 +2414,65 @@ function CF.moods()
     end
 end
 
+-- Critter voices (2.14.9): the phrase bank's voices (Donny, Blu, Donny & Blu)
+-- join SimpleUI 3.0.2's own voice lines (modules/critter/voice_phrases), so
+-- the home screen and Reading Log Tweaks both use them. Same situations and
+-- rules as SimpleUI's critters.
+local function atLeast(v, n) return v ~= nil and v >= n end
+local VOICE_SIT = {
+    greet_morning   = { cat = "greeting", when = function(f) return f.period == "morning" end },
+    greet_afternoon = { cat = "greeting", when = function(f) return f.period == "afternoon" end },
+    greet_evening   = { cat = "greeting", when = function(f) return f.period == "evening" end },
+    greet_night     = { cat = "greeting", when = function(f) return f.period == "night" end },
+    streak          = { cat = "streak",   when = function(f) return atLeast(f.streak, 2) end },
+    streak_paused   = { cat = "streak",   when = function(f) return f.streak == 0 end },
+    today           = { cat = "today",    when = function(f) return atLeast(f.today_secs, 60) end },
+    books_year      = { cat = "books",    when = function(f) return atLeast(f.books_year, 1) end },
+    book_progress   = { cat = "reading",  when = function(f) return f.book ~= nil and f.book.days < 3 and f.book.percent < 90 end },
+    book_waiting    = { cat = "reading",  when = function(f) return f.book ~= nil and f.book.days >= 3 end },
+    goal_day        = { cat = "special",  when = function(f)
+                          return (f.daily_goal_secs or 0) > 0 and atLeast(f.today_secs, f.daily_goal_secs) end },
+    monday          = { cat = "calendar", when = function(f) return f.weekday == 2 end },
+    weekend         = { cat = "calendar", when = function(f) return f.weekday == 1 or f.weekday == 7 end },
+    anytime         = { cat = "generic",  when = function() return true end },
+}
+local VOICE_ORDER = { "greet_morning", "greet_afternoon", "greet_evening", "greet_night", "streak", "streak_paused",
+    "today", "books_year", "book_progress", "book_waiting", "goal_day", "monday", "weekend", "anytime" }
+function CF.voices()
+    local ok, V = pcall(require, "modules/critter/voice_phrases")
+    if not ok or type(V) ~= "table" or V._tw_voices then return end
+    local b = CF.bank()
+    if not (b and type(b.voices) == "table") then return end
+    V._tw_voices = true
+    local ids = {}
+    for cid in pairs(b.voices) do if type(cid) == "string" then ids[#ids + 1] = cid end end
+    table.sort(ids)
+    local n = 0
+    for _i, cid in ipairs(ids) do
+        local sits = b.voices[cid]
+        if type(sits) == "table" then
+            for _j, name in ipairs(VOICE_ORDER) do
+                local sit, list = VOICE_SIT[name], sits[name]
+                if type(list) == "table" then
+                    for k, l in ipairs(list) do
+                        if type(l) == "table" and type(l.text) == "function" then
+                            V[#V + 1] = { id = string.format("tw_%s_%s_%d", cid, name, k), critter = cid,
+                                cat = sit.cat, mood = l.mood or "happy", when = sit.when, text = l.text,
+                                sub = type(l.sub) == "function" and l.sub or nil }
+                            n = n + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    logger.info(TAG, "critter voices:", n, "lines for", table.concat(ids, ", "))
+end
+-- Reading Log Tweaks calls this before reading the voice lines.
+package.loaded["simpleui_tweaks_voices"] = function() return pcall(CF.voices) end
+
 function CF.pep()
+    pcall(CF.voices)
     pcall(CF.moods)
     pcall(CF.mix)
     local ok, Ph = pcall(require, "modules/critter/phrases")
