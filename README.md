@@ -20,9 +20,10 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.8 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.10 |
 | [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.17 |
-| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log | n/a |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.4 |
+| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.8 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
@@ -67,6 +68,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Page Turn Flash** (SimpleUI Tweaks menu): SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. **Normal** adds a quick flash to each turn; **Strong** a full refresh, which also clears dark pages and night mode. **Off** (default) keeps turns as fast as they are now.
 - **Early Page Turn** (Page Turns, off by default): a sideways swipe turns the page once your finger has moved 35 dp (or 50 / 80), without waiting for the lift. Books in page mode, plus full-screen lists (file browser, history, collections, TOC, bookmarks, search) with **Also In Lists**. One turn per swipe; taps aren't changed. Turns itself off if `2-earlyturn.lua` is installed.
 - **Tiny Critter pep talk** (SimpleUI 3.0): Modules → **Critter Pep Talk**, on by default. SimpleUI's "minutes read today" and "pages turned today" lines grow with your reading instead of always saying "Nice work.": a nudge after a minute or two ("1 minute read today. A start is a start."), a groove at 15 minutes, a cheer at half an hour, a party past an hour ("2.2 hours read today! Marathon mode."). With a daily goal set, it counts you in once you're within 10 minutes ("Just 7 minutes to your daily goal!"). The line moves up a step next time the home screen draws as you read; the wording changes with each new phrase. No timers.
+- **Donny and Blu's own voice** (2.14.9, SimpleUI 3.0.2): Donny, Blu and Donny & Blu talk in their own voice like SimpleUI's critters (Suey, Hazel...): greetings, streaks, today's reading, books this year, the current book, your goal, Mondays, weekends. The lines are in `critter-phrases.lua` (its `voices` section, edit freely) and are used on the home screen and by Reading Log Tweaks. Critter Insights (2.14.10) get their own wording too (`insight_voices`): about half the time a milestone, record, quick win, comeback, pace or weekend insight is in their voice.
 - **Critter Mix** (2.14.2): Modules → **Critter Mix**, tick two or more critters (say Donny, Blu and Donny & Blu) and they take turns: the next one each time the critter picks something new to say (about every 20 minutes, a new part of the day, or a tap). Reading Log's critter takes turns too: a new remark or a tap there moves it along (Reading Log 1.10.0+). Fewer than two ticked: SimpleUI's own pick.
 - **More critter moods** (2.14.1): reading, proud, hungry, cozy, sipping, dreamy, festive, spooky (Donny and Blu have them, see Tiny Critters). A critter without one shows its base pose (reading as neutral, proud as cheer...) instead of plain neutral. Party is festive in December and spooky from October 25, when the critter has those pictures.
 - **Critter phrases** (`critter-phrases.lua`, optional): put it in `koreader/patches/` next to the patch (the name has no number, so KOReader doesn't run it as a patch). Critter Insights and Critter Pep Talk then take their lines from it: several times as many, a little sassier, never guilt-trippy. Edit it to make the critter your own; Reading Log's critter uses the same file. Missing or broken, the built-in lines are used (Debugging logs which). Don't call it `phrases.lua` or put it in `sui_critters/`: that's SimpleUI's own custom phrase file, in another format.
@@ -380,6 +382,30 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 - **Book Panel Tap** (Shortcuts toolbar → Book Panel Tap, off by default): **Opens BookOrbit "This Book"** makes a tap on the book panel open BookOrbit's This book sheet (sync status, Sync now, progress) instead of KOReader's book details. **Hold Opens Book Details** (on by default) keeps the details a long-press away. Without BookOrbit, a tap does what it always did.
 
 ---
+
+## Reading Log Tweaks
+
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.4
+
+Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
+
+Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Patches** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
+
+- **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
+- **Year Goal With Covers:** the year goal on the left, this year's covers on the right, a pace bar along the bottom. Also in Pages And Cards and as its own Simple UI module.
+- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, Tab Bar Position.
+- **Flash To Clear Ghosting** (off by default): switching tabs or months, and turning onto or off the Dashboard's page, flashes the screen. Only one of this and Simple UI 3.0.2's **Flash On Every Page Turn** is on at a time.
+- **Start On Tab** (Last Viewed by default): which Dashboard tab shows when you come back to it, after a book, after sleep or turning back onto its page.
+- **Start On First Page After Reading Or Sleep** (off by default): opening a book or sleeping sends SimpleUI's home screen back to page 1.
+- **Book Club: Tap Opens Picks** (off by default): a tap on the Book Club card goes straight to choosing this month's books (Reading Log's own chooser); a tap on a pick still opens that book.
+- **Continue Reading: Buttons Only** (off by default): the Continue Reading card opens the book only from its Continue button (or the cover, in the looks where the cover is the button); Details shows the details and the dots flip books. A tap anywhere else on the card does nothing.
+- **Book Taps Open BookOrbit** (off by default, shown only with BookOrbit installed): a tap on a book's cover opens its page in BookOrbit when BookOrbit has the file.
+- **Critter Remarks:** Simple UI 3.0's Tiny Critter peeks into each Dashboard page with a remark about that page's numbers and suggests books. Tap it to talk. Uses `critter-phrases.lua` when it's in `patches/`. Each of these has its own switch under Critter:
+  - **Critter's Own Voice** (Simple UI 3.0.2): Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos and Hazel say about one remark in three their own way, on the pages their lines fit. Donny, Blu and Donny & Blu join in with SimpleUI Tweaks 2.14.9+ and `critter-phrases.lua`, and since 1.1.2 the page insights (comeback, a run of days, best day this month, milestone, goal pace, weekend reading) are in their voice about half the time.
+  - **Games And Quotes** (Simple UI 3.0.2): in the talk window, Let's Play (rock, paper, scissors; heads or tails; guess the author) and Read Me A Quote. The critter's last word shows in the bubble.
+  - **Critter Rewards:** drawn beside the critter here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.
+
+Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
 
 ## X-Ray Direct Lookup
 
