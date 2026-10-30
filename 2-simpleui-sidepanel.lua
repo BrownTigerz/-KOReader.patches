@@ -1,8 +1,28 @@
--- SimpleUI Side Panel v1.0.5
+-- SimpleUI Side Panel v1.0.17
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
+--
+-- 1.0.17 Header: the whole view title shows ("Book Club Anthology",
+--        "BookOrbit Newly Added"): a title that nearly fits steps down to
+--        20 to stay on one line; a longer one wraps onto two lines at full
+--        size instead of being cut after a few words.
+-- 1.0.16 Speed: at most one BookOrbit refresh per panel open. Swiping
+--        through BookOrbit views ran one refresh per view (0.75-0.9 s each,
+--        the panel frozen meanwhile: four in six seconds in the log). Now
+--        only the first view you stop on (0.4 s) is refreshed; the others
+--        show their saved list. Saved lists count as fresh for 30 minutes
+--        (was 10).
+-- 1.0.15 Speed: BookOrbit lists no longer block the swipe. Checking which
+--        views have books (every open and every swipe) reads only the
+--        saved lists, never BookOrbit's server; the list on show comes from
+--        the saved copy straight away and, when it's over 10 minutes old
+--        with Wi-Fi on, is refreshed once right after the panel is up, then
+--        redrawn in place. Each refresh is one request (up to 100 books)
+--        instead of one per page. Was: a swipe asked the server for every
+--        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
+--        swipes took up to 1.8 s.
 
-local VERSION = "1.0.5"
+local VERSION = "1.0.17"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -16,14 +36,14 @@ local function loadConfig()
     local c = {
         tbr_panel = "right", tbr_edge = "narrow", tbr_panel_view = "tbr",
         tbr_panel_colls = {}, tbr_panel_show_tbr = true, tbr_panel_show_new = true,
-        bo_colls = {}, bo_show_new = false,
+        bo_colls = {}, bo_show_new = false, history_source = "device",
     }
     local saved = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY)
     if type(saved) ~= "table" and G_reader_settings then
         local old = G_reader_settings:readSetting(OLD_KEY)
         if type(old) == "table" then
             saved = {}
-            for _i, k in ipairs({"tbr_panel","tbr_edge","tbr_panel_view","tbr_panel_colls","tbr_panel_show_tbr","tbr_panel_show_new"}) do
+            for _, k in ipairs({"tbr_panel","tbr_edge","tbr_panel_view","tbr_panel_colls","tbr_panel_show_tbr","tbr_panel_show_new"}) do
                 if old[k] ~= nil then saved[k] = old[k] end
             end
             local bo = G_reader_settings:readSetting("simpleui_bo_panel")
@@ -46,6 +66,7 @@ local function saveConfig()
         tbr_panel = cfg.tbr_panel, tbr_edge = cfg.tbr_edge, tbr_panel_view = cfg.tbr_panel_view,
         tbr_panel_colls = cfg.tbr_panel_colls, tbr_panel_show_tbr = cfg.tbr_panel_show_tbr,
         tbr_panel_show_new = cfg.tbr_panel_show_new, bo_colls = cfg.bo_colls, bo_show_new = cfg.bo_show_new,
+        history_source = cfg.history_source,
     })
     if G_reader_settings.flush then pcall(G_reader_settings.flush, G_reader_settings) end
 end
@@ -62,6 +83,8 @@ local function showSimpleUIHome()
     end
 end
 
+local empty_noted = {}
+local panelNote
 -- ---- To Be Read side panel --------------------------------------------------------
 -- Swipe in from the right (or left) edge of SimpleUI home: a panel slides in
 -- with the To Be Read list, the KOReader collection Bookshelf's "Add to To Be
@@ -144,6 +167,15 @@ local function historyList()
     return fps
 end
 
+-- True when the BookOrbit plugin is present (BO-only settings are hidden otherwise)
+local function bookOrbitInstalled()
+    local lfs = require("libs/libkoreader-lfs")
+    if lfs.attributes("plugins/bookorbit.koplugin/main.lua", "mode") == "file" then return true end
+    if lfs.attributes("plugins/BookOrbit.koplugin/main.lua", "mode") == "file" then return true end
+    local ok = pcall(require, "bookorbit_api")
+    return ok
+end
+
 -- Other KOReader collections as panel views ("coll:<name>").
 local function collList(name)
     local okr, RC = pcall(require, "readcollection")
@@ -192,7 +224,20 @@ end
 
 -- The swipe order: To Be Read, the picked collections that have books, Newly Added.
 -- BookOrbit path helpers (defined above panel open; stubs filled after lists)
-local boCollList, boNewList, boLabel, isBoPicked, openBoInCatalog
+local boCollList, boNewList, boHistoryList, boLabel, isBoPicked, openBoInCatalog, openBoBookDetail, boPlugin
+local onDeviceByBookId, liveBookPath, refreshCachedBooks
+-- 1.0.15: bo_quick = only the saved lists (no server); bo_stale = the list on
+-- show was served old, refresh it after the panel is up
+local bo_quick, bo_stale, bo_refresh_task = false, nil, nil
+-- 1.0.16: true once this panel open has run its one BookOrbit refresh
+local bo_refreshed_open = false
+local function boQuick(fn, ...)
+    local was = bo_quick
+    bo_quick = true
+    local ok, res = pcall(fn, ...)
+    bo_quick = was
+    return ok and res or {}
+end
 
 local function panelViews()
     local views = {}
@@ -201,7 +246,7 @@ local function panelViews()
         if type(name) == "string" and #collList(name) > 0 then views[#views + 1] = "coll:" .. name end
     end
     for _i, e in ipairs(cfg.bo_colls or {}) do
-        if type(e) == "table" and e.id and type(boCollList) == "function" and #boCollList(e.id) > 0 then
+        if type(e) == "table" and e.id and type(boCollList) == "function" and #boQuick(boCollList, e.id) > 0 then
             views[#views + 1] = "bo:" .. tostring(e.id)
         end
     end
@@ -264,7 +309,7 @@ local function viewIsAvailable(v)
     end
     if v:sub(1, 3) == "bo:" then
         return type(isBoPicked) == "function" and isBoPicked(v:sub(4))
-            and type(boCollList) == "function" and #boCollList(v:sub(4)) > 0
+            and type(boCollList) == "function" and #boQuick(boCollList, v:sub(4)) > 0
     end
     return false
 end
@@ -284,6 +329,8 @@ local function clampOpensToSetting()
         saveConfig()
     end
 end
+
+local boAfterShow -- 1.0.15, set after the BookOrbit list code
 
 local function openTBRPanel(hs, view, switching, reuse)
     if tbr_panel_open and not reuse then return end
@@ -354,8 +401,14 @@ local function openTBRPanel(hs, view, switching, reuse)
         list = newBooksList()
         view_title = _("Newly Added")
     elseif view == "history" then
-        list = historyList()
-        view_title = _("History")
+        if cfg.history_source == "bookorbit" and bookOrbitInstalled()
+                and type(boHistoryList) == "function" then
+            list = boHistoryList() or {}
+            view_title = _("History · BookOrbit")
+        else
+            list = historyList()
+            view_title = _("History")
+        end
     else
         list = tbrList()
         view_title = _("To Be Read")
@@ -378,6 +431,12 @@ local function openTBRPanel(hs, view, switching, reuse)
     local function close(for_switch)
         tbr_panel_open = false
         tbr_panel_root = nil
+        -- a pending BookOrbit refresh has nothing to redraw now
+        if bo_refresh_task and not for_switch then
+            UIManager:unschedule(bo_refresh_task)
+            bo_refresh_task = nil
+        end
+        if not for_switch then bo_refreshed_open = false end
         if for_switch then
             UIManager:close(root)
             return
@@ -429,10 +488,24 @@ local function openTBRPanel(hs, view, switching, reuse)
     local group = VerticalGroup:new{ align = "left" }
     -- Header: title on the left, history icon on the right (top-right)
     local title_text = (#list > 0) and string.format("%s (%d)", view_title, #list) or view_title
-    local title_widget = TextWidget:new{
-        text = title_text,
-        face = head_face, bold = true, max_width = pw - pad * 3 - Screen:scaleBySize(32),
-    }
+    -- 1.0.17: the whole title shows. 22, or 20 if that fits one line;
+    -- longer, it wraps onto two lines at full size (22), and only a title
+    -- longer than two lines is cut.
+    local title_avail = pw - pad * 3 - Screen:scaleBySize(32)
+    local title_widget
+    for _i, size in ipairs({ 22, 20 }) do
+        local tw = TextWidget:new{ text = title_text, face = Font:getFace("tfont", size), bold = true }
+        if tw:getSize().w <= title_avail then title_widget = tw break end
+        tw:free()
+    end
+    if not title_widget then
+        local face2 = head_face
+        local line_h = TextWidget:new{ text = "Ag", face = face2, bold = true }:getSize().h
+        title_widget = TextBoxWidget:new{
+            text = title_text, face = face2, bold = true, width = title_avail,
+            height = line_h * 2, height_adjust = true, height_overflow_show_ellipsis = true,
+        }
+    end
     -- Header icon (top-right): context-aware.
     -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
     -- In History view: "<" text → tap goes back to previous view.
@@ -502,7 +575,7 @@ local function openTBRPanel(hs, view, switching, reuse)
         elseif view == "history" then
             empty_text = _("No reading history yet. Open a book and it'll show up here.")
         elseif bo_view then
-            empty_text = _("No books from this BookOrbit list are on the device yet.")
+            empty_text = _("No books in this BookOrbit list (or could not load them).")
         else
             empty_text = _("Nothing here yet. Hold a book in Bookshelf and choose To Be Read to add it.")
         end
@@ -511,15 +584,131 @@ local function openTBRPanel(hs, view, switching, reuse)
             face = author_face, width = pw - pad * 2,
         }
     end
+    -- Open the BookOrbit detail page for this book (download / formats live there)
+    local function openBoDetail(entry)
+        local title = (entry and entry.title) or _("Book")
+        local id = entry and entry.id
+        logger.info(TAG, "openBoDetail: closing panel then opening id=", tostring(id), title)
+        close()  -- dismiss side panel before BookOrbit UI
+        if hs then hs._navbar_closing_intentionally = true end
+        -- nextTick so the panel close/paint finishes before BookOrbit opens
+        UIManager:nextTick(function()
+            local ok = openBoBookDetail(id, title)
+            if hs then hs._navbar_closing_intentionally = nil end
+            if not ok then
+                panelNote(_("Could not open BookOrbit. Is the plugin installed and signed in?"))
+            end
+        end)
+    end
+
+    -- Tap: open file if still on device; otherwise offer download via BookOrbit
+    local function handleBoEntry(entry)
+        local fp = liveBookPath(entry and entry.id, entry and entry.path)
+        if entry then entry.path = fp end  -- keep list accurate after deletes
+        if type(fp) == "string" and fp ~= "" then
+            openBook(fp)
+            return
+        end
+        -- Close the panel first so the dialog is not buried under it
+        close()
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local dlg
+        local title = (entry and entry.title) or _("Book")
+        dlg = ButtonDialog:new{
+            title = title,
+            title_align = "center",
+            buttons = {
+                {{
+                    text = _("Download / open in BookOrbit"),
+                    callback = function()
+                        UIManager:close(dlg)
+                        -- panel already closed; openBoDetail still nextTick-opens BO
+                        openBoDetail(entry)
+                    end,
+                }},
+                {{
+                    text = _("Cancel"),
+                    callback = function() UIManager:close(dlg) end,
+                }},
+            },
+        }
+        UIManager:show(dlg)
+    end
+
     local SH
     for i = 1, math.min(TBR_ROWS, #list) do
-        local fp = list[i]
-        local title, authors, sh_mod, percent, status = bookMeta(fp)
-        SH = SH or sh_mod
-        local cover = SH and SH.getBookCover and SH.getBookCover(fp, cover_w, cover_h)
-        if not cover and SH and SH.coverPlaceholder then cover = SH.coverPlaceholder(title, authors, cover_w, cover_h) end
+        local item = list[i]
+        local history_is_bo = (view == "history" and cfg.history_source == "bookorbit"
+                and bookOrbitInstalled() and type(item) == "table")
+        local is_bo = (bo_view or history_is_bo) and type(item) == "table"
+        local fp, title, authors, percent, status, on_device
+        if is_bo then
+            fp = liveBookPath(item.id, item.path)
+            item.path = fp
+            title = item.title or _("Untitled")
+            authors = item.authors or ""
+            on_device = type(fp) == "string" and fp ~= ""
+            if on_device then
+                local t2, a2, sh2, p2, s2 = bookMeta(fp)
+                SH = SH or sh2
+                if t2 and t2 ~= "" then title = t2 end
+                if a2 and a2 ~= "" then authors = a2 end
+                percent, status = p2, s2
+            end
+        else
+            fp = item
+            local sh_mod
+            title, authors, sh_mod, percent, status = bookMeta(fp)
+            SH = SH or sh_mod
+            on_device = true
+        end
+        local cover
+        if on_device and fp then
+            cover = SH and SH.getBookCover and SH.getBookCover(fp, cover_w, cover_h)
+            if not cover and SH and SH.coverPlaceholder then
+                cover = SH.coverPlaceholder(title, authors, cover_w, cover_h)
+            end
+        end
+        if not cover and SH and SH.coverPlaceholder then
+            cover = SH.coverPlaceholder(title, authors, cover_w, cover_h)
+        end
         cover = cover or FrameContainer:new{ bordersize = Size.border.thin, padding = 0,
             dimen = Geom:new{ w = cover_w, h = cover_h }, VerticalSpan:new{ width = cover_h - 2 } }
+        -- BookOrbit: same on-device / download corner mark as the catalog cover
+        if is_bo then
+            local lfs = require("libs/libkoreader-lfs")
+            local icon_name = on_device and "bookorbit.on-device.svg" or "bookorbit.download.svg"
+            local icon_path = "plugins/bookorbit.koplugin/assets/" .. icon_name
+            if lfs.attributes(icon_path, "mode") ~= "file" then
+                -- older plugin layout kept assets next to the plugin root
+                icon_path = "plugins/bookorbit.koplugin/" .. icon_name
+            end
+            if lfs.attributes(icon_path, "mode") == "file" then
+                local IconWidget = require("ui/widget/iconwidget")
+                local OverlapGroup = require("ui/widget/overlapgroup")
+                local BottomContainer = require("ui/widget/container/bottomcontainer")
+                local RightContainer = require("ui/widget/container/rightcontainer")
+                local icon_sz = Screen:scaleBySize(22)
+                local pad_i = Screen:scaleBySize(3)
+                local badge_icon = IconWidget:new{
+                    file = icon_path, width = icon_sz, height = icon_sz,
+                }
+                cover = OverlapGroup:new{
+                    dimen = Geom:new{ w = cover_w, h = cover_h },
+                    cover,
+                    BottomContainer:new{
+                        dimen = Geom:new{ w = cover_w, h = cover_h },
+                        RightContainer:new{
+                            dimen = Geom:new{ w = cover_w, h = icon_sz + pad_i },
+                            HorizontalGroup:new{
+                                badge_icon,
+                                HorizontalSpan:new{ width = pad_i },
+                            },
+                        },
+                    },
+                }
+            end
+        end
         local meta = VerticalGroup:new{ align = "left",
             TextBoxWidget:new{ text = title, face = title_face, bold = true, width = text_w,
                                height = title_face.size * 3, height_adjust = true, height_overflow_show_ellipsis = true },
@@ -528,7 +717,11 @@ local function openTBRPanel(hs, view, switching, reuse)
             meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
             meta[#meta + 1] = TextWidget:new{ text = authors, face = author_face, max_width = text_w }
         end
-        -- History view: show completion status or progress
+        if is_bo then
+            local badge = on_device and _("On device") or _("Not on device · tap to download")
+            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
+            meta[#meta + 1] = TextWidget:new{ text = badge, face = author_face, max_width = text_w }
+        end
         if view == "history" then
             local prog_text
             if status == "complete" or (percent and percent >= 1) then
@@ -549,27 +742,34 @@ local function openTBRPanel(hs, view, switching, reuse)
             TapRow  = { GestureRange:new{ ges = "tap",  range = function() return row.dimen end } },
             HoldRow = { GestureRange:new{ ges = "hold", range = function() return row.dimen end } },
         }
-        function row:onTapRow() openBook(fp) return true end
-        function row:onHoldRow()
-            if view ~= "tbr" and not coll_name then return false end   -- remove: To Be Read and collections
-            local ButtonDialog = require("ui/widget/buttondialog")
-            local dlg
-            dlg = ButtonDialog:new{
-                title = title, title_align = "center",
-                buttons = {
-                    {{ text = string.format(_("Remove from %s"), coll_name and collLabel(coll_name) or _("To Be Read")),
-                       callback = function()
-                        UIManager:close(dlg)
-                        if coll_name then collRemove(fp, coll_name) else tbrRemove(fp) end
-                        changed = true
-                        close()
-                        UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view, true) end)   -- reopen with the new list, same view
-                    end }},
-                    {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
-                },
-            }
-            UIManager:show(dlg)
-            return true
+        if is_bo then
+            local entry = item
+            function row:onTapRow() handleBoEntry(entry) return true end
+            -- Hold always opens BookOrbit book detail (same as catalog hold)
+            function row:onHoldRow() openBoDetail(entry) return true end
+        else
+            function row:onTapRow() openBook(fp) return true end
+            function row:onHoldRow()
+                if view ~= "tbr" and not coll_name then return false end
+                local ButtonDialog = require("ui/widget/buttondialog")
+                local dlg
+                dlg = ButtonDialog:new{
+                    title = title, title_align = "center",
+                    buttons = {
+                        {{ text = string.format(_("Remove from %s"), coll_name and collLabel(coll_name) or _("To Be Read")),
+                           callback = function()
+                            UIManager:close(dlg)
+                            if coll_name then collRemove(fp, coll_name) else tbrRemove(fp) end
+                            changed = true
+                            close()
+                            UIManager:nextTick(function() openTBRPanel(hs, tbr_panel_view, true) end)
+                        end }},
+                        {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }},
+                    },
+                }
+                UIManager:show(dlg)
+                return true
+            end
         end
         group[#group + 1] = row
         group[#group + 1] = VerticalSpan:new{ width = pad }
@@ -686,6 +886,12 @@ local function openTBRPanel(hs, view, switching, reuse)
     else
         UIManager:show(root, switching and "ui" or "full", panel_dimen)
     end
+    -- 1.0.15: the list on show was an old saved copy: fetch it fresh now
+    -- that the panel is up, then redraw it in place (once; a refresh that
+    -- finds nothing new just keeps what's shown)
+    local stale = bo_stale
+    bo_stale = nil
+    if stale and boAfterShow then boAfterShow(hs, stale, tbr_panel_view) end
 end
 
 -- hookHomeEdgeSwipe moved to onHomeShow in this patch
@@ -699,6 +905,10 @@ do
         local orig_broadcast = UIManager.broadcastEvent
         UIManager.broadcastEvent = function(self, event, ...)
             local handler = type(event) == "table" and event.handler
+            if handler == "onSuspend" and bo_refresh_task then
+                pcall(UIManager.unschedule, UIManager, bo_refresh_task)
+                bo_refresh_task = nil
+            end
             if handler == "onSuspend" and tbr_panel_open and tbr_panel_root then
                 local root, open = tbr_panel_root, tbr_panel_open
                 tbr_panel_open, tbr_panel_root = false, nil
@@ -727,7 +937,8 @@ end
 -- ---- BookOrbit data ---------------------------------------------------------------
 local BO_COLLS_CACHE_KEY = "simpleui_sidepanel_bo_collections"
 local BO_BOOKS_CACHE_KEY = "simpleui_sidepanel_bo_books"
-local BO_BOOKS_TTL = 6 * 3600
+local BO_BOOKS_TTL = 6 * 3600       -- offline: keep cache this long (seconds)
+local BO_BOOKS_SOFT_TTL = 30 * 60   -- online: refresh (after the panel is up) if older than this
 
 local function boApiClient()
     local s = G_reader_settings and G_reader_settings:readSetting("bookorbit")
@@ -743,13 +954,48 @@ local function boApiClient()
     })
 end
 
-local function onDeviceByBookId()
+onDeviceByBookId = function(refresh)
     local ok, SM = pcall(require, "bookorbit_state_manager")
-    if ok and type(SM) == "table" and type(SM.onDeviceMaps) == "function" then
+    if not (ok and type(SM) == "table") then return {} end
+    -- Drop stale maps so deleted files are not still treated as on-device
+    if refresh and type(SM.invalidate) == "function" then
+        pcall(SM.invalidate)
+    end
+    if type(SM.onDeviceMaps) == "function" then
         local okm, maps = pcall(SM.onDeviceMaps)
         if okm and type(maps) == "table" and type(maps.byBookId) == "table" then return maps.byBookId end
     end
     return {}
+end
+
+-- Path only if the file still exists on disk (clears deleted-book false positives)
+liveBookPath = function(book_id, cached_path)
+    local lfs = require("libs/libkoreader-lfs")
+    if type(cached_path) == "string" and cached_path ~= ""
+            and lfs.attributes(cached_path, "mode") == "file" then
+        return cached_path
+    end
+    if book_id == nil then return nil end
+    local on_device = onDeviceByBookId(false)
+    local fp = on_device[book_id] or on_device[tostring(book_id)] or on_device[tonumber(book_id)]
+    if type(fp) == "string" and fp ~= "" and lfs.attributes(fp, "mode") == "file" then
+        return fp
+    end
+    return nil
+end
+
+refreshCachedBooks = function(books)
+    if type(books) ~= "table" then return books end
+    local out = {}
+    for _i, b in ipairs(books) do
+        if type(b) == "table" then
+            local path = liveBookPath(b.id, b.path)
+            out[#out + 1] = {
+                id = b.id, title = b.title, authors = b.authors or "", path = path,
+            }
+        end
+    end
+    return out
 end
 
 local function loadBoCache(key)
@@ -780,20 +1026,77 @@ local function fetchBoCollections()
     return out
 end
 
-local function fetchBoPaths(cache_key, api_params, force)
+local function isWifiOn()
+    local ok, NM = pcall(require, "ui/network/manager")
+    if not (ok and type(NM) == "table") then return false end
+    if type(NM.isOnline) == "function" then
+        local ok2, online = pcall(NM.isOnline, NM)
+        if ok2 and online then return true end
+    end
+    if type(NM.isWifiOn) == "function" then
+        local ok2, on = pcall(NM.isWifiOn, NM)
+        if ok2 and on then return true end
+    end
+    if type(NM.isConnected) == "function" then
+        local ok2, on = pcall(NM.isConnected, NM)
+        if ok2 and on then return true end
+    end
+    return false
+end
+
+-- Returns { { id, title, authors, path }, ... } — path is set only when the file is on device.
+-- With Wi-Fi on: refresh from BookOrbit if cache is older than SOFT_TTL (like catalog Newly Added).
+-- Offline: serve cache up to BO_BOOKS_TTL, with live path checks.
+local function fetchBoEntries(cache_key, api_params, force)
     local cache = loadBoCache(BO_BOOKS_CACHE_KEY)
     local entry = cache[cache_key]
-    if not force and type(entry) == "table" and type(entry.paths) == "table"
-            and type(entry.at) == "number" and (os.time() - entry.at) < BO_BOOKS_TTL then
-        return entry.paths
+    local age = (type(entry) == "table" and type(entry.at) == "number") and (os.time() - entry.at) or nil
+    local wifi = isWifiOn()
+
+    -- Only the saved list (view checks): never the server
+    if bo_quick and not force then
+        if type(entry) == "table" and type(entry.books) == "table" then return refreshCachedBooks(entry.books) end
+        -- never fetched yet: count it as having books, so its view is offered
+        -- (opening it fetches the list)
+        return { true }
+    end
+    if not force and type(entry) == "table" and type(entry.books) == "table" and age then
+        local ttl = wifi and BO_BOOKS_SOFT_TTL or BO_BOOKS_TTL
+        if age < ttl then
+            return refreshCachedBooks(entry.books)
+        end
+        -- old but there: show it now, refresh once the panel is up
+        if wifi then
+            bo_stale = { key = cache_key, params = api_params }
+            return refreshCachedBooks(entry.books)
+        end
+    end
+    -- migrate old path-only cache (offline)
+    if not force and not wifi and type(entry) == "table" and type(entry.paths) == "table"
+            and age and age < BO_BOOKS_TTL then
+        local books = {}
+        for _i, fp in ipairs(entry.paths) do
+            books[#books + 1] = { id = nil, title = nil, authors = "", path = liveBookPath(nil, fp) }
+        end
+        return books
     end
     local client, err = boApiClient()
     if not client then
-        return (type(entry) == "table" and entry.paths) or {}, err
+        logger.info(TAG, "fetchBoEntries", cache_key, "no client — cache fallback:", tostring(err))
+        if type(entry) == "table" and type(entry.books) == "table" then
+            return refreshCachedBooks(entry.books), err
+        end
+        return {}, err
     end
+    if not force and not wifi and type(entry) == "table" and type(entry.books) == "table" then
+        return refreshCachedBooks(entry.books)
+    end
+    logger.info(TAG, "fetchBoEntries refresh", cache_key, "force=", tostring(force),
+        "wifi=", tostring(wifi), "age=", tostring(age))
     local on_device = onDeviceByBookId()
-    local paths, seen, page, page_size = {}, {}, 1, 100
-    for i = 1, 5 do
+    local books, seen_id, page, page_size = {}, {}, 1, 100
+    local lfs = require("libs/libkoreader-lfs")
+    for _ = 1, 1 do -- one request (up to 100 books): the panel shows a handful
         local q = {}
         for k, v in pairs(api_params or {}) do q[k] = v end
         q.page, q.size = page, page_size
@@ -802,15 +1105,27 @@ local function fetchBoPaths(cache_key, api_params, force)
         local items = body.items or body.books or body.entries or {}
         if type(items) ~= "table" or #items == 0 then break end
         for _i, book in ipairs(items) do
-            if type(book) == "table" and book.id then
-                local fp = on_device[book.id] or on_device[tostring(book.id)] or on_device[tonumber(book.id)]
-                if type(fp) == "string" and fp ~= "" and not seen[fp] then
-                    local lfs = require("libs/libkoreader-lfs")
-                    if lfs.attributes(fp, "mode") == "file" then
-                        seen[fp] = true
-                        paths[#paths + 1] = fp
+            if type(book) == "table" and book.id and not seen_id[book.id] then
+                seen_id[book.id] = true
+                local fp = liveBookPath(book.id,
+                    on_device[book.id] or on_device[tostring(book.id)] or on_device[tonumber(book.id)])
+                local authors = ""
+                if type(book.authors) == "table" then
+                    local parts = {}
+                    for _j, a in ipairs(book.authors) do
+                        if type(a) == "string" then parts[#parts + 1] = a
+                        elseif type(a) == "table" and a.name then parts[#parts + 1] = a.name end
                     end
+                    authors = table.concat(parts, ", ")
+                elseif type(book.author) == "string" then
+                    authors = book.author
                 end
+                books[#books + 1] = {
+                    id = book.id,
+                    title = book.title or book.name or _("Untitled"),
+                    authors = authors,
+                    path = type(fp) == "string" and fp or nil,
+                }
             end
         end
         local total = tonumber(body.total) or tonumber(body.totalCount)
@@ -818,16 +1133,44 @@ local function fetchBoPaths(cache_key, api_params, force)
         if #items < page_size then break end
         page = page + 1
     end
-    cache[cache_key] = { paths = paths, at = os.time() }
+    cache[cache_key] = { books = books, at = os.time() }
     saveBoCache(BO_BOOKS_CACHE_KEY, cache)
-    return paths
+    return books
 end
 
-boCollList = function(id)
-    return fetchBoPaths("coll:" .. tostring(id), { collectionId = tonumber(id) or id }, false) or {}
+boAfterShow = function(hs, stale, view)
+    local UIManager = require("ui/uimanager")
+    -- One refresh per panel open: views swiped to after it keep their saved list.
+    if bo_refreshed_open then return end
+    if bo_refresh_task then UIManager:unschedule(bo_refresh_task) end
+    bo_refresh_task = function()
+        bo_refresh_task = nil
+        if not tbr_panel_open or tbr_panel_view ~= view or not tbr_panel_root then return end
+        bo_refreshed_open = true
+        local ok, books = pcall(fetchBoEntries, stale.key, stale.params, true)
+        logger.info(TAG, "BookOrbit list refreshed after show:", stale.key, ok and #(books or {}) or tostring(books))
+        if ok and tbr_panel_open and tbr_panel_view == view and tbr_panel_root then
+            bo_stale = nil
+            openTBRPanel(hs, view, true, tbr_panel_root)
+            bo_stale = nil -- just refreshed: don't go round again
+        end
+    end
+    UIManager:scheduleIn(0.4, bo_refresh_task)
 end
-boNewList = function()
-    return fetchBoPaths("new", { sort = "recently_added" }, false) or {}
+
+boCollList = function(id, force)
+    return fetchBoEntries("coll:" .. tostring(id), { collectionId = tonumber(id) or id }, force == true) or {}
+end
+boNewList = function(force)
+    return fetchBoEntries("new", { sort = "recently_added" }, force == true) or {}
+end
+boHistoryList = function(force)
+    return fetchBoEntries("history", { sort = "recently_read" }, force == true) or {}
+end
+
+-- For panelViews: a BO collection counts as non-empty if it has any books (on or off device)
+local function boCollHasBooks(id)
+    return #boQuick(boCollList, id) > 0
 end
 isBoPicked = function(id)
     id = tonumber(id) or id
@@ -846,7 +1189,7 @@ boLabel = function(id)
     end
     return tostring(id)
 end
-openBoInCatalog = function(coll_id, title, params)
+boPlugin = function()
     local FM = package.loaded["apps/filemanager/filemanager"]
     local fm = type(FM) == "table" and FM.instance
     local plugin = type(fm) == "table" and (fm.bookorbit or fm.BookOrbit)
@@ -855,15 +1198,70 @@ openBoInCatalog = function(coll_id, title, params)
         local reader = type(RUI) == "table" and RUI.instance
         plugin = type(reader) == "table" and (reader.bookorbit or reader.BookOrbit)
     end
-    if type(plugin) ~= "table" then return false end
+    return type(plugin) == "table" and plugin or nil
+end
+
+openBoInCatalog = function(coll_id, title, params)
+    local plugin = boPlugin()
+    if not plugin then return false end
     if type(plugin.browseCatalog) == "function" and not plugin.catalog_browser then
         pcall(plugin.browseCatalog, plugin, false)
+    elseif type(plugin.openBookOrbit) == "function" and not plugin.catalog_browser then
+        pcall(plugin.openBookOrbit, plugin)
     end
     local catalog = plugin.catalog_browser
     if type(catalog) == "table" and type(catalog.loadBooks) == "function" then
         local q = params or (coll_id and { collectionId = tonumber(coll_id) or coll_id } or { sort = "recently_added" })
         return pcall(catalog.loadBooks, catalog, q, title or _("Books"), true)
     end
+    return false
+end
+
+-- Open BookOrbit on a single book's detail page (download / formats live there)
+openBoBookDetail = function(book_id, title)
+    logger.info(TAG, "openBoBookDetail start id=", tostring(book_id), "title=", tostring(title))
+    local plugin = boPlugin()
+    if not plugin then
+        logger.warn(TAG, "openBoBookDetail: no BookOrbit plugin instance")
+        return false
+    end
+    logger.info(TAG, "openBoBookDetail: plugin ok, catalog_browser=",
+        type(plugin.catalog_browser), "browseCatalog=", type(plugin.browseCatalog),
+        "openBookOrbit=", type(plugin.openBookOrbit))
+    -- Prefer opening the catalog UI first so detail has a parent stack
+    if not plugin.catalog_browser then
+        local opened
+        if type(plugin.openBookOrbit) == "function" then
+            opened = pcall(plugin.openBookOrbit, plugin)
+            logger.info(TAG, "openBoBookDetail: openBookOrbit ->", tostring(opened))
+        end
+        if not plugin.catalog_browser and type(plugin.browseCatalog) == "function" then
+            opened = pcall(plugin.browseCatalog, plugin, false)
+            logger.info(TAG, "openBoBookDetail: browseCatalog ->", tostring(opened))
+        end
+        if not plugin.catalog_browser and type(plugin.openCatalogBrowser) == "function" then
+            opened = pcall(plugin.openCatalogBrowser, plugin)
+            logger.info(TAG, "openBoBookDetail: openCatalogBrowser ->", tostring(opened))
+        end
+    end
+    local catalog = plugin.catalog_browser
+    if type(catalog) ~= "table" then
+        logger.warn(TAG, "openBoBookDetail: still no catalog_browser after open")
+        return false
+    end
+    logger.info(TAG, "openBoBookDetail: catalog methods loadBookDetail=",
+        type(catalog.loadBookDetail), "loadBooks=", type(catalog.loadBooks))
+    if type(catalog.loadBookDetail) == "function" then
+        local ok, err = pcall(catalog.loadBookDetail, catalog, book_id)
+        logger.info(TAG, "openBoBookDetail: loadBookDetail ok=", tostring(ok), "err=", tostring(err))
+        return ok
+    end
+    if type(catalog.loadBooks) == "function" and title then
+        local ok, err = pcall(catalog.loadBooks, catalog, { q = title, sort = "recently_added" }, title, true)
+        logger.info(TAG, "openBoBookDetail: fallback loadBooks ok=", tostring(ok), "err=", tostring(err))
+        return ok
+    end
+    logger.warn(TAG, "openBoBookDetail: no usable catalog method")
     return false
 end
 
@@ -948,9 +1346,7 @@ local function buildMenu()
             or tostring(v)
     end
 
-    return {
-        text = _("SimpleUI Side Panel"),
-        sub_item_table = {
+    local items = {
             -- 1. Enable Panel: checkmark when on; open submenu to pick side or turn off
             { text_func = function()
                   local side = cfg.tbr_panel
@@ -976,7 +1372,7 @@ local function buildMenu()
               help_text = _("How close to the screen edge a swipe must start to open the panel."),
               sub_item_table_func = function()
                   local items = {}
-                  for _i, opt in ipairs({ {"wide", _("Wide")}, {"narrow", _("Narrow")}, {"edge", _("Edge Only")} }) do
+                  for _, opt in ipairs({ {"wide", _("Wide")}, {"narrow", _("Narrow")}, {"edge", _("Edge Only")} }) do
                       items[#items + 1] = {
                           text = opt[2], radio = true,
                           checked_func = function() return cfg.tbr_edge == opt[1] end,
@@ -1006,13 +1402,15 @@ local function buildMenu()
                   for _i, name in ipairs(cfg.tbr_panel_colls or {}) do
                       items[#items + 1] = opt(collLabel(name), "coll:" .. name)
                   end
-                  for _i, e in ipairs(cfg.bo_colls or {}) do
-                      if type(e) == "table" and e.id then
-                          items[#items + 1] = opt(e.title or tostring(e.id), "bo:" .. tostring(e.id))
+                  if bookOrbitInstalled() then
+                      for _i, e in ipairs(cfg.bo_colls or {}) do
+                          if type(e) == "table" and e.id then
+                              items[#items + 1] = opt(e.title or tostring(e.id), "bo:" .. tostring(e.id))
+                          end
                       end
-                  end
-                  if cfg.bo_show_new then
-                      items[#items + 1] = opt(_("BookOrbit Newly Added"), "bo:new")
+                      if cfg.bo_show_new then
+                          items[#items + 1] = opt(_("BookOrbit Newly Added"), "bo:new")
+                      end
                   end
                   if cfg.tbr_panel_show_new ~= false then
                       items[#items + 1] = opt(_("Newly Added (device)"), "new")
@@ -1025,6 +1423,37 @@ local function buildMenu()
                   return items
               end,
               separator = true },
+
+            -- History source (item omitted when BookOrbit is not installed)
+            { text_func = function()
+                  local src = cfg.history_source == "bookorbit" and _("BookOrbit") or _("Device")
+                  return string.format(_("History: %s"), src)
+              end,
+              help_text = _("History icon in the panel: Device = KOReader reading history on this device; BookOrbit = recently read from your BookOrbit library."),
+              enabled_func = function() return bookOrbitInstalled() end,
+              sub_item_table_func = function()
+                  return {
+                      {
+                          text = _("Device"),
+                          radio = true,
+                          checked_func = function() return cfg.history_source ~= "bookorbit" end,
+                          callback = function()
+                              cfg.history_source = "device"
+                              saveConfig()
+                          end,
+                      },
+                      {
+                          text = _("BookOrbit"),
+                          radio = true,
+                          checked_func = function() return cfg.history_source == "bookorbit" end,
+                          callback = function()
+                              cfg.history_source = "bookorbit"
+                              if type(boHistoryList) == "function" then pcall(boHistoryList) end
+                              saveConfig()
+                          end,
+                      },
+                  }
+              end },
 
             -- 4. Local Collections (+ which local views appear in the panel)
             { text_func = function()
@@ -1082,7 +1511,7 @@ local function buildMenu()
                   return items
               end },
 
-            -- 5. BookOrbit Collections
+            -- 5. BookOrbit Collections (disabled / hidden when plugin missing)
             { text_func = function()
                   local n = #(cfg.bo_colls or {})
                   local parts = {}
@@ -1091,6 +1520,7 @@ local function buildMenu()
                   local suffix = #parts > 0 and (" · " .. table.concat(parts, ", ")) or ""
                   return _("BookOrbit Collections") .. suffix
               end,
+              enabled_func = function() return bookOrbitInstalled() end,
               help_text = _("BookOrbit lists in the panel. Only books already on this device are shown. Use Refresh List after signing in or adding collections on the server."),
               sub_item_table_func = function()
                   local items = {
@@ -1126,7 +1556,7 @@ local function buildMenu()
                                   end
                                   if not found then
                                       out[#out + 1] = { id = id, title = title }
-                                      pcall(fetchBoPaths, "coll:" .. tostring(id), { collectionId = id }, true)
+                                      pcall(fetchBoEntries, "coll:" .. tostring(id), { collectionId = id }, true)
                                   end
                                   cfg.bo_colls = out
                                   clampOpensToSetting()
@@ -1170,7 +1600,21 @@ local function buildMenu()
                   }
                   return items
               end },
-        },
+    }
+
+    -- Drop BookOrbit-only entries when the plugin is not installed
+    local out = {}
+    for _i, item in ipairs(items) do
+        local needs_bo = item.enabled_func == bookOrbitInstalled
+        if needs_bo and not bookOrbitInstalled() then
+            -- skip
+        else
+            out[#out + 1] = item
+        end
+    end
+    return {
+        text = _("SimpleUI Side Panel"),
+        sub_item_table = out,
     }
 end
 
