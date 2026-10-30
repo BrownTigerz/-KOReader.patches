@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.7
+Version 2.14.8
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.8 Early Page Turn (Page Turns, off by default): a sideways swipe
+         turns the page once your finger has moved 35 dp (or 50 / 80),
+         without waiting for the lift. Books in page mode and full-screen
+         lists (file browser, history, collections, TOC, bookmarks,
+         search). One turn per swipe. Steps aside if 2-earlyturn.lua is
+         installed.
   2.14.7 Menu reorganised: Modules, Critter, Appearance, Bars & Menus;
          toggles listed above submenus in each group.
   2.14.6 Side panel moved to 2-simpleui-sidepanel.lua (settings + BookOrbit +
@@ -338,7 +344,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.7"
+local VERSION = "2.14.8"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -383,6 +389,9 @@ local DEFAULTS = {
     critter_mix      = {},          -- critters taking turns (ids of SimpleUI's critter folders); fewer than 2 = off
     critter_wander   = true,        -- Dynamic bubble: random spot and side each draw
     critter_wander_side = "random", -- critter "left" / "right" of its bubble, or SimpleUI's ("random" while wandering)
+    early_turn       = false,       -- turn on swipe distance, not on lift
+    early_turn_dp    = 35,          -- 35 / 50 / 80 dp
+    early_turn_lists = true,        -- also full-screen KOReader lists
     page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
     critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
@@ -3795,6 +3804,37 @@ local function buildMenu()
                 },
             },
             {
+                text = _("Page Turns"),
+                sub_item_table = {
+                    { text_func = function()
+                          if CF.early and CF.early.other then return _("Early Page Turn (off: 2-earlyturn.lua is installed)") end
+                          return _("Early Page Turn")
+                      end,
+                      help_text = _("A sideways swipe turns the page as soon as your finger has moved far enough, instead of waiting for you to lift it. Works in books (page mode, not scroll or zoomed) and, with Also In Lists, in full-screen lists like the file browser, history, collections, table of contents and bookmarks. One turn per swipe. Off when KOReader's swipe page turns are off, or when swipes follow links or go back. Taps aren't changed."),
+                      enabled_func = function() return not (CF.early and CF.early.other) end,
+                      checked_func = function() return cfg.early_turn == true end,
+                      callback = function() cfg.early_turn = not cfg.early_turn; saveConfig() end },
+                    { text = _("Also In Lists"),
+                      enabled_func = function() return cfg.early_turn == true end,
+                      checked_func = function() return cfg.early_turn_lists ~= false end,
+                      callback = function() cfg.early_turn_lists = (cfg.early_turn_lists == false); saveConfig() end },
+                    { text_func = function()
+                          return string.format(_("Swipe Distance: %d dp"), tonumber(cfg.early_turn_dp) or 35)
+                      end,
+                      help_text = _("How far your finger moves before the page turns. 35 dp is the shortest KOReader can see (about 7 mm on a 300 dpi Kobo); longer is harder to set off by accident."),
+                      enabled_func = function() return cfg.early_turn == true end,
+                      sub_item_table_func = function()
+                          local items = {}
+                          for _i, opt in ipairs({ { 35, _("35 dp (quickest)") }, { 50, _("50 dp") }, { 80, _("80 dp (needs a longer swipe)") } }) do
+                              items[#items + 1] = { text = opt[2], radio = true,
+                                  checked_func = function() return (tonumber(cfg.early_turn_dp) or 35) == opt[1] end,
+                                  callback = function() cfg.early_turn_dp = opt[1]; saveConfig() end }
+                          end
+                          return items
+                      end },
+                },
+            },
+            {
                 text = _("Appearance"),
                 sub_item_table = {
                     {
@@ -3945,6 +3985,185 @@ local function hookMenu(menu_mod, order_mod)
 end
 
 pcall(hookMenu, "apps/filemanager/filemanagermenu", "ui/elements/filemanager_menu_order")
+
+-- ---- Early Page Turn ----------------------------------------------------------------
+-- A horizontal swipe turns the page as soon as the finger has moved far
+-- enough, instead of on lift. Works in books (page mode) and in full-screen
+-- KOReader lists (file browser, history, collections, TOC, bookmarks, search).
+-- One turn per gesture; the lift of that gesture is swallowed so nothing
+-- turns twice. Settings are read live, so the toggle needs no restart.
+-- Steps aside when ura23's 2-earlyturn.lua is installed (same job).
+do
+    local ET = { claimed = nil }
+    CF.early = ET
+
+    local okd, DataStorage = pcall(require, "datastorage")
+    local okl, lfs = pcall(require, "libs/libkoreader-lfs")
+    if okd and okl and DataStorage and lfs then
+        local f = DataStorage:getDataDir() .. "/patches/2-earlyturn.lua"
+        ET.other = lfs.attributes(f, "mode") == "file"
+    end
+
+    local okdev, Device = pcall(require, "device")
+    local Screen = okdev and Device and Device.screen
+    local is_touch = okdev and Device and Device.isTouchDevice and Device:isTouchDevice()
+
+    local px_cache, px_dp, px_dpi
+    local function stepPx()
+        local dp = tonumber(cfg.early_turn_dp) or 35
+        local dpi = Screen:getDPI()
+        if px_dp ~= dp or px_dpi ~= dpi then
+            px_dp, px_dpi = dp, dpi
+            px_cache = Screen:scaleByDPI(dp)
+        end
+        return px_cache
+    end
+
+    local function active()
+        return cfg.early_turn and is_touch and not ET.other
+    end
+
+    -- Direction of a pan that has gone far enough and is clearly sideways
+    -- (at least twice as wide as tall); nil otherwise.
+    local function farEnough(ges)
+        if ges.mousewheel_direction then return nil end
+        local d = ges.relative
+        if type(d) ~= "table" or type(d.x) ~= "number" or type(d.y) ~= "number" then return nil end
+        local ax = d.x < 0 and -d.x or d.x
+        local ay = d.y < 0 and -d.y or d.y
+        if ax < stepPx() or ax < 2 * ay then return nil end
+        return d.x < 0 and "west" or "east"
+    end
+
+    -- Same gesture as the one already turned? (pans of one gesture share
+    -- their start point)
+    local function sameGesture(ges)
+        local c, s = ET.claimed, ges.start_pos
+        return c ~= nil and type(s) == "table" and c[1] == s.x and c[2] == s.y
+    end
+    local function claim(ges)
+        local s = ges.start_pos
+        ET.claimed = { s.x, s.y }
+    end
+    local function release()
+        local had = ET.claimed ~= nil
+        ET.claimed = nil
+        return had
+    end
+
+    local okbd, BD = pcall(require, "ui/bidi")
+    local function mirror(dir)
+        if okbd and BD and BD.flipDirectionIfMirroredUILayout then
+            return BD.flipDirectionIfMirroredUILayout(dir)
+        end
+        return dir
+    end
+
+    local function readerCanTurn(ui)
+        local view = ui and ui.view
+        if not view then return false end
+        local s = G_reader_settings
+        if s:isTrue("page_turns_disable_swipe") or s:isTrue("swipe_to_go_back")
+                or s:isTrue("swipe_to_follow_nearest_link") then
+            return false
+        end
+        if ui.rolling then return view.view_mode == "page" end
+        if ui.paging then
+            if view.page_scroll then return false end
+            if ui.paging.page_flipping_mode or ui.paging.bookmark_flipping_mode then return false end
+            if view.zoom_mode and view.zoom_mode ~= "page" then return false end
+        end
+        return true
+    end
+
+    local okev, Event = pcall(require, "ui/event")
+    local function readerPan(module, ges)
+        if not active() or not okev then return false end
+        local UIManager = require("ui/uimanager")
+        if UIManager._input_gestures_disabled then return false end
+        if type(ges) ~= "table" or type(ges.start_pos) ~= "table" then return false end
+        if ET.claimed and not sameGesture(ges) then ET.claimed = nil end
+        if ET.claimed then return true end
+        local dir = farEnough(ges)
+        if not dir or not readerCanTurn(module.ui) then return false end
+        dir = mirror(dir)
+        local back = module.ui.view.inverse_reading_order == true
+        local step = ((dir == "west") ~= back) and 1 or -1
+        module.ui:handleEvent(Event:new("GotoViewRel", step))
+        claim(ges)
+        return true
+    end
+
+    local function hookReader(path)
+        local ok, M = pcall(require, path)
+        if not ok or type(M) ~= "table" or M._sui_early_turn then return end
+        M._sui_early_turn = true
+        local o_pan, o_swipe, o_rel = M.onPan, M.onSwipe, M.onPanRelease
+        if o_pan then
+            M.onPan = function(self, arg, ges)
+                local okp, took = pcall(readerPan, self, ges)
+                if okp and took then return true end
+                return o_pan(self, arg, ges)
+            end
+        end
+        if o_swipe then
+            M.onSwipe = function(self, arg, ges)
+                if ET.claimed and release() then return true end
+                return o_swipe(self, arg, ges)
+            end
+        end
+        if o_rel then
+            M.onPanRelease = function(self, arg, ges)
+                if ET.claimed and release() then return true end
+                return o_rel(self, arg, ges)
+            end
+        end
+    end
+
+    local function hookLists()
+        local okm, Menu = pcall(require, "ui/widget/menu")
+        local oki, IC = pcall(require, "ui/widget/container/inputcontainer")
+        if not okm or type(Menu) ~= "table" or Menu._sui_early_turn then return end
+        Menu._sui_early_turn = true
+        local parent = Menu.onGesture
+        local fallback = oki and IC and IC.onGesture
+        local function fullList(m)
+            if m.is_popout then return false end
+            if not (m.page and m.page_num and m.page_num > 1) then return false end
+            local d = m.dimen
+            return d ~= nil and d.w >= Screen:getWidth() * 0.9 and d.h >= Screen:getHeight() * 0.9
+        end
+        Menu.onGesture = function(self, ev)
+            if ev and active() and cfg.early_turn_lists ~= false and fullList(self) then
+                local kind = ev.ges
+                if kind == "pan" and type(ev.start_pos) == "table" then
+                    if ET.claimed and not sameGesture(ev) then ET.claimed = nil end
+                    if ET.claimed then return true end
+                    local dir = farEnough(ev)
+                    if dir then
+                        dir = mirror(dir)
+                        if dir == "west" then pcall(self.onNextPage, self)
+                        else pcall(self.onPrevPage, self) end
+                        claim(ev)
+                        return true
+                    end
+                elseif kind == "swipe" or kind == "multiswipe" then
+                    if ET.claimed and release() then return true end
+                elseif kind == "pan_release" or kind == "two_finger_pan_release" then
+                    release()
+                end
+            end
+            local h = parent or fallback
+            if h then return h(self, ev) end
+        end
+    end
+
+    if is_touch and Screen and not ET.other then
+        hookReader("apps/reader/modules/readerpaging")
+        hookReader("apps/reader/modules/readerrolling")
+        hookLists()
+    end
+end
 
 -- ---- Backup patch (Tools > Backup) --------------------------------------------------------
 -- Adds "SimpleUI Tweaks" as a backup target when the Backup patch is installed.
