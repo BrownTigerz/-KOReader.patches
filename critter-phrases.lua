@@ -27,6 +27,9 @@
 --                 d.years = yearly goal, d.which = "on" / "behind"
 --   tw_recovery   d.title (may be nil), d.days = quiet days (may be nil)
 --   tw_weekend    d.which = "weekend" / "weekday"
+--   tw_recap      last week (Reading Log Tweaks 2.1.0, on the first days
+--                 of the week): d.minutes read, d.days read (of 7),
+--                 d.years = books finished, d.which = the best day (may be nil)
 -- minutes / pages: steps { upto, mood, text = function(n), subs = {...} },
 --   lowest first; the last one's upto is math.huge.
 -- Moods: neutral happy party sleepy cheer love sad surprised curious
@@ -65,6 +68,12 @@
 --   pages_left time_left sweet (any time: just being cute). Pace lines need KOReader's statistics on.
 -- reading_voices[critter id][situation]: that critter's own lines, used
 --   about half the time when it has some for the situation.
+-- shelf[situation], shelf_voices[critter id][situation]: the critter on
+--   the Quick Shelf strip, about the shelf. {shelf_n} ("3 books") {next}
+--   (a book on the shelf) {next_pct}. It shows under the strip's covers.
+--   Situations: one_progress one_tbr (just one book) progress (Books In
+--   Progress, 2+) tbr (To Be Read, 2+) many (6+) nearly (a book 80%+ read)
+--   empty_progress empty_tbr sweet.
 -- menus[key], menu_voices[critter id][key]: what the critter says about
 --   the menu you open. menu_words picks the key from the submenu's name;
 --   tab_* keys are the tabs themselves; "any" is the fallback.
@@ -72,6 +81,12 @@
 local function plural(n, one, many) return string.format(n == 1 and one or many, n) end
 local function q(s) return "\xE2\x80\x9C" .. tostring(s or "your book") .. "\xE2\x80\x9D" end
 local function mins(n) return plural(n or 0, "%d minute", "%d minutes") end
+-- "6 h 20 m" / "45 m"
+local function hm(m)
+    m = math.floor((m or 0) + 0.5)
+    if m < 60 then return m .. " m" end
+    return string.format("%d h %d m", math.floor(m / 60), m % 60)
+end
 local function every(days_left, books_left)
     if not books_left or books_left <= 0 then return "you're already there" end
     if not days_left or days_left <= 0 then return "a book whenever" end
@@ -111,6 +126,9 @@ local FIELDS = {
     chapter   = function(f) return q(f.chapter or "this chapter") end,
     menu      = function(f) return f.menu or "this menu" end,
     name      = function(f) return f.user_name or "friend" end,
+    shelf_n   = function(f) return plural(f.shelf_n or 0, "%d book", "%d books") end,
+    next      = function(f) return q(f.next_title) end,
+    next_pct  = function(f) return tostring(f.next_pct or 0) .. "%" end,
 }
 -- t("Only {left_pg} left!") -> a line function filling in the facts
 local function t(text)
@@ -134,7 +152,7 @@ local function L(mood, text, sub)
 end
 
 return {
-    VERSION = "1.1.0",
+    VERSION = "1.2.0",
     version = 1,
 
     insights = {
@@ -395,6 +413,14 @@ return {
                 { mood = "sleepy", text = function(d) return d.which == "weekend" and "Saturday's your big read." or "Weekdays win. Weird." end,
                   sub = function(d) return d.which == "weekend" and "I'll save your spot." or "Saturdays are nap days, I get it." end },
             },
+            tw_recap = {
+                { mood = "cozy", text = function(d) return "Last week: " .. hm(d.minutes) .. "." end,
+                  sub = function(d) return d.which and (d.which .. " was the coziest.") or "Lots of lap time." end },
+                { mood = "hungry", text = function(d) return plural(d.days, "%d day", "%d days") .. " of reading last week." end,
+                  sub = function(d) return (d.years or 0) > 0 and (plural(d.years, "%d book", "%d books") .. " done. Treats?") or "Snack for every one?" end },
+                { mood = "sleepy", text = function(d) return hm(d.minutes) .. " last week. Yawn." end,
+                  sub = function(d) return d.which and ("I napped through " .. d.which .. ".") or "I napped through it." end },
+            },
         },
         blu = {
             tw_milestone = {
@@ -453,6 +479,14 @@ return {
                 { mood = "curious", text = function(d) return d.which == "weekend" and "You read more on weekends." or "You read less on weekends." end,
                   sub = function(d) return d.which == "weekend" and "Saturday's mine too, though." or "Suspicious. Where do you go?" end },
             },
+            tw_recap = {
+                { mood = "proud", text = function(d) return "Weekly report: " .. hm(d.minutes) .. "." end,
+                  sub = function(d) return d.which and ("Best day: " .. d.which .. ". Approved.") or "Approved. Barely." end },
+                { mood = "grumpy", text = function(d) return plural(d.days, "%d day", "%d days") .. " of 7. Hmm." end,
+                  sub = function(d) return d.days >= 6 and "Fine. Impressive." or "I expect more this week." end },
+                { mood = "playful", text = function(d) return (d.years or 0) > 0 and (plural(d.years, "%d book", "%d books") .. " last week!") or (hm(d.minutes) .. " last week.") end,
+                  sub = function() return "My supervision works." end },
+            },
         },
         ["donny-and-blu"] = {
             tw_milestone = {
@@ -497,6 +531,12 @@ return {
                   sub = function(d) return d.which == "weekend" and "Two cats approve." or "Weekends: nap pile. Got it." end },
                 { mood = "playful", text = function(d) return d.which == "weekend" and "You read more on weekends." or "You read less on weekends." end,
                   sub = function(d) return d.which == "weekend" and "More lap time for us." or "Blu thinks you're hiding." end },
+            },
+            tw_recap = {
+                { mood = "happy", text = function(d) return "Last week: " .. hm(d.minutes) .. "." end,
+                  sub = function(d) return d.which and ("Both of us liked " .. d.which .. ".") or "We kept count. Blu did." end },
+                { mood = "playful", text = function(d) return plural(d.days, "%d day", "%d days") .. " with a book." end,
+                  sub = function() return "Donny slept. Blu supervised." end },
             },
         },
     },
@@ -1362,6 +1402,120 @@ return {
                 L("happy", "We made you a nest.", "It's your blanket. Now it's ours."),
                 L("love", "We love you, {name}!", "Donny said it first."),
             },
+        },
+    },
+
+    -- ------------------------------------------------------------------
+    -- 1.1.0: the Quick Shelf strip (swipe the toolbar's book row).
+    -- ------------------------------------------------------------------
+    shelf = {
+        one_progress = {
+            L("curious", "Just {next} on the side.", "A shelf of one. Classy."),
+            L("playful", "One other book? Cute.", "{next} is waiting patiently."),
+            L("happy", "{next} is at {next_pct}.", "Want to visit it?"),
+            L("shy", "Just you, me and {next}.", "Cozy little shelf."),
+            L("proud", "Only one on the side.", "Very disciplined."),
+            L("curious", "{next} says hi.", "It's at {next_pct}. No pressure."),
+        },
+        one_tbr = {
+            L("happy", "One book waiting: {next}.", "Good choice, past you."),
+            L("curious", "Just {next} up next.", "Easy decision, then."),
+            L("playful", "A to-be-read of one.", "Lonely shelf. Add a friend?"),
+            L("dreamy", "{next}, waiting its turn.", "It looks excited."),
+        },
+        progress = {
+            L("curious", "{shelf_n} on the go.", "Juggling stories, huh?"),
+            L("reading", "Your other books miss you.", "{next} is next in line."),
+            L("playful", "So many open books.", "Commitment issues? Kidding."),
+            L("happy", "Want to switch it up?", "Tap a cover. I'll come too."),
+            L("cozy", "Your reading pile. Cozy.", "{shelf_n} waiting for you."),
+            L("curious", "Back to {next}?", "It's at {next_pct}."),
+            L("love", "Every one of these is good.", "Pick whichever feels right."),
+            L("playful", "Book hopping again?", "Fine by me."),
+            L("curious", "How's {next} going?", "It's at {next_pct}."),
+            L("reading", "{next} looks lonely.", "Just saying."),
+            L("happy", "Remember {next}?", "It remembers you."),
+            L("playful", "{next} or this one?", "Tough call."),
+            L("proud", "{next}: {next_pct} done.", "Not bad at all."),
+            L("dreamy", "I keep thinking about {next}.", "Where were we in that one?"),
+        },
+        tbr = {
+            L("curious", "{shelf_n} to be read.", "Which one's calling you?"),
+            L("dreamy", "So many stories waiting.", "I like this shelf."),
+            L("happy", "Next up: {next}?", "Looks good to me."),
+            L("playful", "Your someday shelf.", "Someday could be today."),
+            L("love", "Saving the best for later?", "Smart."),
+            L("curious", "Picking the next adventure?", "{shelf_n} to choose from."),
+            L("curious", "{next} looks good.", "Next up, maybe?"),
+            L("dreamy", "Picture yourself in {next}.", "Cozy, right?"),
+            L("playful", "{next} keeps staring at me.", "Read it so it stops."),
+        },
+        many = {
+            L("surprised", "{shelf_n}?! That's a lot.", "We should get reading."),
+            L("playful", "This shelf is overflowing.", "I'll hold a few."),
+            L("grumpy", "{shelf_n}. Again.", "Finish one. Maybe."),
+            L("curious", "{shelf_n} going at once.", "{next} misses you most."),
+        },
+        nearly = {
+            L("cheer", "{next} is at {next_pct}!", "Finish it next?"),
+            L("curious", "{next} is nearly done.", "So close. Just saying."),
+            L("proud", "Almost done with {next}.", "That one's yours."),
+        },
+        empty_progress = {
+            L("happy", "Just this one on the go.", "Loyal. I like it."),
+            L("cozy", "One book at a time.", "The best way, honestly."),
+            L("love", "Only this book. Focused.", "I'm proud of you."),
+        },
+        empty_tbr = {
+            L("curious", "To Be Read is empty!", "Time to go book shopping?"),
+            L("sad", "No books waiting.", "Add some? Please?"),
+            L("playful", "An empty shelf?!", "I'll sit here till it's full."),
+        },
+        sweet = {
+            L("love", "I like browsing with you.", "Take your time."),
+            L("shy", "Can I pick next time?", "I pick the cute cover."),
+            L("cozy", "Nice shelf. Nice you.", "That's all."),
+            L("love", "Any book, as long as it's with you.", "Okay, go pick."),
+            L("happy", "Hi {name}! Browsing?", "I'll help."),
+        },
+    },
+
+    shelf_voices = {
+        donny = {
+            progress = {
+                L("hungry", "{shelf_n}? Snack per book.", "That's the rule."),
+                L("sleepy", "So many books. So sleepy.", "Pick one, I'll nap on it."),
+            },
+            tbr = {
+                L("cozy", "Pick the fluffiest one.", "For me."),
+                L("hungry", "Is one about fish?", "Pick that one."),
+            },
+            nearly = { L("proud", "{next} at {next_pct}!", "Finish it, then treats.") },
+            one_progress = { L("cozy", "Just {next}. One more lap.", "I mean book. Lap too.") },
+            empty_tbr = { L("sad", "No books? No laps.", "Fix this, please.") },
+            sweet = { L("love", "Whatever you pick, I'm in.", "As long as I'm on you.") },
+        },
+        blu = {
+            progress = {
+                L("grumpy", "{shelf_n}?! Finish one.", "I'm counting."),
+                L("proud", "I've approved all of these.", "Proceed."),
+            },
+            tbr = {
+                L("proud", "I'll pick. That one.", "No, the other one."),
+                L("grumpy", "So many books. So little lap.", "Choose wisely."),
+            },
+            many = { L("grumpy", "{shelf_n}. Ridiculous.", "I'm judging. Quietly.") },
+            nearly = { L("grumpy", "{next}: {next_pct}. Finish it.", "I'm not asking.") },
+            one_progress = { L("proud", "One other book. Acceptable.", "I'm watching it.") },
+            empty_tbr = { L("grumpy", "Empty? Unacceptable.", "Buy books. Now.") },
+            sweet = { L("shy", "Fine. I like browsing with you.", "Don't tell Donny.") },
+        },
+        ["donny-and-blu"] = {
+            progress = { L("playful", "{shelf_n}! One each?", "Blu gets the big one.") },
+            one_progress = { L("playful", "One book, two cats.", "We'll share. Blu won't.") },
+            tbr = { L("curious", "We each picked one.", "They're both the same book.") },
+            nearly = { L("cheer", "{next} at {next_pct}!", "We're both cheering.") },
+            sweet = { L("love", "Two cats, one shelf, you.", "Perfect.") },
         },
     },
 
