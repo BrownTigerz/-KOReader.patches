@@ -1,7 +1,13 @@
--- SimpleUI Side Panel v1.0.27
+-- SimpleUI Side Panel v1.0.29
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.29 Fix: compact detail had a blank strip under Cancel that looked like
+--        part of the button but did nothing. Cancel now runs to the card's
+--        bottom edge, and a tap under the buttons counts as Cancel.
+-- 1.0.28 Compact detail: only one at a time. A second request while one is
+--        open is ignored, so two windows never stack (Cancel closed the top
+--        one and the one under it looked like Cancel did nothing).
 -- 1.0.27 Fix: Cancel on the compact detail now refreshes only the dialog
 --        card, as 1.0.26 meant to (it looked up the card before it was
 --        made, so it refreshed the whole window). Patch Backup & Restore
@@ -57,7 +63,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.27"
+local VERSION = "1.0.29"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -369,6 +375,12 @@ local function showCompactBookDetail(hs, opts)
     -- opts: title, authors, fp (or nil), entry (BO table or nil), percent, status,
     --       on_device (bool), is_bo (bool)
     local UIManager       = require("ui/uimanager")
+    -- One at a time: a second tap that reaches here (or another patch asking
+    -- for it again) doesn't stack a second window under the first, which
+    -- made Cancel look like it did nothing (it closed the top one).
+    for _i, e in ipairs(UIManager._window_stack or {}) do
+        if type(e.widget) == "table" and e.widget.name == "sui_sidepanel_compact_detail" then return end
+    end
     local InputContainer  = require("ui/widget/container/inputcontainer")
     local FrameContainer  = require("ui/widget/container/framecontainer")
     local CenterContainer = require("ui/widget/container/centercontainer")
@@ -604,6 +616,9 @@ local function showCompactBookDetail(hs, opts)
         bordersize = Size.border.window,
         radius = Size.radius.window,
         padding = pad,
+        -- Cancel runs to the bottom edge: no blank strip under it that looks
+        -- like part of the button but does nothing
+        padding_bottom = 0,
         margin = 0,
         content,
     }
@@ -628,6 +643,12 @@ local function showCompactBookDetail(hs, opts)
         if not ges or not ges.pos then return true end
         -- only close when the tap is outside the white card
         if frame.dimen and not frame.dimen:contains(ges.pos) then
+            closeDlg()
+            return true
+        end
+        -- under the last row of buttons (the card's edge): Cancel
+        local bt = button_table.dimen
+        if bt and bt.h and bt.h > 0 and ges.pos.y >= bt.y + bt.h then
             closeDlg()
         end
         return true
