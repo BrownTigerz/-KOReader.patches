@@ -20,10 +20,10 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.11 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.27 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.13 |
-| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.1.0 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.14 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.29 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.5.2 |
+| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.1.2 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.1.2 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
@@ -34,14 +34,14 @@ All patches work independently and together. If one fails to attach (for example
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.6 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.0 |
-| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.5.0 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.5.1 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.0 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.3 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -61,7 +61,7 @@ Colour and typography control for the SimpleUI home screen, plus a Night Mode "d
 Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks with the Add-ons menu installed).
 
 - **Modules:** text colour with a separate Night Mode colour, set for all modules and overridable per module. Recolour grey text, progress bar/ring/border colours per module, bold per module or all.
-- **Currently Reading:** swipe left/right to step through your most recent books still in progress (4 by default, 2-6; finished ones skipped), with dots on the cover showing where you are. Tap opens the book shown.
+- **Currently Reading:** swipe left/right to step through your most recent books still in progress (4 by default, 2-6; finished ones skipped), with dots on the cover showing where you are. Tap opens the book shown. **Open Book From Cover Only** (Modules, off by default; 2.14.14): only a tap on the cover opens it, a tap anywhere else on the module does nothing; tap the wrong spot four times in a row and the critter tells you (cutely) to tap the cover.
 - **Tiny Critter bubble width** (SimpleUI 3.0): Modules → Critter Bubble Width — Default, **Dynamic**, Wide, Wider or Full Row, so longer lines fit on fewer rows. Its chat answers follow the bubble. **Dynamic** keeps SimpleUI's width for short lines and grows only as much as a long one needs (the critter and bubble then sit at the start of the row, like Full Row).
 - **Tiny Critter insights** (SimpleUI 3.0): Modules → Critter Insights, on by default. The critter tells you about your reading: your best reading day this month, book milestones this year (5, 10, 25, 50, 75, 100, then every 50), getting back on a roll after a break, the book you're on being 25 minutes or less from the end, the finish rate your yearly goal needs ("20 books to go, 69 days left. About one every 3 days catches you up.", worded for on pace or catching up), a gentle nudge after 3+ quiet days, and whether you read more on weekends or weekdays. They wait for the critter like its own reactions (book finished, comeback), at most 3 a day, and only when your stats back them: a milestone when you finish that book (once a year each), back on a roll once per comeback, a nudge once per quiet stretch, goal pace and weekend reading once a week (weekend reading needs 4+ weekend and 8+ weekday reading days in 8 weeks, and doesn't flip-flop). Best day is in minutes read. One statistics read a day, no timers. Its chat no longer suggests the same book twice in a day. Needs the critter's Reactions on.
 - **Side panel:** moved out in 2.14.6 — see SimpleUI Side Panel below.
@@ -71,6 +71,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Donny and Blu's own voice** (2.14.9, SimpleUI 3.0.2): Donny, Blu and Donny & Blu talk in their own voice like SimpleUI's critters (Suey, Hazel...): greetings, streaks, today's reading, books this year, the current book, your goal, Mondays, weekends. The lines are in `critter-phrases.lua` (its `voices` section, edit freely) and are used on the home screen and by Reading Log Tweaks. Critter Insights (2.14.10) get their own wording too (`insight_voices`): about half the time a milestone, record, quick win, comeback, pace or weekend insight is in their voice.
 - **Critter Mix** (2.14.2): Modules → **Critter Mix**, tick two or more critters (say Donny, Blu and Donny & Blu) and they take turns: the next one each time the critter picks something new to say (about every 20 minutes, a new part of the day, or a tap). Reading Log's critter takes turns too: a new remark or a tap there moves it along (Reading Log 1.10.0+). Fewer than two ticked: SimpleUI's own pick.
 - **More critter moods** (2.14.1): reading, proud, hungry, cozy, sipping, dreamy, festive, spooky (Donny and Blu have them, see Tiny Critters). A critter without one shows its base pose (reading as neutral, proud as cheer...) instead of plain neutral. Party is festive in December and spooky from October 25, when the critter has those pictures.
+- **Critters Say Notifications** (off by default; one setting shared by Shortcuts Toolbar Quick Shelf, SimpleUI Tweaks and Reading Log Tweaks, switch it in any of their critter menus): when a notification (a short toast like "Wi-Fi on": KOReader's own, Network Tweaks' corner notes and banners that go away by themselves, BookOrbit's little pills) comes in while a critter is on screen, that critter says it in its bubble instead of the popup. The Quick Shelf critters (book panel, Quick Shelf, library tab bar) show it until their next remark, and let the popup through if it doesn't fit. Reading Log's Dashboard critter shows it until its next remark. The home screen's critter says it as a reaction, when no other reaction is waiting or on show and SimpleUI's reactions are on. Banners you can tap, BookOrbit's loading and warning pills, questions and failures always stay popups, and nothing shows over the sleep screen.
 - **Critter phrases** (`critter-phrases.lua`, optional): put it in `koreader/patches/` next to the patch (the name has no number, so KOReader doesn't run it as a patch). Critter Insights and Critter Pep Talk then take their lines from it: several times as many, a little sassier, never guilt-trippy. Edit it to make the critter your own; Reading Log's critter uses the same file, and Quick Shelf's (1.1.0: reading stats and menu remarks). Missing or broken, the built-in lines are used (crash.log says which). It's on the patch updater (Check for Patch Updates → Extras) with its own version; updating replaces the whole file, so keep a copy if you've edited it. Don't call it `phrases.lua` or put it in `sui_critters/`: that's SimpleUI's own custom phrase file, in another format.
 - **Tiny Critter text colour** (SimpleUI 3.0): Modules → **Critter Text Colour** — **Auto** (default) keeps the text standing out on the bubble: white on the dark bubble in night mode, black on the white one by day. **White** or **Black** always, as they look (night mode included). The module text colours (Text Colour / Night Text Colour, made for text on the page or wallpaper) no longer reach inside the bubble. The bubble's outline follows. Reading Log's critter follows too.
 - **Tiny Critter position** (SimpleUI 3.0): Modules → **Critter Position** — **Left**, **Right** or **Left or Right** (one of the two ends each time, never the middle) for the critter and its speech bubble, so the middle of the row (and your wallpaper behind it) stays clear. Works with or without Critter Wanders; the first choice keeps SimpleUI's Alignment (or wanders with Critter Wanders on).
@@ -418,38 +419,68 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 - **Book Panel Tap** (Shortcuts toolbar → Book Panel Tap, off by default): **Opens BookOrbit "This Book"** makes a tap on the book panel open BookOrbit's This book sheet (sync status, Sync now, progress) instead of KOReader's book details. **Hold Opens Book Details** (on by default) keeps the details a long-press away. Without BookOrbit, a tap does what it always did.
 - **Critter Remarks** (Shortcuts toolbar → Critter Remarks, all off by default). It's the critter your home screen shows (SimpleUI Tweaks' Critter Mix when you've ticked two or more, else the one picked in SimpleUI), in its own voice about half the time when it has lines (Donny, Blu, Donny & Blu):
   - **While Reading:** a speech bubble in the book panel's free strip under the title, author and page line, about where you are in this book: pages and time left (at your usual pace), the chapter ending, how fast you're going this sitting against your usual ("Wow, you're flying!" / "Slow going today."), long and late sessions, a quarter / halfway / home stretch, the finish, and sweet little remarks any time ("I like reading with you."). It picks what fits right now and never the same thing twice in a row. Sized to the strip, so it never covers the text. Tap the critter for another remark.
+  - **On Quick Shelf** (follows While Reading until you choose): the critter on the Quick Shelf (swipe the book row), talking about the books on it: a different one each time ("How's “Dune” going? It's at 31%."), the one nearly done, how many you have going, an empty To Be Read. Tap it for another remark. Pick how: **Under Small Covers** (covers the height of the book panel's title, author and page lines, so more fit, and the critter always shows in the row under them) or **Beside Full Covers** (full-size covers, the critter in the room they leave on the right, gone once they fill the row), or **Off**.
   - **On Library Toolbar:** the critter in the empty stretch of the file browser menu's tab bar, before the last tab icon. It notices the tab and submenu you open (fonts, Wi-Fi, the sleep screen, your Add-ons and more) and has something to say about it; on the toolbar's home view, a remark for the time of day. Tap it for another remark.
-  - The lines are in `critter-phrases.lua` 1.1.0+ (`reading`, `reading_voices`, `menus`, `menu_voices`, `menu_words`; edit freely, it's on the updater). Without it a few built-in lines stand in. Pace remarks (fast / slow / time left) need KOReader's reading statistics on. Some lines use your name ("Bedtime, TK."): the one you gave SimpleUI's critter under **Your name** in its settings; without a name those lines are skipped.
+  - **Critters Say Notifications:** see SimpleUI Tweaks; one setting for every critter, also under Critter Remarks here.
+  - The lines are in `critter-phrases.lua` 1.1.0+ (`reading`, `reading_voices`, `shelf`, `shelf_voices`, `menus`, `menu_voices`, `menu_words`; edit freely, it's on the updater). Without it a few built-in lines stand in. Pace remarks (fast / slow / time left) need KOReader's reading statistics on. Some lines use your name ("Bedtime, TK."): the one you gave SimpleUI's critter under **Your name** in its settings; without a name those lines are skipped.
   - Without SimpleUI 3.0's critter it's the remark alone.
 
 ---
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.13
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.5.2
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
-Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Stats & Progress → Reading Log** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
+Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Stats & Progress → Reading Log** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `rlt_` and `critter_`; 2.0.2 moves older `tk_` settings over once).
 
-- **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
+- **Smart Cards** (2.2.0, three more in 2.5.0): cards for Pages And Cards that each show whichever card of their group matters right now. It's decided when you come back to the Dashboard (a book closed, waking, turning back onto its page), never while you're looking; the first rule that's true wins, and when none is, the next card in turn. Only the rules pick it (2.5.2): there are no dots, and a swipe on a smart card does what it does anywhere on the Dashboard (next tab with Swipe Between Tabs, or SimpleUI's other home page). Two smart cards on one page never show the same card. Continue reading is never moved. **Pages And Cards → Smart Cards On Today And Monthly** swaps Activity → Smart Activity, This week → Smart This Week (Today page) and Pages per day → Smart Month (Monthly page) in one tap; tap again to put them back.
+
+  | Smart card | Shows | When |
+  |---|---|---|
+  | **Current Book** | Finish forecast | a book in progress is 2 hours or less from done |
+  | | Today's timeline | after 6 PM, with 2+ sessions today |
+  | | This Book | you've read today |
+  | **Goals** | Finish by | its date is within 7 days, or past (left out without a book and date) |
+  | | Year Goal With Covers | you finished a book in the last 3 days, or you're a book or more behind pace |
+  | | Monthly challenge | the month's last 7 days, challenge not done |
+  | | This week vs last | the first 2 days of your week |
+  | **Shelf** | Recently finished | you finished a book in the last 3 days |
+  | | Book club | the first 7 days of the month |
+  | | Random pick | nothing read today or the 2 days before |
+  | | TBR shelf | only one book in progress |
+  | **Smart Activity** | Today's timeline | after 6 PM, with 2+ sessions today |
+  | | Finish forecast | a book in progress is 2 hours or less from done |
+  | | Activity | today's minutes are under your daily goal |
+  | **Smart This Week** | Finish forecast | a book in progress is 2 hours or less from done |
+  | | Today's timeline | after 6 PM, with 2+ sessions today |
+  | | This week | the 5th day of your week or later |
+  | **Smart Month** | Monthly challenge | the month's last 7 days, challenge not done |
+  | | This week vs last | the first 2 days of your week |
+  | | Pages per day | you've read today |
+
+  Your own picks stay the Today Page Card's swipe spot (below).
+- **This Book** (2.1.0): a card for the book you're on: time spent on it, sessions this week, pages today, your pace, and when you'll finish at the pace you've read it the last two weeks ("Done by Thu Dec 24 · 4 h 1 m left"). From KOReader's statistics, read again only when they change. Add it to any page in Pages And Cards, or pick it as the Today Page Card. Tap the cover for details, anywhere else to open the book.
+- **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, This Book, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
 - **Year Goal With Covers:** the year goal on the left, this year's covers on the right, a pace bar along the bottom. Also in Pages And Cards and as its own Simple UI module.
 - **Continue Reading: Buttons Only** (off by default): the Continue Reading card opens the book only from its Continue button (or the cover, in the looks where the cover is the button); Details shows the details and the dots flip books. A tap anywhere else on the card does nothing.
 - **Book Club**
   - **Book Club Collections** (the card's own by default): tick one or more collections, KOReader's and BookOrbit's, and the Book Club card and its picks chooser use all their books together.
   - **Book Club Opens Picks** (Off by default, On Hold or On Tap): go straight to choosing this month's books (Reading Log's own chooser). On Hold: long-press the card, and a tap on a pick still opens that book. On Tap: any tap on the card.
-  - **Compact Book Detail** (off by default, needs SimpleUI Side Panel 1.0.26+): a tap on a book (Book Club picks, covers that open book details) shows the Side Panel's compact window (cover, author, description, Open / BookOrbit / Cancel) instead of opening it straight away.
+- **Hold A Cover For Quick Actions** (2.1.0, on by default, under Books): long-press a book's cover on the Dashboard for **Open**, **Book Details**, its status (**Reading / On hold / Finished**, like KOReader's file browser), **Add To / Remove From To Be Read** and **Collections…**. Works on any card whose covers open a book.
+- **Book Tap Opens:** what a tap on any book cover does, on every Reading Log card. **Compact Detail** (the default with SimpleUI Side Panel 1.0.26+, since 2.3.0): the same compact window as the side panel (cover, author, description, Open / BookOrbit / Cancel). **BookOrbit**: its page in BookOrbit, when BookOrbit has the file. **Reading Log's Own**: its own details or opening the book. Continue reading's cover follows it too (2.5.0); its **Details** button always shows Reading Log's own simple details (2.5.2), and its Continue button (and the hold menu's Open) always opens the book.
+- **Quote Of The Day** (Books, 2.5.0): **SimpleUI's Quotes** (the default) fills the Quote of the day card from where SimpleUI's own Quote of the Day module takes its quotes: its built-in list, or the file you picked from `settings/simpleui/sui_quotes/` (like [Quotes.lua](#custom-quotes-for-simpleui)). One a day; **Another** shows the next. When SimpleUI's module is set to your highlights, or SimpleUI isn't there, it's one of your highlights. **Your Highlights**: Reading Log's own.
 - **When You Come Back**
   - **Start On Tab** (Last Viewed by default): which Dashboard tab shows when you come back to it, after a book, after sleep or turning back onto its page. When SimpleUI shows the home screen again without rebuilding it (after sleep, or after a book with Fast Book Closing), the Dashboard is rebuilt once so the tab (and the Today card's Alternate) actually changes.
   - **Start On First Page After Reading Or Sleep** (off by default): opening a book or sleeping sends SimpleUI's home screen back to page 1.
 - **BookOrbit** (shown only with BookOrbit installed)
   - **BookOrbit Collections** (on by default, needs SimpleUI Side Panel 1.0.18+): your BookOrbit collections show next to KOReader's wherever Reading Log asks for a collection (the Book Club card's Collection and picks, the shelf cards), as "BookOrbit: <name>". The books come from the Side Panel's saved BookOrbit lists, so open a collection's view in the Side Panel once to fill it. Only books on this device are listed; nothing waits on the BookOrbit server.
-  - **Book Taps Open BookOrbit** (off by default, shown only with BookOrbit installed): a tap on a book's cover opens its page in BookOrbit when BookOrbit has the file.
-- **Critter Remarks:** Simple UI 3.0's Tiny Critter peeks into each Dashboard page with a remark about that page's numbers and suggests books. Tap it to talk. Uses `critter-phrases.lua` when it's in `patches/`. Each of these has its own switch under Critter:
+- **Critter Remarks:** Simple UI 3.0's Tiny Critter peeks into each Dashboard page with a remark about that page's numbers and suggests books. Tap it to talk. On the first two days of the week (Reading Log's week start) it leads Today with a **weekly recap** once: last week's time, books finished and best day (2.1.0; Donny, Blu and Donny & Blu say it their own way with `critter-phrases.lua` 1.2.0). Uses `critter-phrases.lua` when it's in `patches/`. Each of these has its own switch under Critter:
   - **Critter's Own Voice** (Simple UI 3.0.2): Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos and Hazel say about one remark in three their own way, on the pages their lines fit. Donny, Blu and Donny & Blu join in with SimpleUI Tweaks 2.14.9+ and `critter-phrases.lua`, and since 1.1.2 the page insights (comeback, a run of days, best day this month, milestone, goal pace, weekend reading) are in their voice about half the time.
   - **Games And Quotes** (Simple UI 3.0.2): in the talk window, Let's Play (rock, paper, scissors; heads or tails; guess the author) and Read Me A Quote. The critter's last word shows in the bubble.
   - **Critter Rewards:** drawn beside the critter here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.
-- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, and **Move Tab Row** (1.1.13): down moves the Today / Monthly / ... tabs away from the cards toward the page dots (into the margin, and in Full Screen into the room Bottom Space adds; past that the cards get shorter), up moves them closer. Its own setting, separate from Reading Log 2.0's Tab Bar Position.
+- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, and **Move Tab Row** (2.0.3): down moves the Today / Monthly / ... tabs away from the cards toward the page dots (into the margin, and in Full Screen into the room Bottom Space adds; past that the cards get shorter), up moves them closer. Its own setting, separate from Reading Log 2.0's Tab Bar Position. **Swipe Between Tabs** (2.1.0, off by default): swipe left or right on the Dashboard for the next or previous tab; at the first or last tab the swipe turns Simple UI's page as usual, and the Today Page Card's swipe cards still flip on their own.
 
 Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
 
@@ -535,7 +566,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.0
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.3
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -578,9 +609,9 @@ Flashes only fire while BookOrbit is the window on top (no stray flash on the fi
 
 ### Add To Collection
 
-**Add To Collection In Book Menu** (on by default) — hold a book in a list, or tap ⋯ on a book's page: the sheet gets an **Add To Collection** row. It lists your BookOrbit collections with ✓ on the ones the book is already in; tap one to add or remove the book, or **New Collection…** to make one with the book in it.
+**Add To Collection In Book Menu** (on by default) — hold a book in a list (the sheet gets an **Add To Collection** row), or tap ⋯ at the top right of a book's page (**Add To Collection**, above Refresh from BookOrbit; 2.15.3). It lists your BookOrbit collections with ✓ on the ones the book is already in; tap one to add or remove the book, or **New Collection…** to make one with the book in it.
 
-BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit username and password (asked the first time). It offers to save the password on the device, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
+BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit **website** username and password (asked the first time). That's not your KOReader sync login: BookOrbit keeps that as a separate account, often with a different username, so the box starts empty (2.15.1) and remembers the website username after. The sign-in box has a **Save password on this device** tick (2.15.2; remembers your last choice). Only a sign-in BookOrbit accepted gets saved, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
 
 ### Open Book Only From Buttons
 
