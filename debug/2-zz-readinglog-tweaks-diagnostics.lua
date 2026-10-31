@@ -1,8 +1,10 @@
 --[[
 2-zz-readinglog-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.0
+Version 1.0.1
 
 Changelog:
+  1.0.1 - Logs each card's source (Stock / BookOrbit / Both), Switch Cards
+          By and the paired cards (Reading Log Tweaks 2.8.0).
   1.0.0 - First version.
 
 Watches 2-readinglog-tweaks.lua from the outside and writes tagged lines
@@ -14,8 +16,9 @@ It changes nothing in the patch or Reading Log. It records:
   • What's there when the window opens: Reading Log Tweaks and Reading Log
     versions, the Side Panel (compact window, BookOrbit covers, Download),
     whether BookOrbit is signed in (yes/no only), the BookOrbit list kept
-    for Random pick and Collecting Dust (books, age), and the Reading Log
-    Tweaks settings that change what's drawn.
+    for Random pick and Collecting Dust (books, age), each card's source
+    (Stock / BookOrbit / Both), Switch Cards By, and the Reading Log Tweaks
+    settings that change what's drawn.
   • Every card drawn, by name: how long it took. 100 ms or more is logged
     as it happens (a card inside a Smart Card or swipe spot says so). A
     page drawn in one go (cards right after each other) is logged when it
@@ -66,7 +69,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.0.0"
+local DIAG_VERSION = "1.0.1"
 local DIAG_TAG = "readinglog-tweaks"   -- = the filename stem (Debugging Menu)
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/" .. DIAG_TAG .. "-diagnostics.state"
@@ -334,11 +337,22 @@ local function snapshot(A)
         else
             log("BookOrbit list kept: none yet (fetched in the background with Wi-Fi on)")
         end
-        log("settings: Random Pick Includes BookOrbit %s | Collecting Dust %s | Book Tap Opens %s | Enter From Side %s | Quote Of The Day %s | Hold A Cover %s | Today card %s | Start tab %s",
-            onOff(g("rlt_bo_picks", true) ~= false), onOff(g("rlt_lib_dust", true) ~= false),
+        log("settings: Book Tap Opens %s | Enter From Side %s | Quote Of The Day %s | Hold A Cover %s | Today card %s | Start tab %s",
             q(g("rlt_book_tap", "default")), onOff(g("rlt_enter_side", true) ~= false),
             q(g("rlt_quote_source", "simpleui")), onOff(g("rlt_cover_hold", true) ~= false),
             q(g("rlt_today_card", "default")), q(g("rlt_start_tab", "last")))
+        local src = A.state and A.state.rlt_src
+        if type(src) == "table" and type(src.of) == "function" then
+            local bits = {}
+            for _i, k in ipairs(src.cards or {}) do
+                local ok, v = pcall(src.of, k)
+                bits[#bits + 1] = k .. " " .. (ok and tostring(v) or "?")
+            end
+            log("sources: %s | BookOrbit usable %s | Switch Cards By %s | Collecting Dust side %s | Discover side %s (without BookOrbit: %s)",
+                table.concat(bits, ", "), onOff(pcall(src.avail) and src.avail()), q(g("rlt_switch_by", "tap")),
+                onOff(g("rlt_pair_dust", true) ~= false), onOff(g("rlt_pair_discover", true) ~= false),
+                q(g("rlt_discover_stock", "new")))
+        end
     end
 end
 
