@@ -11,8 +11,8 @@ Recheck after a major update to any of these: this patch relies on how they
 store settings and logins, and on backup.koplugin's backup/restore code.
 
 Menu:  Tools → Patch Backup & Restore
-       With the Add-ons patch it's under Tools → Add-ons → Patches instead,
-       as long as "backup_patches" is in its PATCH_MENUS list.
+       With the Add-ons patch it's under Tools → Add-ons → Maintenance
+       instead.
 
   Patch Backup & Restore
   ├─ Shortcuts toolbar, SimpleUI, …   one entry per target you use
@@ -1176,8 +1176,7 @@ local mainItems
 
 local MenuWidget = {}
 
--- The Add-ons patch (2-tweaks-menu.lua) moves this into Add-ons → Patches
--- when "backup_patches" is in its PATCH_MENUS list.
+-- The Add-ons patch (2-tweaks-menu.lua) moves this into Add-ons → Maintenance.
 function MenuWidget:addToMainMenu(menu_items)
     menu_items.backup_patches = {
         text = MENU_TEXT,
