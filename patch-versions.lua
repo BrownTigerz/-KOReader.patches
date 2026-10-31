@@ -13,6 +13,8 @@
 -- Format: { ["<repo path>"] = "<version>", ... }
 -- The updater compares versions numerically per dot-separated component
 -- and skips entries it can't parse, so a typo here can't break updating.
+-- Files that aren't patches (critter-phrases.lua, Quotes.lua) are listed
+-- under Extras; Quotes.lua lives in settings/simpleui/sui_quotes/.
 -- On the device, a diagnostic is updated wherever its copy sits
 -- (patches/ when active, patches/debug/ when switched off); a stale
 -- duplicate is cleaned up.
@@ -20,23 +22,25 @@
 return {
     ["2-ReadMastery-notify.lua"] = "1.0.6",
     ["2-ReadMastery-quests.lua"] = "1.0.6",
-    ["2-backup-patches.lua"] = "2.4.8",
-    ["2-bookorbit-tweaks.lua"] = "2.14.5",
+    ["2-backup-patches.lua"] = "2.4.9",
+    ["2-bookorbit-tweaks.lua"] = "2.14.6",
     ["2-debugging-menu.lua"] = "1.3.6",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.2.2",
     ["2-list-rating-progress.lua"] = "1.0.0",
     ["2-network-tweaks.lua"] = "1.12.0",
-    ["2-quickmenu-toggle-state.lua"] = "1.0.4",
+    ["2-quickmenu-toggle-state.lua"] = "1.0.5",
     ["2-readinginsights-tweaks.lua"] = "2.1.1",
-    ["2-readinglog-tweaks.lua"] = "1.1.9",
-    ["2-shelfsync-tweaks.lua"] = "1.11.19",
+    ["2-readinglog-tweaks.lua"] = "1.1.10",
+    ["2-shelfsync-tweaks.lua"] = "1.11.20",
     ["2-screenshot-timer.lua"] = "1.0.0",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.17.0",
-    ["2-shortcutstoolbar-quick-shelf.lua"] = "1.3.1",
-    ["2-simpleui-sidepanel.lua"] = "1.0.20",
-    ["2-simpleui-tweaks.lua"] = "2.14.10",
-    ["2-track-reading-location.lua"] = "1.9.5",
+    ["2-shortcutstoolbar-quick-shelf.lua"] = "1.3.2",
+    ["2-simpleui-sidepanel.lua"] = "1.0.21",
+    ["2-simpleui-tweaks.lua"] = "2.14.11",
+    ["2-track-reading-location.lua"] = "1.9.6",
     ["2-tweaks-menu.lua"] = "1.0.7",
+    ["Quotes.lua"] = "1.0.0",
+    ["critter-phrases.lua"] = "1.0.0",
     ["debug/2-zz-backup-patches-diagnostics.lua"] = "1.3.2",
     ["debug/2-zz-bookorbit-diagnostics.lua"] = "1.5.1",
     ["debug/2-zz-debugging-diagnostics.lua"] = "1.2.1",
