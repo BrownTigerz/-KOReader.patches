@@ -3,7 +3,7 @@
 KOReader user patch: TK's extras from "Reading Log for SimpleUI" on
 stevenzamora1's Reading Log 1.4+ (readinglog.koplugin), for Simple UI.
 
-Version: 1.1.10
+Version: 1.1.12
 
   Today Page Card    the card under the rings on the Today tab: Year Goal With
                      Covers, Year Goal, Book Club, Recently Finished or TBR
@@ -56,6 +56,14 @@ cards aren't touched. TK's simpleui_readinglog.koplugin isn't touched either
 Versioning: 1.0.x fixes, 1.x.0 new features, 2.0.0 settings changes.
 
 Changelog:
+  1.1.12 2026-10-30  Patch Backup & Restore 3.0: registers its settings, so
+                     they are in Everything and in One Patch Or Plugin.
+  1.1.11 2026-10-30  Compact Book Detail (needs SimpleUI Side Panel 1.0.26+):
+                     when on, a tap on a book (Book Club picks, covers on
+                     cards that use Reading Log's book details) opens the
+                     same compact window as the Side Panel — cover, author,
+                     description, Open / BookOrbit / Cancel — instead of
+                     opening the book or the full details page. Off = default.
   1.1.10 2026-10-30  Polish: an unused local and a leftover line counter
                      from the phrase bank log removed.
   1.1.9  2026-10-30  Clean-up: Flash To Clear Ghosting removed (Simple UI's
@@ -124,7 +132,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "1.1.10"
+local PATCH_VERSION = "1.1.12"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -3113,9 +3121,62 @@ local function apply(A)
         return ok
     end
 
+    -- Compact Book Detail (1.1.11): same window as SimpleUI Side Panel.
+    -- When on, a tap that would show book details or open a book shows the
+    -- compact dialog instead (cover, author, description, Open / BookOrbit / Cancel).
+    local function compactOn() return A.get("tk_compact_detail", false) == true end
+
+    local function showSidepanelCompact(fp)
+        local SP = package.loaded.simpleui_sidepanel
+        if type(SP) ~= "table" or type(SP.showCompactBookDetail) ~= "function" then
+            return false
+        end
+        if type(fp) ~= "string" or fp == "" then return false end
+        local title, authors, percent, status = nil, "", nil, nil
+        local okb, SH = pcall(require, "modules/module_books_shared")
+        if okb and type(SH) == "table" and type(SH.getBookData) == "function" then
+            local okd, bd = pcall(SH.getBookData, fp)
+            if okd and type(bd) == "table" then
+                title = bd.title
+                authors = bd.authors or ""
+                percent = bd.percent
+                status = bd.status
+            end
+        end
+        if not title or title == "" then
+            title = (fp:match("([^/]+)$") or fp):gsub("%.[^.]+$", "")
+        end
+        local entry, is_bo = nil, false
+        local id = boBookId(fp)
+        if id ~= nil then
+            is_bo = true
+            entry = { id = id, title = title, authors = authors, path = fp }
+        end
+        local home
+        for _i, e in ipairs(UIManager._window_stack or {}) do
+            if type(e.widget) == "table" and e.widget.name == "homescreen" then
+                home = e.widget
+            end
+        end
+        local ok = pcall(SP.showCompactBookDetail, home, {
+            title = title,
+            authors = authors,
+            fp = fp,
+            entry = entry,
+            percent = percent,
+            status = status,
+            on_device = true,
+            is_bo = is_bo,
+        })
+        return ok
+    end
+
     local orig_details = D.showDetails
     if type(orig_details) == "function" then
         D.showDetails = function(ctx, fp, ...)
+            if compactOn() and showSidepanelCompact(fp) then
+                return
+            end
             if boOn() and boPlugin() then
                 local id = boBookId(fp)
                 if id ~= nil then
@@ -3133,6 +3194,18 @@ local function apply(A)
                 end
             end
             return orig_details(ctx, fp, ...)
+        end
+    end
+
+    -- Book Club picks (and similar) often open via openBook. When Compact
+    -- Book Detail is on, show the compact window as a confirm step instead.
+    local orig_open = D.openBook
+    if type(orig_open) == "function" then
+        D.openBook = function(ctx, fp, ...)
+            if compactOn() and showSidepanelCompact(fp) then
+                return
+            end
+            return orig_open(ctx, fp, ...)
         end
     end
 
@@ -3928,6 +4001,19 @@ local function apply(A)
                 },
             },
             {
+                text = "Compact Book Detail",
+                help_text = "On: a tap on a book (Book Club picks, covers that open book details) shows the same compact window as the SimpleUI Side Panel — cover, author, short description, Open / BookOrbit / Cancel — instead of opening the book or the full details page. Needs Side Panel 1.0.26+. Off (default): Reading Log's usual behaviour.",
+                enabled_func = function()
+                    local SP = package.loaded.simpleui_sidepanel
+                    return type(SP) == "table" and type(SP.showCompactBookDetail) == "function"
+                end,
+                checked_func = compactOn,
+                keep_menu_open = true,
+                callback = function()
+                    A.set("tk_compact_detail", (not compactOn()) or nil)
+                end,
+            },
+            {
                 text = "Continue Reading: Buttons Only",
                 help_text = "On: the Continue Reading card opens the book only when you tap its Continue button (or the cover, in the looks where the cover is the button). Details shows the details and the dots flip books; a tap anywhere else on the card does nothing. Off (default): a tap anywhere opens the book, as Reading Log does.",
                 checked_func = contButtons,
@@ -3947,28 +4033,29 @@ local function apply(A)
               enabled_func = function() return C ~= nil end, separator = true },
             { text = "About Reading Log Tweaks " .. PATCH_VERSION, enabled = false },
         }
-        -- 1.1.9: grouped. The items above, in the order they're listed:
+        -- 1.1.11: grouped. The items above, in the order they're listed:
         -- 1 Fine Tuning, 2 Start On Tab, 3 Start On First Page, 4 BookOrbit
         -- Collections, 5 Book Club Collections, 6 Book Club Opens Picks,
-        -- 7 Continue Reading: Buttons Only, 8 Book Taps Open BookOrbit,
-        -- 9 Today Page Card, 10 Critter Remarks, 11 About.
+        -- 7 Compact Book Detail, 8 Continue Reading: Buttons Only,
+        -- 9 Book Taps Open BookOrbit, 10 Today Page Card, 11 Critter Remarks,
+        -- 12 About.
         local function plain(it) it.separator = nil; return it end
         local grouped = {
-            { text = "Today Page Card", sub_item_table = out[9].sub_item_table },
-            plain(out[7]),
-            { text = "Book Club", sub_item_table = { plain(out[5]), plain(out[6]) } },
+            { text = "Today Page Card", sub_item_table = out[10].sub_item_table },
+            plain(out[8]),
+            { text = "Book Club", sub_item_table = { plain(out[5]), plain(out[6]), plain(out[7]) } },
             { text = "When You Come Back", sub_item_table = { plain(out[2]), plain(out[3]) }, separator = true },
         }
         -- BookOrbit's two only with BookOrbit installed
         if boPlugin() then
-            grouped[#grouped + 1] = { text = "BookOrbit", sub_item_table = { plain(out[4]), plain(out[8]) }, separator = true }
+            grouped[#grouped + 1] = { text = "BookOrbit", sub_item_table = { plain(out[4]), plain(out[9]) }, separator = true }
         else
             grouped[#grouped].separator = true
         end
-        grouped[#grouped + 1] = out[10]
+        grouped[#grouped + 1] = out[11]
         grouped[#grouped + 1] = plain(out[1])
         grouped[#grouped].separator = true
-        grouped[#grouped + 1] = out[11]
+        grouped[#grouped + 1] = out[12]
         return grouped
     end
 
@@ -4031,6 +4118,35 @@ local function apply(A)
 
     logger.info(TAG, PATCH_VERSION, "on Reading Log", tostring(A.VERSION or "?"),
         C and "(critter on)" or "(no critter)")
+end
+
+-- ─── Patch Backup & Restore (2-backup-patches.lua) ──────────────────────────
+-- Our settings (keys tk_ and critter_) in Reading Log's own file. Works in
+-- either patch load order.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    BK.targets = BK.targets or {}
+    local FILE = "readinglog.lua"
+    local target = {
+        id = "readinglog_tweaks",
+        text = "Reading Log Tweaks",
+        setting_prefixes = { "tk_", "critter_" },
+        store = function(from_disk)
+            local St = package.loaded.readinglog_store   -- Reading Log's live settings
+            if not from_disk and type(St) == "table" and type(St.file) == "function" then
+                local ok, s = pcall(St.file)
+                if ok and type(s) == "table" and type(s.data) == "table" then
+                    return s.data, function() s:flush() end
+                end
+            end
+            local path = require("datastorage"):getSettingsDir() .. "/" .. FILE
+            if require("libs/libkoreader-lfs").attributes(path, "mode") ~= "file" then return nil end
+            local s = require("luasettings"):open(path)
+            return s.data, function() s:flush() end
+        end,
+    }
+    if type(BK.register) == "function" then pcall(BK.register, target) else table.insert(BK.targets, target) end
 end
 
 -- ─── waiting for the kit ─────────────────────────────────────────────────────
