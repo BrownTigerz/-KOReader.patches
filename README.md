@@ -21,8 +21,8 @@ All patches work independently and together. If one fails to attach (for example
 | Patch | File | Requires | Version |
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.10 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.17 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.4 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.20 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.9 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks | n/a |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.8 |
@@ -120,6 +120,8 @@ If you used the panel inside SimpleUI Tweaks, your panel settings carry over.
 **BookOrbit views are instant:** opening and swiping the panel never waits on the BookOrbit server. The list shows from what's saved, and when it's more than 30 minutes old (and Wi-Fi is on) it refreshes in the background and redraws in place, at most once per panel open (the view you stop on); views you swipe to after that show their saved list. A pending refresh is cancelled when the panel closes or the device sleeps.
 
 The header shows the view's whole name: a long one ("Book Club Anthology", "BookOrbit Newly Added") wraps onto two lines at full size (one that nearly fits gets slightly smaller text instead), so it isn't cut off.
+
+Its saved BookOrbit lists are shared with Reading Log Tweaks (1.0.18+), so BookOrbit collections can be picked there too.
 
 ## Add-ons menu
 
@@ -385,7 +387,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.4
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.9
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
@@ -393,17 +395,21 @@ Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Ad
 
 - **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
 - **Year Goal With Covers:** the year goal on the left, this year's covers on the right, a pace bar along the bottom. Also in Pages And Cards and as its own Simple UI module.
-- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, Tab Bar Position.
-- **Flash To Clear Ghosting** (off by default): switching tabs or months, and turning onto or off the Dashboard's page, flashes the screen. Only one of this and Simple UI 3.0.2's **Flash On Every Page Turn** is on at a time.
-- **Start On Tab** (Last Viewed by default): which Dashboard tab shows when you come back to it, after a book, after sleep or turning back onto its page.
-- **Start On First Page After Reading Or Sleep** (off by default): opening a book or sleeping sends SimpleUI's home screen back to page 1.
-- **Book Club: Tap Opens Picks** (off by default): a tap on the Book Club card goes straight to choosing this month's books (Reading Log's own chooser); a tap on a pick still opens that book.
 - **Continue Reading: Buttons Only** (off by default): the Continue Reading card opens the book only from its Continue button (or the cover, in the looks where the cover is the button); Details shows the details and the dots flip books. A tap anywhere else on the card does nothing.
-- **Book Taps Open BookOrbit** (off by default, shown only with BookOrbit installed): a tap on a book's cover opens its page in BookOrbit when BookOrbit has the file.
+- **Book Club**
+  - **Book Club Collections** (the card's own by default): tick one or more collections, KOReader's and BookOrbit's, and the Book Club card and its picks chooser use all their books together.
+  - **Book Club Opens Picks** (Off by default, On Hold or On Tap): go straight to choosing this month's books (Reading Log's own chooser). On Hold: long-press the card, and a tap on a pick still opens that book. On Tap: any tap on the card.
+- **When You Come Back**
+  - **Start On Tab** (Last Viewed by default): which Dashboard tab shows when you come back to it, after a book, after sleep or turning back onto its page. When SimpleUI shows the home screen again without rebuilding it (after sleep, or after a book with Fast Book Closing), the Dashboard is rebuilt once so the tab (and the Today card's Alternate) actually changes.
+  - **Start On First Page After Reading Or Sleep** (off by default): opening a book or sleeping sends SimpleUI's home screen back to page 1.
+- **BookOrbit** (shown only with BookOrbit installed)
+  - **BookOrbit Collections** (on by default, needs SimpleUI Side Panel 1.0.18+): your BookOrbit collections show next to KOReader's wherever Reading Log asks for a collection (the Book Club card's Collection and picks, the shelf cards), as "BookOrbit: <name>". The books come from the Side Panel's saved BookOrbit lists, so open a collection's view in the Side Panel once to fill it. Only books on this device are listed; nothing waits on the BookOrbit server.
+  - **Book Taps Open BookOrbit** (off by default, shown only with BookOrbit installed): a tap on a book's cover opens its page in BookOrbit when BookOrbit has the file.
 - **Critter Remarks:** Simple UI 3.0's Tiny Critter peeks into each Dashboard page with a remark about that page's numbers and suggests books. Tap it to talk. Uses `critter-phrases.lua` when it's in `patches/`. Each of these has its own switch under Critter:
   - **Critter's Own Voice** (Simple UI 3.0.2): Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos and Hazel say about one remark in three their own way, on the pages their lines fit. Donny, Blu and Donny & Blu join in with SimpleUI Tweaks 2.14.9+ and `critter-phrases.lua`, and since 1.1.2 the page insights (comeback, a run of days, best day this month, milestone, goal pace, weekend reading) are in their voice about half the time.
   - **Games And Quotes** (Simple UI 3.0.2): in the talk window, Let's Play (rock, paper, scissors; heads or tails; guess the author) and Read Me A Quote. The critter's last word shows in the bubble.
   - **Critter Rewards:** drawn beside the critter here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.
+- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, Tab Bar Position.
 
 Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
 
