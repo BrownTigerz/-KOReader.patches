@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.10
+Version 2.14.11
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,9 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.11 Critter phrases: one load line with the file's version
+         ("critter phrases v1.0.0 loaded") replaces the three count
+         lines; critter-phrases.lua is now on the patch updater.
   2.14.10 Critter Insights in Donny, Blu and Donny & Blu's own voice:
          critter-phrases.lua's insight_voices section. With SimpleUI
          3.0.2 a critter with its own wording of an insight uses it about
@@ -354,7 +357,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.10"
+local VERSION = "2.14.11"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1766,10 +1769,7 @@ function CF.bank()
     tried = true
     local path = bankPath()
     local f = path and loadfile(path)
-    if not f then
-        logger.info(TAG, "critter phrases: no critter-phrases.lua, built-in lines")
-        return nil
-    end
+    if not f then return nil end
     setfenv(f, { string = string, math = math, tostring = tostring, tonumber = tonumber,
                  type = type, ipairs = ipairs, pairs = pairs, select = select })
     local ok, b = pcall(f)
@@ -1807,8 +1807,7 @@ function CF.bank()
     end
     if stepsOk(b.minutes) then out.minutes = b.minutes end
     if stepsOk(b.pages) then out.pages = b.pages end
-    logger.info(TAG, string.format("critter phrases: %d insight lines, minutes %s, pages %s from %s",
-        n, out.minutes and "yes" or "built-in", out.pages and "yes" or "built-in", path))
+    logger.info(TAG, "critter phrases v" .. tostring(b.VERSION or "?"), "loaded:", n, "insight lines")
     bank = out
     return bank
 end
@@ -2447,7 +2446,6 @@ function CF.voices()
     local ids = {}
     for cid in pairs(b.voices) do if type(cid) == "string" then ids[#ids + 1] = cid end end
     table.sort(ids)
-    local n = 0
     for _i, cid in ipairs(ids) do
         local sits = b.voices[cid]
         if type(sits) == "table" then
@@ -2459,14 +2457,12 @@ function CF.voices()
                             V[#V + 1] = { id = string.format("tw_%s_%s_%d", cid, name, k), critter = cid,
                                 cat = sit.cat, mood = l.mood or "happy", when = sit.when, text = l.text,
                                 sub = type(l.sub) == "function" and l.sub or nil }
-                            n = n + 1
                         end
                     end
                 end
             end
         end
     end
-    logger.info(TAG, "critter voices:", n, "lines for", table.concat(ids, ", "))
 end
 -- Reading Log Tweaks calls this before reading the voice lines.
 package.loaded["simpleui_tweaks_voices"] = function() return pcall(CF.voices) end
