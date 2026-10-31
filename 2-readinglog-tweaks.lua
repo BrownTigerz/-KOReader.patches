@@ -1,46 +1,52 @@
 --[[
 2-readinglog-tweaks.lua
-KOReader user patch: TK's extras from "Reading Log for SimpleUI" on
-stevenzamora1's Reading Log 1.4+ (readinglog.koplugin), for Simple UI.
+KOReader user patch for stevenzamora1's Reading Log 1.4+
+(readinglog.koplugin) on Simple UI.
 
-Version: 1.1.13
+Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
+Upstream: https://github.com/stevenzamora1/reading-log
 
-  Today Page Card    the card under the rings on the Today tab: Year Goal With
-                     Covers, Year Goal, Book Club, Recently Finished or TBR
-                     Shelf. Or Swipe Between 2-3 Cards: tick up to 3 (a 4th
-                     replaces the oldest), then swipe left/right on the card
-                     or tap its dots. Alternate Or Keep Last and Flash On
-                     Swipe work as in Reading Log for SimpleUI.
-  Year Goal With     a new card: the year goal on the left, this year's
-  Covers             covers on the right, a pace bar along the bottom. Also
-                     in Pages And Cards and as its own Simple UI module.
-  Fine Tuning        Layout: In The Page or Full Screen (fills everything
-                     between the status bar and the nav bar); Bottom Space
-                     (Full Screen: room for the page dots); Move Tab Row.
-                     Size and Height are Reading Log's own (Appearance).
-  Continue Reading:  opens the book only from its Continue button (off by
-  Buttons Only       default).
-  Book Club          Collections: one or more (KOReader's and BookOrbit's)
-                     together. Opens Picks: hold or tap the card to choose
-                     this month's books.
-  When You Come      Start On Tab (Last Viewed by default) and Start On First
-  Back               Page After Reading Or Sleep (off).
-  BookOrbit          BookOrbit Collections (with SimpleUI Side Panel 1.0.18+)
-                     and Book Taps Open BookOrbit (off). Shown only with
-                     BookOrbit installed.
-  Critter Remarks    SimpleUI 3.0's Tiny Critter peeks into each Dashboard
-                     page (the heading row; on Today, the banner's spare room)
-                     with a remark about that page's numbers, and suggests
-                     books. Tap it to talk, play a game or hear a quote.
-                     SimpleUI 3.0.2's critters speak in their own voice.
-                     Rewards: books, a streak medal or trophy and an
-                     anniversary balloon beside the critter. Needs SimpleUI
-                     3.0 with Tiny Critter (the critter code is built into
-                     this file; voice and games need 3.0.2).
+Version: 2.5.2
 
+  This Book          The book you're on: time spent, sessions this week,
+                     pages today, pace, and when you'll finish at your
+                     recent pace. A card for any page, or the Today card.
+  Smart Cards        Smart: Current Book (This Book, Finish forecast, Today's
+                     timeline), Smart: Goals (Finish by, Year Goal With
+                     Covers, Monthly challenge, This week vs last), Smart:
+                     Shelf (Recently finished, Book club, Random pick, TBR
+                     shelf). Each shows the card that matters now, decided
+                     when you come back; dots and swipes flip by hand. Add
+                     them in Pages And Cards.
+  Today Page Card    Card under the rings on Today: Year Goal With Covers,
+                     This Book, Year Goal, Book Club, Recently Finished or
+                     TBR Shelf.
+                     Or Swipe Between 2-3 Cards (tick up to 3).
+  Year Goal With     Year goal + this year's covers + pace bar. Also its own
+  Covers             Simple UI module.
+  Fine Tuning        Full Screen, Bottom Space, Move Tab Row, Swipe Between
+                     Tabs (off by default).
+  Book Tap Opens     Compact Detail (the Side Panel's window, default with
+                     Side Panel 1.0.26+) | BookOrbit | Reading Log's Own,
+                     for every book cover. Continue always opens the book.
+  Continue Reading:  Open only from the Continue button (off by default).
+  Buttons Only
+  Hold A Cover       Long-press a cover: Open, Book Details, Reading / On
+                     hold / Finished, To Be Read, Collections (on).
+  Book Club          Multi-collection + Opens Picks (hold or tap).
+  When You Come      Start On Tab, Start On First Page After Reading Or Sleep.
+  Back
+  BookOrbit          BookOrbit Collections (Side Panel cache). Menu section
+                     only if BookOrbit is installed.
+  Critter Remarks    Tiny Critter on Dashboard pages; Donny/Blu voices,
+                     games, quotes, rewards. Weekly recap on the first days
+                     of the week (last week's time, books, best day).
+                     Critters Say Notifications (shared setting, off).
+
+Settings schema 3: rlt_* keys, one Book Tap Opens (compact / bookorbit /
+own; unset = compact with the Side Panel).
 Settings: long-press the Dashboard > Reading Log Tweaks, or Tools > Add-ons >
-Stats & Progress (with 2-tweaks-menu.lua). Everything is saved in Reading Log's own settings
-file (keys starting tk_ and critter_).
+Stats & Progress (with 2-tweaks-menu.lua).
 
 Install: copy 2-readinglog-tweaks.lua into koreader/patches/ (Kobo:
 .adds/koreader/patches/), then restart. One file, nothing else needed;
@@ -49,24 +55,109 @@ Delete it and restart to undo; the Today page goes back to whatever
 its rows say (Pages And Cards > Put This Page Back fixes a swipe slot left
 behind).
 
-Works only with stevenzamora1's readinglog.koplugin (1.4+); his Bookshelf
-cards aren't touched. TK's simpleui_readinglog.koplugin isn't touched either
-(it already has all of this).
+Works only with stevenzamora1's readinglog.koplugin (1.4+). Bookshelf cards
+from the same plugin aren't patched. The older simpleui_readinglog.koplugin
+is not touched.
 
-Versioning: 1.0.x fixes, 1.x.0 new features, 2.0.0 settings changes.
+Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
-  1.1.13 2026-10-31  Fine Tuning: Tab Bar Position is now Move Tab Row, with
-                     its own setting (Reading Log 2.0's Tab Bar Position in
-                     Appearance is separate, they used to share one). Down
-                     now really moves it: the tabs drop away from the cards
-                     toward the page dots (into the margin, and in Full
-                     Screen into the room Bottom Space adds), then the
-                     cards get shorter, so the gap grows by the whole
-                     amount. It only went down into the margin before: a
-                     few pixels, none with Margins at None. The moved
-                     layout shows Year in Review on the Yearly page in
-                     December like Reading Log 2.0.
+  2.5.2  2026-10-31  Smart Cards only follow their rules: no swiping or dots
+                     to flip them by hand, so a swipe on one changes the tab
+                     (Swipe Between Tabs) or goes back to the home page's
+                     other page, like anywhere else on the Dashboard.
+                     Continue reading: the cover follows Book Tap Opens
+                     (Compact Detail), Details always opens Reading Log's
+                     own simple details, Continue opens the book.
+  2.5.1  2026-10-31  Critters Say Notifications now also catches Network
+                     Tweaks' corner notes (Minimal style) and BookOrbit's
+                     pills, not just KOReader's own toasts; on your setup
+                     that's where nearly every notification comes from, so
+                     before this the critter never got any. Warning, loading
+                     and tap-to-act ones stay popups.
+  2.5.0  2026-10-31  Three more Smart Cards: Smart Activity (Activity,
+                     Today's timeline, Finish forecast), Smart This Week
+                     (This week, Finish forecast, Today's timeline) and
+                     Smart Month (Pages per day, Monthly challenge, This
+                     week vs last). Two on one page never show the same
+                     card. Pages And Cards -> Smart Cards On Today And
+                     Monthly puts them in place of Activity, This week and
+                     Pages per day in one tap (and back). Continue
+                     reading's cover follows Book Tap Opens (Compact
+                     Detail), its Continue button still opens the book.
+                     Quote Of The Day (Books): SimpleUI's Quotes, the
+                     default, takes the Quote of the day card's quote from
+                     where SimpleUI's own Quote of the Day does (built-in
+                     list or your sui_quotes/ file), one a day, Another
+                     for the next; Your Highlights for Reading Log's own.
+  2.4.0  2026-10-31  Critters Say Notifications (Critter, off by default;
+                     one setting shared with Shortcuts Toolbar Quick Shelf
+                     and SimpleUI Tweaks): a notification that comes in
+                     while the Dashboard's critter is on screen is said by
+                     the critter, in its bubble until its next remark,
+                     instead of the popup. Banners you can tap, questions
+                     and failures always stay popups.
+  2.3.0  2026-10-31  Book Tap Opens: Compact Detail is the default when the
+                     SimpleUI Side Panel has its window (1.0.26+): a tap on
+                     any book cover in Reading Log shows the same compact
+                     window as the side panel. Continue reading's Continue
+                     and the hold menu's Open still open the book straight
+                     away (before, in Compact Detail they showed the window
+                     too). "Default" is now "Reading Log's Own" (saved as
+                     its own choice). Fixed: 2.0.2's settings move stored
+                     Book Tap Opens as "default" on every device ("x and nil
+                     or y" is always y in Lua); that's now read as not
+                     chosen.
+  2.2.0  2026-10-31  Smart Cards: Smart: Current Book, Smart: Goals and
+                     Smart: Shelf, in Pages And Cards like any card. Each
+                     shows whichever card of its group matters now, decided
+                     when you come back to the Dashboard (a book closed,
+                     waking, turning back onto its page), never while you
+                     look. First rule that's true wins: Finish forecast when
+                     a book is 2 h or less from done, Today's timeline after
+                     6 PM with 2+ sessions, This Book once you've read
+                     today; Finish by within 7 days, Year Goal With Covers
+                     after a finish (3 days) or a book behind pace, Monthly
+                     challenge in the month's last week, This week vs last
+                     on your week's first 2 days; Recently finished (3
+                     days), Book club in the month's first week, Random pick
+                     after 3 days without reading, TBR shelf with only one
+                     book going. None true: the next card in turn. Dots or a
+                     swipe flip by hand, until you come back. Finish by
+                     without a book and date is left out. Continue reading
+                     stays where it is. Hold A Cover now also works on a
+                     card inside a Smart Card or the Today swipe spot.
+  2.1.0  2026-10-31  New: This Book card (the book you're on: time spent,
+                     sessions this week, pages today, pace, finish date at
+                     your last two weeks' pace; from KOReader's statistics,
+                     read again only when they change). Swipe Between Tabs
+                     (Fine Tuning, off): swipe left/right on the Dashboard
+                     for the next/previous tab; at the ends Simple UI turns
+                     its page. Hold A Cover For Quick Actions (Books, on):
+                     long-press a cover for Open, Book Details, Reading /
+                     On hold / Finished, Add To / Remove From To Be Read
+                     and Collections. The critter's weekly recap: on the
+                     first two days of the week, last week's time, books
+                     and best day, once (Donny, Blu and Donny & Blu in
+                     their own voice with critter-phrases.lua 1.2.0).
+  2.0.3  2026-10-31  Fine Tuning: Tab Bar Position is now Move Tab Row, its
+                     own setting (rlt_tabs_move; Reading Log 2.0's Tab Bar
+                     Position in Appearance is separate, they shared
+                     tabs_adjust). Down really moves it: away from the cards
+                     toward the page dots (the margin, and in Full Screen
+                     the room Bottom Space adds), then the cards get
+                     shorter, so the gap grows by the whole amount. Before,
+                     down only went into the margin (a few px, none with
+                     Margins at None). The moved layout shows Year in Review
+                     on the Yearly page in December like Reading Log 2.0.
+                     A Patch Backup made before 2.0.2 restores again (its
+                     1.x keys are moved over on the next start), and the
+                     old flash-clean key is cleared.
+  2.0.2  2026-10-30  Settings keys are rlt_* only. No personal labels in code
+                     or comments. Schema 3 migrates 1.x keys once, then clears
+                     them. Book Tap Opens unchanged.
+  2.0.0  2026-10-30  Settings schema: Book Tap Opens (Default / Compact /
+                     BookOrbit). Neutral header. Menu Books group. Critter kept.
   1.1.12 2026-10-30  Patch Backup & Restore 3.0: registers its settings, so
                      they are in Everything and in One Patch Or Plugin.
   1.1.11 2026-10-30  Compact Book Detail (needs SimpleUI Side Panel 1.0.26+):
@@ -143,7 +234,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "1.1.13"
+local PATCH_VERSION = "2.5.2"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -156,6 +247,103 @@ local function warn(...) logger.warn(TAG, ...) end
 
 -- ─── the critter (built in) ────────────────────────────────────────────────
 -- Called with Reading Log's kit; returns the critter (A.critter).
+-- ─── Critters Say Notifications (shared, off by default) ────────────────────
+-- The same block is in Shortcuts Toolbar Quick Shelf, SimpleUI Tweaks and
+-- Reading Log Tweaks; whichever loads first sets it up, the others join it.
+-- One setting for all three. A plain notification (a toast) that comes in
+-- while a critter is on screen is said by that critter instead of popping
+-- up: KOReader's toasts, Network Tweaks' corner notes and BookOrbit's
+-- pills. A critter that can't show it whole lets the popup through.
+-- Tappable banners, questions and failures always stay popups; never over
+-- the sleep screen.
+local function critterNews()
+    local hub = package.loaded.critter_news
+    if type(hub) == "table" and (tonumber(hub.v) or 0) >= 2 then return hub end
+    -- an older copy (v1) already set up: keep its spots, take over the catching
+    local old = type(hub) == "table" and hub or nil
+    hub = { v = 2, spots = old and old.spots or setmetatable({}, { __mode = "k" }) }
+    package.loaded.critter_news = hub
+    local KEY = "critter_notifications"
+    function hub.on()
+        return G_reader_settings ~= nil and G_reader_settings:isTrue(KEY)
+    end
+    function hub.set(on)
+        if on then G_reader_settings:saveSetting(KEY, true) else G_reader_settings:delSetting(KEY) end
+    end
+    -- spot = { visible = function() -> bool, say = function(text) -> bool }
+    function hub.add(key, spot) hub.spots[key] = spot end
+    -- the window a widget sits in, when that window is the top one (toasts aside)
+    function hub.onTop(widget)
+        local UIM = require("ui/uimanager")
+        if type(widget) ~= "table" or type(UIM.isSubwidgetShown) ~= "function" then return false end
+        local ok, matched, _d, win = pcall(UIM.isSubwidgetShown, UIM, widget)
+        if not (ok and matched and win) then return false end
+        local stack = UIM._window_stack
+        if type(stack) ~= "table" then return false end
+        for i = #stack, 1, -1 do
+            local w = stack[i].widget
+            if w and not w.toast and not w.invisible and w.name ~= "bookorbit_toast" then return w == win, win end
+        end
+        return false
+    end
+    if old then old.on = function() return false end end -- the v1 catcher steps aside
+    local okN, Notification = pcall(require, "ui/widget/notification")
+    local UIManager = require("ui/uimanager")
+    local okD, Device = pcall(require, "device")
+    local function isA(w, class)
+        local mt = getmetatable(w)
+        for _ = 1, 8 do
+            if mt == nil then return false end
+            if mt == class then return true end
+            mt = getmetatable(mt)
+        end
+        return false
+    end
+    -- What a plain notification says, or nil for anything else. Caught:
+    -- KOReader's toasts (Notification), Network Tweaks' Minimal corner notes
+    -- (any toast widget with text), BookOrbit's info pills. Never: banners
+    -- you can tap, ones that stay up, BookOrbit's loading/retry/warning pills.
+    function hub.toastText(w)
+        if type(w) ~= "table" or w.on_tap or w.timeout == false then return nil end
+        if w.name == "bookorbit_toast" then
+            if w.kind ~= "info" or w.glyph == "triangle-alert" or not w.timeout then return nil end
+            local v = type(w.variants) == "table" and w.variants[1]
+            if type(v) ~= "table" then return nil end
+            local parts = {}
+            for _, seg in ipairs(v) do
+                if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
+            end
+            local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
+            return t ~= "" and t or nil
+        end
+        if type(w.text) ~= "string" or w.text == "" then return nil end
+        if okN and isA(w, Notification) then return w.text end
+        if w.toast == true and w.timeout then return w.text end
+        return nil
+    end
+    local orig_show = UIManager.show
+    UIManager.show = function(um, w, ...)
+        if hub.on() and not (okD and Device.screen_saver_mode) then
+            local text = hub.toastText(w)
+            if text then
+                for _, spot in pairs(hub.spots) do
+                    local okV, vis = pcall(spot.visible)
+                    if okV and vis then
+                        local okS, said = pcall(spot.say, text)
+                        if okS and said then
+                            -- BookOrbit closes its pill on a timer: let that be a no-op
+                            if w.name == "bookorbit_toast" then w.closed = true end
+                            return
+                        end
+                    end
+                end
+            end
+        end
+        return orig_show(um, w, ...)
+    end
+    return hub
+end
+
 local function critterKit(...)
     --[==[
     Built in: the same code as Reading Log for SimpleUI's critter, plus a
@@ -542,6 +730,39 @@ local function critterKit(...)
     end
 
     -- Books finished this month and the two before, newest first (with `at`).
+    -- Last week, for the weekly recap (2.1.0): time, pages, days read, books
+    -- finished, the best day, and the week before for comparison. Shown on the
+    -- first two days of your week (Reading Log's week start).
+    local function weekRecap(f)
+        local t, days = f.t, f.st and f.st.days
+        if type(days) ~= "table" then return end
+        local ws = type(D.weekStart) == "function" and tonumber(D.weekStart()) or 2
+        local into = (t.wday - ws) % 7
+        local start = os.time{ year = t.year, month = t.month, day = t.day - into - 7, hour = 12 }
+        local r = { into = into, key = os.date("%Y-%m-%d", start), secs = 0, pages = 0, days = 0,
+                    best_secs = 0, prev_secs = 0, books = 0 }
+        for i = 0, 6 do
+            local at = os.time{ year = t.year, month = t.month, day = t.day - into - 7 + i, hour = 12 }
+            local rec = days[os.date("%Y-%m-%d", at)]
+            local secs = rec and tonumber(rec.secs) or 0
+            r.secs, r.pages = r.secs + secs, r.pages + (rec and tonumber(rec.pages) or 0)
+            if secs >= 60 then r.days = r.days + 1 end
+            if secs > r.best_secs then r.best_secs, r.best_at = secs, at end
+            local before = days[os.date("%Y-%m-%d", os.time{ year = t.year, month = t.month, day = t.day - into - 14 + i, hour = 12 })]
+            r.prev_secs = r.prev_secs + (before and tonumber(before.secs) or 0)
+        end
+        local from = os.time{ year = t.year, month = t.month, day = t.day - into - 7, hour = 0 }
+        local to = os.time{ year = t.year, month = t.month, day = t.day - into, hour = 0 }
+        for _, b in ipairs(f.finished_recent or {}) do
+            if b.at and b.at >= from and b.at < to then r.books = r.books + 1 end
+        end
+        if r.best_at then
+            local ok, name = pcall(A.date, "%A", r.best_at)
+            r.best_day = ok and type(name) == "string" and name or os.date("%A", r.best_at)
+        end
+        f.recap = r
+    end
+
     local function recentFinished(f, refresh)
         local t, list = f.t, {}
         for back = 0, 2 do
@@ -658,6 +879,7 @@ local function critterKit(...)
         f.month_left = f.days_in_month - t.day + 1
         if f.st and type(f.st.days) == "table" then pcall(rhythm, f) end
         pcall(recentFinished, f, refresh)
+        pcall(weekRecap, f)
         -- goal pace: what's left over the days left (from mid-January), on pace
         -- or catching up; and what this month needs (1 to 3 books, from the 10th)
         if f.year_goal and f.year_goal > 0 and f.year_done and f.year_done < f.year_goal then
@@ -687,6 +909,18 @@ local function critterKit(...)
     local R = {}
 
     R.today = {
+        { id = "t_week_recap", mood = "cheer",
+          when = function(f) return f.recap and f.recap.into <= 1 and f.recap.secs >= 600 end,
+          text = function(f)
+              local r = f.recap
+              return string.format("Last week: %s%s.", A.fmtMinutes(mins(r.secs)),
+                  r.books > 0 and (", " .. A.plural(r.books, "book", "books")) or "")
+          end,
+          sub = function(f)
+              local r = f.recap
+              if r.best_day then return string.format("Best day: %s, %s.", r.best_day, A.fmtMinutes(mins(r.best_secs))) end
+              return A.plural(r.days, "day", "days") .. " of reading."
+          end },
         { id = "t_goal_done", mood = "party",
           when = function(f) return f.goal_min and f.today_secs and mins(f.today_secs) >= f.goal_min end,
           text = function() return "Daily goal done." end,
@@ -1236,6 +1470,23 @@ local function critterKit(...)
     }
 
     -- wordings and moods of the insights
+    VARIANTS.t_week_recap = {
+        { mood = "happy", text = function(f) return string.format("Your week: %s over %s.", A.fmtMinutes(mins(f.recap.secs)), n_(f.recap.days, "day", "days")) end,
+          sub = function(f) return f.recap.best_day and (f.recap.best_day .. " was the big one.") or "Nice and steady." end },
+        { mood = "proud", text = function(f) return string.format("Last week: %s.", n_(f.recap.pages, "page", "pages")) end,
+          sub = function(f)
+              local r = f.recap
+              if r.prev_secs > 0 and r.secs >= r.prev_secs * 1.15 then return "More than the week before. Nice." end
+              if r.prev_secs > 0 and r.secs <= r.prev_secs * 0.85 then return "A quieter one. That's allowed." end
+              return "About the same as the week before."
+          end },
+        { mood = "party", text = function(f)
+              local r = f.recap
+              if r.books > 0 then return string.format("%s finished last week!", n_(r.books, "book", "books")) end
+              return string.format("%s read last week.", A.fmtMinutes(mins(r.secs)))
+          end,
+          sub = function(f) return string.format("%s of 7 days with a book.", f.recap.days) end },
+    }
     VARIANTS.t_comeback = {
         { mood = "happy", text = s("Look who's back!"), sub = function(f) return string.format("First reading in %s.", n_(f.gap + 1, "day", "days")) end },
         { mood = "cheer", text = s("Back to the books."), sub = s("I saved your spot.") },
@@ -1511,7 +1762,7 @@ local function critterKit(...)
     end
 
     -- The day's big news comes first: once a day each, before the dealt remarks.
-    local FIRST = { "t_goal_done", "y_goal_done", "y_milestone", "t_day_record", "t_streak_best", "r_streak_best",
+    local FIRST = { "t_week_recap", "t_goal_done", "y_goal_done", "y_milestone", "t_day_record", "t_streak_best", "r_streak_best",
                     "t_comeback", "t_momentum", "s_series_next",
                     "t_pep" } -- once you've read today, the pep talk; it grows as you read
     local FIRST_SET = {}
@@ -1521,9 +1772,11 @@ local function critterKit(...)
     local FIRST_WHEN = {
         y_milestone = function(f) return f.milestone_new end,
         t_momentum = function(f) return f.run_start ~= nil and A.get("critter_news_run") ~= f.run_start end,
+        t_week_recap = function(f) return f.recap ~= nil and A.get("critter_news_recap") ~= f.recap.key end,
     }
     local FIRST_DONE = {
         t_momentum = function(f) A.set("critter_news_run", f.run_start) end,
+        t_week_recap = function(f) A.set("critter_news_recap", f.recap.key) end,
     }
 
     local function deal(kind, ids, skip)
@@ -1669,7 +1922,8 @@ local function critterKit(...)
     -- insight_voices, by the same kinds SimpleUI Tweaks uses, with their data
     -- worked out from this page's facts.
     local INS_KIND = { t_comeback = "tw_recovery", t_momentum = "tw_momentum", t_day_record = "tw_record",
-                       y_milestone = "tw_milestone", y_pace = "tw_pace", r_weekend = "tw_weekend" }
+                       y_milestone = "tw_milestone", y_pace = "tw_pace", r_weekend = "tw_weekend",
+                       t_week_recap = "tw_recap" }
     local function insightData(id, f)
         if id == "t_comeback" then return { days = f.gap } end
         if id == "t_momentum" then return { days = f.run } end
@@ -1679,6 +1933,10 @@ local function critterKit(...)
             return { days = f.pace.left, minutes = f.pace.days_left, years = f.year_goal, which = f.pace.on and "on" or "behind" }
         end
         if id == "r_weekend" then return { which = f.weekend } end
+        if id == "t_week_recap" and f.recap then
+            -- minutes read, days read, books finished, the best day
+            return { minutes = mins(f.recap.secs), days = f.recap.days, years = f.recap.books, which = f.recap.best_day }
+        end
     end
 
     -- A reply from the talk window (a game's last word, a comment on a quote):
@@ -1987,7 +2245,7 @@ local function critterKit(...)
         -- Reading Log 1.4 keeps painted cards and redraws them only when what
         -- they draw changes: write down what this draws, so a new remark shows
         if type(c.mark) == "function" then
-            c:mark("tk_critter", r.text or "", r.sub or "", path, bx, by, sx, sy, bs.w, bs.h, style, mood)
+            c:mark("rlt_critter", r.text or "", r.sub or "", path, bx, by, sx, sy, bs.w, bs.h, style, mood)
         end
         c:op(function(bb, ox, oy)
             bubble:paintTo(bb, ox + bx, oy + by)
@@ -2027,6 +2285,15 @@ local function critterKit(...)
             if by[id].fp and id:sub(1, 2) == "s_" then return true end
         end
         return false
+    end
+
+    --- Puts `reply` ({ text, sub, mood }) in `page`'s bubble until its next
+    --- new remark, like the talk window's last word (Critters Say Notifications).
+    function C.say(page, reply)
+        if type(reply) ~= "table" then return false end
+        A.state.critter_reply = { kind = select(2, poolFor(page)), day = os.date("%Y-%m-%d"), r = reply }
+        A.state.critter_rev = (A.state.critter_rev or 0) + 1
+        return true
     end
 
     --- Opens the conversation for `page`; returns false when it can't (then the
@@ -2310,7 +2577,48 @@ local function apply(A)
         return
     end
     A._rl_tweaks = PATCH_VERSION
-    if A.get("tk_flash_clean", nil) ~= nil then A.set("tk_flash_clean", nil) end   -- removed in 1.1.9
+    if A.get("rlt_flash_clean", nil) ~= nil then A.set("rlt_flash_clean", nil) end
+    if A.get(("t" .. "k_") .. "flash_clean", nil) ~= nil then A.set(("t" .. "k_") .. "flash_clean", nil) end
+    -- Schema 3: settings keys are rlt_* only. Copy any 1.x keys once, then clear.
+    -- Also runs when 1.x keys turn up later (a Patch Backup made before 2.0.2
+    -- puts them back), so they're moved over on the next start.
+    do
+        local schema = tonumber(A.get("rlt_schema", 0)) or 0
+        local legacy = A.get(("t" .. "k_") .. "schema", nil) ~= nil
+        for _, k in ipairs({ "swipe_cards", "today_card", "dash_layout", "club_colls", "club_picks",
+                             "start_tab", "bo_colls", "compact_detail", "bo_details", "continue_buttons" }) do
+            if legacy then break end
+            if A.get(("t" .. "k_") .. k, nil) ~= nil then legacy = true end
+        end
+        if schema < 3 or legacy then
+            local keys = {
+                "book_tap", "swipe_cards", "swipe_return", "swipe_i", "swipe_flash",
+                "today_card", "start_tab", "first_page", "continue_buttons", "bo_colls",
+                "club_colls", "club_picks", "dash_layout", "dash_bottom_adjust",
+            }
+            for _, k in ipairs(keys) do
+                local oldv = A.get(("t" .. "k_") .. k, nil)
+                if oldv ~= nil and A.get("rlt_" .. k, nil) == nil then
+                    A.set("rlt_" .. k, oldv)
+                end
+                A.set(("t" .. "k_") .. k, nil)
+            end
+            if A.get("rlt_book_tap", nil) == nil then
+                local mode = "default"
+                if A.get("t" .. "k_compact_detail", false) == true then mode = "compact"
+                elseif A.get("t" .. "k_bo_details", false) == true then mode = "bookorbit"
+                end
+                -- ("x and nil or y" is always y in Lua: "default" was stored by mistake before 2.3.0)
+                if mode ~= "default" then A.set("rlt_book_tap", mode) end
+            end
+            A.set("t" .. "k_compact_detail", nil)
+            A.set("t" .. "k_bo_details", nil)
+            A.set("rlt_compact_detail", nil)
+            A.set("rlt_bo_details", nil)
+            A.set("t" .. "k_schema", nil)
+            A.set("rlt_schema", 3)
+        end
+    end
     local T = (type(A._) == "function") and A._ or function(s) return s end
     local round = A.round or function(n) return floor(n + 0.5) end
     local scaler = A.panelScaler
@@ -2437,13 +2745,13 @@ local function apply(A)
                         { bold = true, color = tone.muted, anchor = "r", valign = "base" })
                 end
             end
-            if not env.sample then A.state.tk_goal_covers_files = files end
+            if not env.sample then A.state.rlt_goal_covers_files = files end
             return c
         end
 
         function P.goal_covers.tap(env, region)
             local i = region and tonumber(region:match("^book:(%d+)$"))
-            local fp = i and A.state.tk_goal_covers_files and A.state.tk_goal_covers_files[i]
+            local fp = i and A.state.rlt_goal_covers_files and A.state.rlt_goal_covers_files[i]
             if fp then D.showDetails(env.ctx, fp) end
         end
 
@@ -2462,11 +2770,255 @@ local function apply(A)
     end
 
     -- ════════════════════════════════════════════════════════════════════════
+    -- This Book (2.1.0)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- The book you're on (the most recent one in progress): time spent on it,
+    -- sessions this week, pages today, your pace in it, and when you'll be
+    -- done at the pace you've read it lately. From KOReader's statistics,
+    -- for this one book; worked out again only when the statistics change.
+
+    local TB_GAP = 600 -- a break longer than this starts a new session
+    local _tb = {}
+    local function dayStartAt(t, back_days)
+        return os.time{ year = t.year, month = t.month, day = t.day - (back_days or 0), hour = 0, min = 0, sec = 0 }
+    end
+    local function thisBookStats(fp)
+        local sig = tostring(fp) .. "|" .. (type(D.statsSig) == "function" and tostring(D.statsSig()) or "")
+            .. "|" .. os.date("%Y-%m-%d")
+        if _tb.sig == sig then return _tb.v end
+        local t = os.date("*t")
+        local today0 = dayStartAt(t)
+        local ws = type(D.weekStart) == "function" and tonumber(D.weekStart()) or 1
+        local week0 = dayStartAt(t, (t.wday - ws) % 7)
+        local recent0 = dayStartAt(t, 13)
+        local v = { total_secs = 0, total_pages = 0, week_secs = 0, week_sessions = 0,
+                    today_pages = 0, today_secs = 0, recent_secs = 0 }
+        local ok, err = pcall(function()
+            local md5 = type(D.bookMd5) == "function" and D.bookMd5(fp) or nil
+            if not md5 then return end
+            local path = require("datastorage"):getSettingsDir() .. "/statistics.sqlite3"
+            if require("libs/libkoreader-lfs").attributes(path, "mode") ~= "file" then return end
+            local SQ3 = require("lua-ljsqlite3/init")
+            local conn = SQ3.open(path, "ro")
+            local ok2, err2 = pcall(function()
+                conn:exec("PRAGMA busy_timeout=200;")
+                local st = conn:prepare("SELECT id FROM book WHERE md5 = ?")
+                local row = st:reset():bind(md5):step()
+                local id = row and tonumber(row[1])
+                st:close()
+                if not id then return end
+                v.found = true
+                st = conn:prepare("SELECT count(DISTINCT page), sum(duration) FROM page_stat_data WHERE id_book = ?")
+                row = st:reset():bind(id):step()
+                v.total_pages = tonumber(row and row[1]) or 0
+                v.total_secs = tonumber(row and row[2]) or 0
+                st:close()
+                local since = min(week0, recent0)
+                st = conn:prepare("SELECT start_time, duration, page FROM page_stat_data"
+                    .. " WHERE id_book = ? AND start_time >= ? ORDER BY start_time")
+                row = st:reset():bind(id, since):step()
+                local last_end, cur_start
+                local today_pages = {}
+                while row do
+                    local s, d, pg = tonumber(row[1]) or 0, tonumber(row[2]) or 0, row[3]
+                    if not last_end or s - last_end > TB_GAP then
+                        cur_start = s
+                        if s >= week0 then v.week_sessions = v.week_sessions + 1 end
+                    end
+                    last_end = max(last_end or 0, s + d)
+                    if s >= week0 then v.week_secs = v.week_secs + d end
+                    if s >= recent0 then v.recent_secs = v.recent_secs + d end
+                    if s >= today0 then
+                        v.today_secs = v.today_secs + d
+                        if pg ~= nil and not today_pages[pg] then
+                            today_pages[pg] = true
+                            v.today_pages = v.today_pages + 1
+                        end
+                    end
+                    row = st:step()
+                end
+                v.last_end = last_end
+                st:close()
+            end)
+            conn:close()
+            if not ok2 then error(err2, 0) end
+        end)
+        if not ok then warn("this book:", tostring(err)) end
+        -- this book open now: what the reader holds and hasn't saved yet
+        local okR, RUI = pcall(require, "apps/reader/readerui")
+        local ui = okR and type(RUI) == "table" and RUI.instance or nil
+        if type(ui) == "table" and type(ui.document) == "table" and ui.document.file == fp
+                and type(D.unsaved) == "function" then
+            local okU, p, s = pcall(D.unsaved, today0)
+            if okU and (tonumber(s) or 0) > 0 then
+                v.found = true
+                v.today_pages, v.today_secs = v.today_pages + p, v.today_secs + s
+                v.week_secs, v.recent_secs = v.week_secs + s, v.recent_secs + s
+                v.total_secs, v.total_pages = v.total_secs + s, v.total_pages + p
+                if v.week_sessions == 0 or not v.last_end or os.time() - s - v.last_end > TB_GAP then
+                    v.week_sessions = v.week_sessions + 1
+                end
+            end
+        end
+        _tb.sig, _tb.v = sig, v
+        return v
+    end
+
+    local function shortDate(when)
+        local ok, s = pcall(A.date, "%a %b", when)
+        if not ok or type(s) ~= "string" then s = os.date("%a %b", when) end
+        return s .. " " .. tonumber(os.date("%d", when))
+    end
+
+    if scaler and not P.this_book then
+        P.this_book = {
+            does = T("opens the book"),
+            title = "This Book", tone = "ink", ratio = 0.5, ratio_narrow = 0.75,
+            summary = "The book you're on: time spent, sessions this week, pages today, your pace and when you'll finish. Needs the statistics plugin.",
+        }
+
+        function P.this_book.build(env)
+            local w, h, tone = env.w, env.h, env.tone
+            local s = min(h / 360, w / 640)
+            local px, fpx = scaler(s, env.ts)
+            local c = card(env, s)
+            local pad = px(30)
+
+            local item, stats
+            if env.sample then
+                item = { title = "The Starless Sea", author = "Erin Morgenstern", pct = 0.42, pages = 498 }
+                stats = { found = true, total_secs = 6 * 3600 + 20 * 60, total_pages = 209, week_secs = 70 * 60,
+                          week_sessions = 3, today_pages = 24, today_secs = 31 * 60, recent_secs = 5 * 3600 }
+            else
+                local okr, list = pcall(D.reading, 1)
+                item = okr and type(list) == "table" and list[1] or nil
+                if item then stats = thisBookStats(item.fp) end
+            end
+            A.state.rlt_this_book = item and item.fp or nil
+
+            local hy = px(20)
+            local t_label = c:label("This book", fpx(22), pad, hy, { bold = true, caps = true, color = tone.accent })
+            if not item then
+                local t1 = c:text("Nothing in progress. Open a book!", fpx(26), { bold = true, color = tone.muted, max_w = w - 2 * pad })
+                c:put(t1, w / 2, h / 2, "c", "mid")
+                return c
+            end
+            local pct = A.clamp(tonumber(item.pct) or 0, 0, 1)
+            c:label(floor(pct * 100 + 0.5) .. "%", fpx(22), w - pad, hy, { bold = true, color = tone.accent2, anchor = "r" })
+
+            -- left: the cover
+            local top = hy + t_label.h + px(14)
+            local bottom = h - px(24)
+            local ch = bottom - top
+            local cw = round(ch / 1.5)
+            if cw > w * 0.32 then
+                cw = floor(w * 0.32); ch = round(cw * 1.5)
+                top = top + floor((bottom - top - ch) / 2)
+            end
+            c:cover(item.fp, pad, top, cw, ch, { title = item.title, edge = tone.border or tone.bg })
+            c:region("cover", pad, top, cw, ch, px(4))
+
+            -- right: title, author, progress, the figures, the finish, as
+            -- one block centred beside the cover
+            local x0 = pad + cw + px(24)
+            local rw = w - pad - x0
+            local tt = c:textbox(item.title or "", fpx(30), rw, 2, { bold = true, color = tone.fg })
+            local ta = (item.author and item.author ~= "")
+                and c:text(item.author, fpx(22), { color = tone.muted, max_w = rw }) or nil
+            local bar_h = max(4, px(10))
+
+            local secs_page = (stats and stats.total_pages > 0 and stats.total_secs > 0)
+                and stats.total_secs / stats.total_pages or nil
+            local cells = {}
+            if stats and stats.found then
+                cells[#cells + 1] = { "Time spent", A.fmtMinutes(stats.total_secs / 60) }
+                cells[#cells + 1] = { "This week", stats.week_sessions > 0
+                    and (A.plural(stats.week_sessions, "session", "sessions") .. " \xC2\xB7 " .. A.fmtMinutes(stats.week_secs / 60))
+                    or "No sessions yet" }
+                cells[#cells + 1] = { "Today", stats.today_pages > 0 and A.plural(stats.today_pages, "page", "pages") or "Not yet" }
+                cells[#cells + 1] = { "Pace", secs_page and (round(3600 / secs_page) .. " pages/h") or "\xE2\x80\x93" }
+            end
+
+            local left_min = tonumber(item.left_min)
+            if not left_min and secs_page and tonumber(item.pages) then
+                left_min = item.pages * (1 - pct) * secs_page / 60
+            end
+            local finish
+            if pct >= 0.995 then
+                finish = "Finished. Nice!"
+            elseif left_min then
+                local daily = stats and stats.recent_secs and stats.recent_secs / 14 or 0
+                if daily >= 60 then
+                    local days = max(0, math.ceil(left_min * 60 / daily - 1e-9))
+                    local when = os.time{ year = tonumber(os.date("%Y")), month = tonumber(os.date("%m")),
+                        day = tonumber(os.date("%d")) + days, hour = 12 }
+                    finish = (days == 0 and "Done today" or days == 1 and "Done tomorrow" or ("Done by " .. shortDate(when)))
+                        .. " \xC2\xB7 " .. A.fmtMinutes(left_min) .. " left"
+                else
+                    finish = A.fmtMinutes(left_min) .. " left \xC2\xB7 pick it back up for a finish date"
+                end
+            elseif stats and not stats.found then
+                finish = "Read a little to see your stats"
+            end
+            local f_t = finish and c:text(finish, fpx(22), { bold = true, color = tone.accent2, max_w = rw }) or nil
+
+            -- how much fits: the head, then as many rows of figures as there's room for
+            local col_w = floor((rw - px(16)) / 2)
+            local lab_px, val_px = fpx(18), fpx(24)
+            local row_h = floor(lab_px * 1.25 + val_px * 1.3 + px(8))
+            local head_h = tt.h + px(2) + (ta and ta.h or 0) + px(10) + bar_h + px(14)
+            local foot_h = f_t and (f_t.h + px(6)) or 0
+            local rows = (#cells > 0) and max(0, min(2, floor((ch - head_h - foot_h) / row_h))) or 0
+            local block = head_h + rows * row_h + foot_h
+            local y = top + max(0, floor((ch - block) / 2))
+
+            c:put(tt, x0, y)
+            y = y + tt.h + px(2)
+            if ta then c:put(ta, x0, y); y = y + ta.h end
+            y = y + px(10)
+            c:rrect(x0, y, rw, bar_h, bar_h / 2, tone.track)
+            if pct > 0 then c:rrect(x0, y, max(bar_h, floor(rw * pct)), bar_h, bar_h / 2, tone.accent) end
+            y = y + bar_h + px(14)
+            for i, cell in ipairs(cells) do
+                local r = floor((i - 1) / 2)
+                if r >= rows then break end
+                local cx = x0 + ((i - 1) % 2) * (col_w + px(16))
+                local cy = y + r * row_h
+                local tl = c:label(cell[1], lab_px, cx, cy, { caps = true, color = tone.muted, max_w = col_w })
+                c:label(cell[2], val_px, cx, cy + tl.h, { bold = true, color = tone.fg, max_w = col_w })
+            end
+            y = y + rows * row_h
+            if f_t then c:put(f_t, x0, y + px(6) - px(6)) end
+            return c
+        end
+
+        function P.this_book.tap(env, region)
+            local fp = A.state.rlt_this_book
+            if not fp then return end
+            if region == "cover" then return D.showDetails(env.ctx, fp) end
+            return D.openBook(env.ctx, fp)
+        end
+
+        A.DASH_WEIGHT.this_book = 0.3
+        local function insertAfter(list, after, name)
+            if type(list) ~= "table" then return end
+            for _, n in ipairs(list) do if n == name then return end end
+            for i, n in ipairs(list) do
+                if n == after then table.insert(list, i + 1, name); return end
+            end
+            list[#list + 1] = name
+        end
+        insertAfter(A.DASH_CARDS, "continue", "this_book")
+        if not A._modules then insertAfter(A.MODULE_ORDER, "continue", "this_book") end
+    end
+
+    -- ════════════════════════════════════════════════════════════════════════
     -- Today Page Card, and Swipe Between 2-3 Cards
     -- ════════════════════════════════════════════════════════════════════════
 
     local PICKS = {
         { "goal_covers", "Year Goal With Covers" },
+        { "this_book",   "This Book" },
         { "goal",        "Year Goal" },
         { "bookclub",    "Book Club" },
         { "finished",    "Recently Finished" },
@@ -2478,7 +3030,7 @@ local function apply(A)
     local SWIPE_CAP = 0.36
 
     local function swipeCards()
-        local v = A.get("tk_swipe_cards", nil)
+        local v = A.get("rlt_swipe_cards", nil)
         local out, seen = {}, {}
         if type(v) == "table" then
             for _, n in ipairs(v) do
@@ -2497,7 +3049,7 @@ local function apply(A)
         A.DASH_WEIGHT[SWIPE] = min(max(wgt, 0.2), SWIPE_CAP)
     end
 
-    local function alternate() return A.get("tk_swipe_return", "stay") == "next" end
+    local function alternate() return A.get("rlt_swipe_return", "stay") == "next" end
 
     -- 1.1.5: SimpleUI often shows the home screen again without rebuilding it
     -- (after sleep, and after a book with Fast Book Closing), so a card change
@@ -2506,25 +3058,27 @@ local function apply(A)
     -- rebuilt once, right after.
     local want_rebuild = false
     local swipeOn   -- defined below, with the Today slot
+    local smartAway -- defined below, with the Smart Cards
 
     -- which card shows now (1..n); after a book or sleep, "Alternate" moves on once
     local function swipeIndex(n)
-        local i = A.state.tk_swipe_i or tonumber(A.get("tk_swipe_i", 1)) or 1
-        if A.state.tk_swipe_away then
-            A.state.tk_swipe_away = nil
+        local i = A.state.rlt_swipe_i or tonumber(A.get("rlt_swipe_i", 1)) or 1
+        if A.state.rlt_swipe_away then
+            A.state.rlt_swipe_away = nil
             want_rebuild = false
             if alternate() then
                 i = i + 1
-                A.set("tk_swipe_i", ((i - 1) % n) + 1)
+                A.set("rlt_swipe_i", ((i - 1) % n) + 1)
             end
         end
         i = ((i - 1) % n) + 1
-        A.state.tk_swipe_i = i
+        A.state.rlt_swipe_i = i
         return i
     end
 
     local function swipeAway(why)
-        A.state.tk_swipe_away = true
+        if smartAway then smartAway() end
+        A.state.rlt_swipe_away = true
         local on = alternate() and swipeOn and swipeOn() and #swipeCards() >= 2
         if on then want_rebuild = true end
     end
@@ -2542,7 +3096,7 @@ local function apply(A)
         local d = ctx and ctx._box and ctx._box.dimen
         if not cell then pcall(H.repaint, ctx, {}) return end
         pcall(H.repaint, ctx, { strip = { y = cell.y, h = cell.h }, reason = "swipe" })
-        if A.get("tk_swipe_flash", false) and d and d.x and ctx.screen then
+        if A.get("rlt_swipe_flash", false) and d and d.x and ctx.screen then
             local region = Geom:new{ x = d.x + cell.x, y = d.y + cell.y, w = cell.w, h = cell.h }
             UIManager:setDirty(ctx.screen, function() return "flashui", region, true end)
         end
@@ -2552,13 +3106,13 @@ local function apply(A)
         local n = #swipeCards()
         if n < 2 then return end
         k = ((k - 1) % n) + 1
-        if k == (A.state.tk_swipe_i or 1) then return end
-        A.state.tk_swipe_i = k
-        A.set("tk_swipe_i", k)
+        if k == (A.state.rlt_swipe_i or 1) then return end
+        A.state.rlt_swipe_i = k
+        A.set("rlt_swipe_i", k)
         repaintCell(ctx)
     end
 
-    local function flipSwipe(step, ctx) setSwipe((A.state.tk_swipe_i or 1) + step, ctx) end
+    local function flipSwipe(step, ctx) setSwipe((A.state.rlt_swipe_i or 1) + step, ctx) end
 
     P[SWIPE] = {
         does = T("shows the card tapped"),
@@ -2668,11 +3222,439 @@ local function apply(A)
         end
         if not at then saved[#saved + 1] = { c = { new }, k = 1 } end
         A.set("dash_rows_today", saved)
-        if new ~= SWIPE then A.set("tk_today_card", new) end
+        if new ~= SWIPE then A.set("rlt_today_card", new) end
         A.epoch = (A.epoch or 0) + 1
     end
 
     swipeOn = function() return todaySlot() == SWIPE end
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Smart Cards (2.2.0)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- A spot that shows whichever card of its group matters right now, worked
+    -- out when you come back to the Dashboard (a book closed, waking, turning
+    -- back onto its page), never while you're looking. The first rule that's
+    -- true wins; none: the next card in turn. Only the rules pick it (2.5.2):
+    -- no dots, and a swipe on it goes to the tab or home page. A card with nothing to show (Finish
+    -- by without a book and date) is left out. Add them in Pages And Cards.
+
+    local function smartEnv(name, env) return A.makeEnv(name, env.ctx, 0, 0, { nested = true, slot = 1 }) end
+    local function dayStart(t, back)
+        return os.time{ year = t.year, month = t.month, day = t.day - (back or 0), hour = 0 }
+    end
+    -- the facts the rules read; nil while Reading Log is still loading them
+    local function smartFacts(env)
+        local okS, st = pcall(D.stats, env.refresh)
+        if not (okS and type(st) == "table") then return nil end
+        local f = { t = os.date("*t"), st = st, refresh = env.refresh }
+        f.today_secs = (type(st.today) == "table" and tonumber(st.today.secs)) or 0
+        local okA, avg = pcall(D.recentAverage, st)
+        f.avg = okA and type(avg) == "table" and avg or nil
+        local okR, rd = pcall(D.reading, 5)
+        f.reading = okR and type(rd) == "table" and rd or {}
+        return f
+    end
+    local function finishedWithin(f, days)
+        local since = dayStart(f.t, days - 1)
+        for back = 0, 1 do
+            local y, m = f.t.year, f.t.month - back
+            if m < 1 then y, m = y - 1, 12 end
+            local ok, fin = pcall(D.finishedIn, f.refresh, y, m)
+            if ok and type(fin) == "table" then
+                for _, b in ipairs(fin) do
+                    local at = os.time{ year = b.year or y, month = b.month or m, day = b.day or 1, hour = 12 }
+                    if b.day and at >= since then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function minutesLeft(f, b)
+        local left = tonumber(b.left_min)
+        if not left and f.avg and (f.avg.pages or 0) > 0 and (f.avg.secs or 0) > 0 and tonumber(b.pages) then
+            left = b.pages * (1 - (b.pct or 0)) * (f.avg.secs / f.avg.pages) / 60
+        end
+        return left
+    end
+    local function deadlineState(env)
+        if type(P.deadline) ~= "table" or type(P.deadline.state) ~= "function" then return nil end
+        local ok, st = pcall(P.deadline.state, smartEnv("deadline", env))
+        return ok and type(st) == "table" and st or nil
+    end
+
+    -- rules several groups share
+    local function nearFinish(f)
+        for _, b in ipairs(f.reading) do
+            local left = (b.pct or 0) < 0.995 and minutesLeft(f, b)
+            if left and left <= 120 then return true end
+        end
+        return false
+    end
+    local function eveningSessions(f)
+        if f.t.hour < 18 then return false end
+        local ok, td = pcall(D.today, f.refresh)
+        return ok and type(td) == "table" and type(td.sittings) == "table" and #td.sittings >= 2
+    end
+    local function weekDay(f) -- 0 = the first day of your week
+        local ws = type(D.weekStart) == "function" and tonumber(D.weekStart()) or 2
+        return (f.t.wday - ws) % 7
+    end
+    local function monthChallenge(f, env)
+        local cenv = smartEnv("challenge", env)
+        local ok, ch = pcall(D.challenge, f.refresh, cenv.cfg("metric", "auto"), tonumber(cenv.cfg("target", nil)))
+        return ok and type(ch) == "table" and not ch.complete and (ch.left_days or 99) < 7
+    end
+
+    local SMART = {
+        {
+            id = "smart_book", title = "Smart: Current Book",
+            summary = "This Book, Finish forecast or Today's timeline, whichever matters now.",
+            cards = { "this_book", "forecast", "timeline" },
+            rules = {
+                -- a book in progress is 2 hours or less from done
+                { "forecast", nearFinish },
+                -- the evening, after 2+ sessions today
+                { "timeline", eveningSessions },
+                -- you've read today
+                { "this_book", function(f) return f.today_secs >= 60 end },
+            },
+        },
+        {
+            id = "smart_goals", title = "Smart: Goals",
+            summary = "Finish by, your year goal, the monthly challenge or this week vs last, whichever matters now.",
+            cards = { "deadline", "goal_covers", "challenge", "compare" },
+            can_show = { deadline = function(env) return deadlineState(env) ~= nil end },
+            rules = {
+                -- a Finish by date within 7 days, or past
+                { "deadline", function(f, env)
+                    local st = deadlineState(env)
+                    return st and not st.done and tonumber(st.days_left) and st.days_left <= 7
+                end },
+                -- a book finished in the last 3 days, or a book or more behind the year's pace
+                { "goal_covers", function(f)
+                    if finishedWithin(f, 3) then return true end
+                    local okY, yr = pcall(D.year, f.refresh)
+                    local okP, pace = pcall(D.yearPace, okY and yr or nil)
+                    if not (okP and type(pace) == "table" and (pace.goal or 0) > 0 and pace.done) then return false end
+                    local diy = tonumber(os.date("%j", os.time{ year = f.t.year, month = 12, day = 31, hour = 12 })) or 365
+                    local doy = tonumber(os.date("%j")) or 1
+                    return pace.done < pace.goal * doy / diy - 1
+                end },
+                -- the month's last 7 days, the challenge not done yet
+                { "challenge", monthChallenge },
+                -- the first 2 days of your week
+                { "compare", function(f) return weekDay(f) <= 1 end },
+            },
+        },
+        {
+            id = "smart_shelf", title = "Smart: Shelf",
+            summary = "Recently finished, Book club, Random pick or the TBR shelf, whichever matters now.",
+            cards = { "finished", "bookclub", "pick", "tbr" },
+            rules = {
+                { "finished", function(f) return finishedWithin(f, 3) end },
+                -- picks time: the first week of the month
+                { "bookclub", function(f) return f.t.day <= 7 end },
+                -- nothing read today or the 2 days before: a nudge
+                { "pick", function(f)
+                    for i = 0, 2 do
+                        local rec = f.st.days and f.st.days[os.date("%Y-%m-%d", os.time{ year = f.t.year, month = f.t.month, day = f.t.day - i, hour = 12 })]
+                        if rec and (tonumber(rec.secs) or 0) >= 60 then return false end
+                    end
+                    return true
+                end },
+                -- nothing in progress besides the book you're on
+                { "tbr", function(f) return #f.reading <= 1 end },
+            },
+        },
+        -- 2.5.0: for the Today and Monthly pages
+        {
+            id = "smart_activity", title = "Smart: Activity",
+            summary = "Activity rings, Today's timeline or Finish forecast, whichever matters now.",
+            cards = { "activity", "timeline", "forecast" },
+            rules = {
+                { "timeline", eveningSessions },
+                { "forecast", nearFinish },
+                -- today's goal still to go (or under half an hour without one)
+                { "activity", function(f)
+                    local okg, goal = pcall(D.dailyMinutesGoal)
+                    goal = okg and tonumber(goal) or 30
+                    return f.today_secs / 60 < goal
+                end },
+            },
+        },
+        {
+            id = "smart_week", title = "Smart: This Week",
+            summary = "Week rings, Finish forecast or Today's timeline, whichever matters now.",
+            cards = { "week_rings", "forecast", "timeline" },
+            rules = {
+                { "forecast", nearFinish },
+                { "timeline", eveningSessions },
+                -- the last 2 days of your week: how it went
+                { "week_rings", function(f) return weekDay(f) >= 5 end },
+            },
+        },
+        {
+            id = "smart_month", title = "Smart: Month",
+            summary = "Pages per day, the Monthly challenge or This week vs last, whichever matters now.",
+            cards = { "month_chart", "challenge", "compare" },
+            rules = {
+                { "challenge", monthChallenge },
+                { "compare", function(f) return weekDay(f) <= 1 end },
+                { "month_chart", function(f) return f.today_secs >= 60 end },
+            },
+        },
+    }
+    local SMART_BY = {}
+    for _, def in ipairs(SMART) do SMART_BY[def.id] = def end
+
+    local function smartState(id)
+        A.state.rlt_smart = A.state.rlt_smart or {}
+        local st = A.state.rlt_smart[id]
+        if not st then
+            st = { due = true, name = A.get("rlt_smart_" .. id, nil) }
+            A.state.rlt_smart[id] = st
+        end
+        return st
+    end
+    -- the group's cards that are there and have something to show
+    local function smartCards(def, env)
+        local out = {}
+        for _, n in ipairs(def.cards) do
+            local can = def.can_show and def.can_show[n]
+            if type(P[n]) == "table" and type(P[n].build) == "function"
+                    and (env.sample or not can or can(env)) then
+                out[#out + 1] = n
+            end
+        end
+        return out
+    end
+    -- what the other Smart Cards on this page show now (never two the same)
+    local function takenBy(def)
+        local out, page = {}, tonumber(A.state.dash_page)
+        for id, st in pairs(A.state.rlt_smart or {}) do
+            if id ~= def.id and st.name and st.page == page then out[st.name] = true end
+        end
+        return out
+    end
+    local function smartPick(def, cards, env)
+        local f = smartFacts(env)
+        if not f then return nil, true end
+        local taken = takenBy(def)
+        local have = {}
+        for _, n in ipairs(cards) do if not taken[n] then have[n] = true end end
+        for _, rule in ipairs(def.rules) do
+            if have[rule[1]] then
+                local ok, yes = pcall(rule[2], f, env)
+                if ok and yes then return rule[1] end
+                if not ok then warn("smart card rule", rule[1], tostring(yes)) end
+            end
+        end
+        return nil
+    end
+    -- which card shows now; when due, the rules decide (or the next in turn)
+    local function smartIndex(def, cards, env)
+        local st = smartState(def.id)
+        local n = #cards
+        local cur = 1
+        for k, nm in ipairs(cards) do if nm == st.name then cur = k end end
+        local taken = env.sample and {} or takenBy(def)
+        local function nextFree(from)
+            for step = 1, n do
+                local k = (from - 1 + step) % n + 1
+                if not taken[cards[k]] then return k end
+            end
+            return from
+        end
+        if st.due and not env.sample and n > 1 then
+            local pick, later = smartPick(def, cards, env)
+            if not later then
+                st.due = false
+                if pick then
+                    for k, nm in ipairs(cards) do if nm == pick then cur = k end end
+                elseif st.name then
+                    cur = nextFree(cur)
+                end
+            end
+        end
+        -- another Smart Card here shows this one already: the next free one
+        if taken[cards[cur]] then cur = nextFree(cur) end
+        if not env.sample then
+            st.page = tonumber(A.state.dash_page)
+            st.name = cards[cur]
+            A.set("rlt_smart_" .. def.id, st.name)
+            A.state.rlt_smart_seen = A.state.rlt_smart_seen or {}
+            A.state.rlt_smart_seen[def.id] = true
+        end
+        return cur
+    end
+    -- coming back: every Smart Card decides again on its next drawing
+    smartAway = function()
+        local any = false
+        for _, def in ipairs(SMART) do
+            smartState(def.id).due = true
+            if A.state.rlt_smart_seen and A.state.rlt_smart_seen[def.id] then any = true end
+        end
+        if any then want_rebuild = true end
+    end
+
+    local function cellOf(ctx, id)
+        for _, r in ipairs((ctx and ctx._regions) or {}) do
+            if r.id == id .. "|" then return r end
+        end
+        return nil
+    end
+    local function smartSet(def, k, ctx)
+        local cards = smartCards(def, { ctx = ctx })
+        local n = #cards
+        if n < 2 then return end
+        k = ((k - 1) % n) + 1
+        local st = smartState(def.id)
+        if cards[k] == st.name then return end
+        st.name, st.due = cards[k], false
+        A.set("rlt_smart_" .. def.id, st.name)
+        local cell = cellOf(ctx, def.id)
+        if not cell then pcall(H.repaint, ctx, {}) return end
+        pcall(H.repaint, ctx, { strip = { y = cell.y, h = cell.h }, reason = "smart card" })
+        local d = ctx and ctx._box and ctx._box.dimen
+        if A.get("rlt_swipe_flash", false) and d and d.x and ctx.screen then
+            local region = Geom:new{ x = d.x + cell.x, y = d.y + cell.y, w = cell.w, h = cell.h }
+            UIManager:setDirty(ctx.screen, function() return "flashui", region, true end)
+        end
+    end
+    local function smartFlip(def, step, ctx)
+        local cards = smartCards(def, { ctx = ctx })
+        local cur = 1
+        local st = smartState(def.id)
+        for k, nm in ipairs(cards) do if nm == st.name then cur = k end end
+        smartSet(def, cur + step, ctx)
+    end
+
+    for _, def in ipairs(SMART) do
+        if not P[def.id] then
+            P[def.id] = {
+                does = T("shows the card tapped"),
+                title = def.title, tone = "ink", ratio = 0.4, ratio_narrow = 0.66,
+                summary = def.summary,
+                controls = function() return true end,
+            }
+            P[def.id].build = function(env)
+                local cards = smartCards(def, env)
+                local n = #cards
+                local w, h = env.w, env.h
+                -- no dots: it only follows its rules, nothing to flip by hand
+                local dots_h = 0
+                local ch = h - dots_h
+                local c = A.canvas{ w = w, h = h, plain = true, page = env.page }
+                if n == 0 then return c end
+                local i = smartIndex(def, cards, env)
+                local name = cards[i]
+                local ienv = A.makeEnv(name, env.ctx, w, ch, { nested = true, slot = 1, page = env.page,
+                    see = env.see, page_heading = env.page_heading })
+                ienv.sample = env.sample
+                local ok, child = pcall(P[name].build, ienv)
+                if ok and child then
+                    c:sub(child, 0, 0, name .. "|")
+                else
+                    warn("smart card", tostring(name), "failed:", tostring(child))
+                    c:label(tostring(P[name].title or name) .. T(" could not be drawn"), max(12, floor(ch * 0.08)),
+                        w / 2, ch / 2, { anchor = "c", valign = "mid", max_w = w - 20 })
+                end
+                c:region(name .. "|", 0, 0, w, ch)
+                if n > 1 then
+                    local page_bg, page_fg = A.dashPage()
+                    local r = max(3, floor(dots_h * 0.24))
+                    local step = r * 5
+                    local x0 = w / 2 - (n - 1) * step / 2
+                    for k = 1, n do
+                        local cx = x0 + (k - 1) * step
+                        c:disc(cx, ch + dots_h / 2, k == i and r or floor(r * 0.75 + 0.5),
+                            k == i and page_fg or A.mix(page_fg, page_bg, 0.6))
+                        c:region("dot:" .. k, cx - step / 2, ch, step, dots_h)
+                    end
+                    c:region("dots", 0, ch, w, dots_h)
+                end
+                return c
+            end
+            P[def.id].tap = function(env, region)
+                local ctx = env.ctx
+                if type(region) ~= "string" then return end
+                if region == "dots" then return smartFlip(def, 1, ctx) end
+                local k = tonumber(region:match("^dot:(%d+)$"))
+                if k then return smartSet(def, k, ctx) end
+                local inner, sub = region:match("^([%w_]+)|(.*)$")
+                local idef = inner and P[inner]
+                if not idef then return end
+                sub = (sub ~= "") and sub or nil
+                local custom = A.customTap and A.customTap(inner, sub)
+                if custom and A.runTapAction then return A.runTapAction(custom, ctx) end
+                if not idef.tap then return end
+                local okT, err = pcall(idef.tap, A.makeEnv(inner, ctx, 0, 0, { nested = true, slot = 1 }), sub)
+                if not okT then warn("tap", inner, "in smart card failed:", tostring(err)) end
+                if idef.keep and idef.keep(sub) then pcall(H.repaint, ctx, {}) end
+            end
+            -- as tall as its tallest card (within reason)
+            local wgt = 0
+            for _, n in ipairs(def.cards) do wgt = max(wgt, A.DASH_WEIGHT[n] or 0.25) end
+            A.DASH_WEIGHT[def.id] = min(max(wgt, 0.22), 0.42)
+            local list = A.DASH_CARDS
+            if type(list) == "table" then
+                local have = false
+                for _, n in ipairs(list) do if n == def.id then have = true end end
+                if not have then list[#list + 1] = def.id end
+            end
+        end
+    end
+
+    -- Put Smart Cards in place of the cards they grow from (Today: Activity
+    -- rings and Week rings; Monthly: Pages per day), and back again.
+    local SMART_SWAPS = {
+        today = { activity = "smart_activity", week_rings = "smart_week" },
+        monthly = { month_chart = "smart_month" },
+    }
+    local function swapCards(map_for)
+        local changed = false
+        for _, page in ipairs(A.dashPages()) do
+            local map = map_for(page.id)
+            if map then
+                local rows = A.dashPageRows(page)
+                local saved, hit = {}, false
+                for _, r in ipairs(rows) do
+                    local cards = {}
+                    for _, n in ipairs(r.cards) do
+                        if map[n] and P[map[n]] then n = map[n]; hit = true end
+                        cards[#cards + 1] = n
+                    end
+                    saved[#saved + 1] = { c = cards, k = r.k }
+                end
+                if hit then A.set("dash_rows_" .. page.id, saved); changed = true end
+            end
+        end
+        if changed then A.epoch = (A.epoch or 0) + 1 end
+        return changed
+    end
+    local function smartSwapped()
+        for _, page in ipairs(A.dashPages()) do
+            local map = SMART_SWAPS[page.id]
+            if map then
+                for _, r in ipairs(A.dashPageRows(page)) do
+                    for _, n in ipairs(r.cards) do
+                        for _, to in pairs(map) do if n == to then return true end end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    local function useSmartCards(on)
+        if on then return swapCards(function(id) return SMART_SWAPS[id] end) end
+        return swapCards(function(id)
+            local map = SMART_SWAPS[id]
+            if not map then return nil end
+            local back = {}
+            for from, to in pairs(map) do back[to] = from end
+            return back
+        end)
+    end
 
     -- ─── swipes: Simple UI turns pages on a swipe before the cards see it, so
     -- a left/right swipe that starts on the swipe card is caught at the window.
@@ -2692,11 +3674,38 @@ local function apply(A)
         return nil
     end
 
+    -- Swipe Between Tabs (2.1.0, off by default): a left/right swipe on the
+    -- Dashboard moves to the next / previous tab, the same as tapping it. At
+    -- the first or last tab the swipe goes on to Simple UI (its page turn),
+    -- so you can still swipe off the Dashboard.
+    local function tabSwipeOn() return A.get("rlt_tab_swipe", false) == true end
+    local function swipeTab(step, ctx)
+        local tabs = A.state.dash_tabs
+        if type(tabs) ~= "table" or #tabs < 2 then return false end
+        local cur
+        for i, t in ipairs(tabs) do
+            if t.kind == "page" and t.page == tonumber(A.state.dash_page) then cur = i break end
+        end
+        if not cur then return false end
+        local nxt = tabs[cur + step]
+        if not (nxt and nxt.kind == "page") then return false end
+        local Dash = A.Dashboard
+        if type(Dash) ~= "table" or type(Dash.on_tap) ~= "function" then return false end
+        local saved, before = ctx.tapped_region, A.state.dash_page
+        ctx.tapped_region = "tab:" .. (cur + step)
+        local ok, err = pcall(Dash.on_tap, ctx)
+        ctx.tapped_region = saved
+        if not ok then warn("tab swipe:", tostring(err)) end
+        -- the tab changed: the swipe was ours (even if the redraw failed)
+        return ok or A.state.dash_page ~= before
+    end
+
     local function onSwipe(win, ges)
         -- a swipe from the screen's edge belongs to the side panel
         -- (2-simpleui-sidepanel.lua: up to 1/8 of the width), not the card
         local sw = A.screen():getWidth()
         if ges.pos.x < sw / 8 or ges.pos.x > sw - sw / 8 then return false end
+        local step = ges.direction == "west" and 1 or -1
         for box, e in pairs(LIVE) do
             local d = box.dimen
             if e.painted and e.win == win and d and d.x and d.w then
@@ -2704,9 +3713,13 @@ local function apply(A)
                 if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
                     local cell = swipeCell(e.ctx)
                     if cell and rx >= cell.x and rx < cell.x + cell.w and ry >= cell.y and ry < cell.y + cell.h then
-                        flipSwipe(ges.direction == "west" and 1 or -1, e.ctx)
+                        flipSwipe(step, e.ctx)
                         return true
                     end
+                    -- Smart Cards don't take swipes (2.5.2): they only follow
+                    -- their rules, so a swipe on one changes the tab or the
+                    -- home page like anywhere else
+                    if tabSwipeOn() and swipeTab(step, e.ctx) then return true end
                 end
             end
         end
@@ -2719,8 +3732,8 @@ local function apply(A)
     -- whether SimpleUI's home goes back to its first page after a book or
     -- sleep. Defaults keep Reading Log's and SimpleUI's own behaviour.
 
-    local function startTabId() return A.get("tk_start_tab", "last") end
-    local function firstPageOn() return A.get("tk_first_page", false) == true end
+    local function startTabId() return A.get("rlt_start_tab", "last") end
+    local function firstPageOn() return A.get("rlt_first_page", false) == true end
 
     local function goStartTab(why)
         local id = startTabId()
@@ -2777,9 +3790,10 @@ local function apply(A)
                             if r.id == "bookclub|" then return e.ctx end
                             if r.id == SWIPE .. "|" then
                                 local list = swipeCards()
-                                local i = A.state.tk_swipe_i or 1
+                                local i = A.state.rlt_swipe_i or 1
                                 if list[((i - 1) % math.max(1, #list)) + 1] == "bookclub" then return e.ctx end
                             end
+                            if r.id == "smart_shelf|" and smartState("smart_shelf").name == "bookclub" then return e.ctx end
                         end
                     end
                 end
@@ -2787,9 +3801,148 @@ local function apply(A)
         end
     end
 
+    -- ─── Hold A Cover For Quick Actions (2.1.0, on by default) ─────────────────
+    -- Long-press a book's cover on the Dashboard: Open, Book Details, its
+    -- status (Reading / On hold / Finished), To Be Read and Collections, the
+    -- same buttons as KOReader's file browser. Which book: the card is asked
+    -- as if the cover were tapped, with opening and showing details caught
+    -- instead of done, so it works on any card whose covers open a book.
+    local function coverHoldOn() return A.get("rlt_cover_hold", true) ~= false end
+    local BOOK_SPOTS = { "^cover$", "^cover:%d+$", "^cover_open$", "^details$", "book:%d+$", "pick:%d+$" }
+    local function bookSpot(sub)
+        if type(sub) ~= "string" then return false end
+        -- a card inside a swipe spot or Smart Card: "this_book|cover"
+        local last = sub:match("([^|]*)$") or sub
+        for _, p in ipairs(BOOK_SPOTS) do if last:find(p) then return true end end
+        return false
+    end
+    local function bookUnder(win, pos)
+        for box, e in pairs(LIVE) do
+            local d = box.dimen
+            if e.painted and e.win == win and d and d.x and d.w then
+                local rx, ry = pos.x - d.x, pos.y - d.y
+                if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
+                    -- the smallest book spot under the finger
+                    local best, area
+                    for _, r in ipairs((e.ctx and e.ctx._regions) or {}) do
+                        if rx >= r.x and rx < r.x + r.w and ry >= r.y and ry < r.y + r.h then
+                            local name, sub = tostring(r.id):match("^([%w_]+)|(.+)$")
+                            if name and bookSpot(sub) and type(P[name]) == "table" and type(P[name].tap) == "function" then
+                                local a = r.w * r.h
+                                if not area or a < area then best, area = { name = name, sub = sub }, a end
+                            end
+                        end
+                    end
+                    if not best then return nil end
+                    -- ask the card which book; nothing opens while asking
+                    local got
+                    local sd, ob, show = D.showDetails, D.openBook, UIManager.show
+                    D.showDetails = function(_, fp) got = got or fp end
+                    D.openBook = function(_, fp) got = got or fp end
+                    UIManager.show = function() end
+                    local ok, err = pcall(function()
+                        P[best.name].tap(A.makeEnv(best.name, e.ctx, 0, 0, { nested = true, slot = 1 }), best.sub)
+                    end)
+                    D.showDetails, D.openBook, UIManager.show = sd, ob, show
+                    if not ok then warn("cover hold:", tostring(err)) end
+                    if type(got) == "string" then return got, e.ctx end
+                    return nil
+                end
+            end
+        end
+    end
+
+    -- KOReader's To Be Read collection: "To Be Read", else one named like it.
+    local function tbrCollection(make)
+        local ok, RC = pcall(require, "readcollection")
+        if not (ok and type(RC) == "table" and type(RC.coll) == "table") then return nil end
+        if RC.coll["To Be Read"] then return "To Be Read", RC end
+        for name in pairs(RC.coll) do
+            local l = name:lower()
+            if l:find("to be read", 1, true) or l:find("tbr", 1, true) then return name, RC end
+        end
+        if make and type(RC.addCollection) == "function" then
+            RC:addCollection("To Be Read")
+            return "To Be Read", RC
+        end
+        return nil, RC
+    end
+
+    local function quickActions(fp, ctx)
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local okB, BookList = pcall(require, "ui/widget/booklist")
+        local okF, fmu = pcall(require, "apps/filemanager/filemanagerutil")
+        local info = type(D.info) == "function" and select(2, pcall(D.info, fp)) or nil
+        local title = (type(info) == "table" and info.title) or fp:match("([^/]+)$") or fp
+        local dialog
+        local function close() if dialog then UIManager:close(dialog) end end
+        local function changed()
+            close()
+            pcall(D.invalidate)
+            redrawAll()
+        end
+        local buttons = {}
+        -- status: Reading / On hold / Finished, like the file browser's
+        if okB and okF and type(fmu.genStatusButtonsRow) == "function" then
+            local dsf = fp
+            if type(BookList.hasBookBeenOpened) == "function" and BookList.hasBookBeenOpened(fp)
+                    and type(BookList.getDocSettings) == "function" then
+                dsf = BookList.getDocSettings(fp)
+            end
+            local okR, row = pcall(fmu.genStatusButtonsRow, dsf, changed)
+            if okR and type(row) == "table" then
+                -- the book open in the reader keeps its own status
+                local RUI = package.loaded["apps/reader/readerui"]
+                local ui = type(RUI) == "table" and RUI.instance or nil
+                if type(ui) == "table" and type(ui.document) == "table" and ui.document.file == fp then
+                    for _, b in ipairs(row) do b.enabled = false end
+                end
+                buttons[#buttons + 1] = row
+            end
+        end
+        local row2 = {}
+        local tbr, RC = tbrCollection(false)
+        local in_tbr = tbr and RC.coll[tbr] and RC:isFileInCollection(fp, tbr)
+        row2[#row2 + 1] = {
+            text = in_tbr and "Remove From To Be Read" or "Add To To Be Read",
+            enabled = RC ~= nil,
+            callback = function()
+                local name, R = tbrCollection(true)
+                if not name then return end
+                local okT, errT = pcall(function()
+                    if in_tbr then R:removeItem(fp, name, true) else R:addItem(fp, name) end
+                    R:write({ [name] = true })
+                end)
+                if not okT then warn("to be read:", tostring(errT)) end
+                changed()
+            end,
+        }
+        local FM = package.loaded["apps/filemanager/filemanager"]
+        local coll = type(FM) == "table" and type(FM.instance) == "table" and FM.instance.collections or nil
+        if type(coll) == "table" and type(coll.genAddToCollectionButton) == "function" then
+            local okC, btn = pcall(coll.genAddToCollectionButton, coll, fp, close, function()
+                local R = package.loaded.readcollection
+                if type(R) == "table" and type(coll.updated_collections) == "table" then
+                    pcall(R.write, R, coll.updated_collections)
+                end
+                pcall(D.invalidate)
+                redrawAll()
+            end)
+            if okC and type(btn) == "table" then row2[#row2 + 1] = btn end
+        end
+        buttons[#buttons + 1] = row2
+        buttons[#buttons + 1] = {
+            { text = "Book Details", callback = function() close(); D.showDetails(ctx, fp) end },
+            { text = "Open", callback = function() close(); openDirectly(function() D.openBook(ctx, fp) end) end },
+        }
+        dialog = ButtonDialog:new{ title = title, title_align = "center", buttons = buttons }
+        UIManager:show(dialog)
+        return true
+    end
+
     local function hookWindow(w)
-        if type(w) ~= "table" or rawget(w, "_tk_rl_hooked") then return end
-        w._tk_rl_hooked = true
+        if type(w) ~= "table" or rawget(w, "_rlt_hooked") then return end
+        w._rlt_hooked = true
         local orig_he, orig_paint = w.handleEvent, w.paintTo
         if type(orig_he) == "function" then
             w.handleEvent = function(self, event, ...)
@@ -2801,6 +3954,14 @@ local function apply(A)
                             if okc and cctx then
                                 local okh, opened = pcall(clubHold, cctx)
                                 if okh and opened then return true end
+                            end
+                        end
+                        if type(ges) == "table" and ges.ges == "hold" and ges.pos and coverHoldOn() then
+                            local okb, fp, bctx = pcall(bookUnder, self, ges.pos)
+                            if okb and fp then
+                                local okq, shown = pcall(quickActions, fp, bctx)
+                                if okq and shown then return true end
+                                if not okq then warn("quick actions:", tostring(shown)) end
                             end
                         end
                         if type(ges) == "table" and ges.ges == "swipe" and ges.pos
@@ -2834,7 +3995,10 @@ local function apply(A)
                 local vis = false
                 for _, e in pairs(LIVE) do if e.win == self and e.painted then vis = true end end
                 local was = rawget(self, "_rl_vis")
-                if was == true and vis == false then goStartTab("page turned") end
+                if was == true and vis == false then
+                    goStartTab("page turned")
+                    if smartAway then smartAway() end
+                end
                 if vis and want_rebuild then
                     want_rebuild = false
                     UIManager:nextTick(redrawAll)
@@ -2865,8 +4029,8 @@ local function apply(A)
     -- back from a book: "Alternate" shows the next card
     do
         local ok, ReaderUI = pcall(require, "apps/reader/readerui")
-        if ok and type(ReaderUI) == "table" and type(ReaderUI.onClose) == "function" and not ReaderUI._tk_rl_hooked then
-            ReaderUI._tk_rl_hooked = true
+        if ok and type(ReaderUI) == "table" and type(ReaderUI.onClose) == "function" and not ReaderUI._rlt_hooked then
+            ReaderUI._rlt_hooked = true
             local orig = ReaderUI.onClose
             ReaderUI.onClose = function(...)
                 swipeAway("book closed")
@@ -2883,14 +4047,53 @@ local function apply(A)
     -- the cover is the button); Details shows the details and the pager
     -- flips books. A tap anywhere else on the card does nothing.
 
-    local function contButtons() return A.get("tk_continue_buttons", false) == true end
-    local CONT_CONTROLS = { open = true, details = true, next = true }
-    if type(P.continue) == "table" and type(P.continue.tap) == "function" and not P.continue._tk_buttons then
-        P.continue._tk_buttons = true
+    -- Opening a book on purpose (Continue reading's Continue, a menu's Open):
+    -- Book Tap Opens: Compact Detail leaves those alone.
+    local direct_open = 0
+    local function openDirectly(fn)
+        direct_open = direct_open + 1
+        local ok, err = pcall(fn)
+        direct_open = direct_open - 1
+        if not ok then warn("open:", tostring(err)) end
+    end
+
+    local function contButtons() return A.get("rlt_continue_buttons", false) == true end
+    local CONT_CONTROLS = { open = true, details = true, next = true, cover_open = true }
+    if type(P.continue) == "table" and type(P.continue.tap) == "function" and not P.continue._rlt_buttons then
+        P.continue._rlt_buttons = true
         local orig_ctap = P.continue.tap
         P.continue.tap = function(env, region, ...)
             if contButtons() and not CONT_CONTROLS[region] then return end
+            -- Continue (the button, or the cover where that's the button) opens the book
+            if region == "open" then
+                local args = { ... }
+                return openDirectly(function() return orig_ctap(env, region, unpack(args)) end)
+            end
             return orig_ctap(env, region, ...)
+        end
+        -- 2.5.0: the cover and the Continue button are both "open" in Reading
+        -- Log; while the card is drawn, an "open" spot taller than wide (the
+        -- cover) is called "cover_open", so Book Tap Opens can have it
+        local orig_cbuild = P.continue.build
+        if type(orig_cbuild) == "function" then
+            P.continue.build = function(env, ...)
+                local C0 = A.canvas
+                A.canvas = function(o)
+                    local c = C0(o)
+                    local reg = c.region
+                    if type(reg) == "function" then
+                        c.region = function(self, id, x, y, w, h, ...)
+                            if id == "open" and tonumber(w) and tonumber(h) and h > w * 1.2 then id = "cover_open" end
+                            return reg(self, id, x, y, w, h, ...)
+                        end
+                    end
+                    return c
+                end
+                local res = { pcall(orig_cbuild, env, ...) }
+                A.canvas = C0
+                if not res[1] then error(res[2], 0) end
+                return unpack(res, 2, table.maxn(res))
+            end
         end
     end
 
@@ -2904,7 +4107,7 @@ local function apply(A)
     -- A collection shows its books once its Side Panel view has been opened.
 
     local BO_PREFIX = "BookOrbit: "
-    local function boCollsOn() return A.get("tk_bo_colls", true) ~= false end
+    local function boCollsOn() return A.get("rlt_bo_colls", true) ~= false end
     local function boShare()
         local t = package.loaded["simpleui_sidepanel_bo"]
         return type(t) == "table" and type(t.collections) == "function" and t or nil
@@ -2919,8 +4122,8 @@ local function apply(A)
         for _, e in ipairs(list) do if tostring(e.title) == want then return e.id end end
         return nil
     end
-    if type(D.collections) == "function" and type(D.collection) == "function" and not D._tk_bo_colls then
-        D._tk_bo_colls = true
+    if type(D.collections) == "function" and type(D.collection) == "function" and not D._rlt_bo_colls then
+        D._rlt_bo_colls = true
         local orig_colls, orig_coll = D.collections, D.collection
         D.collections = function(...)
             local names, fav = orig_colls(...)
@@ -2961,15 +4164,15 @@ local function apply(A)
     -- Club card and its picks chooser use all their books together. None
     -- ticked: the card's own Collection setting, as before.
 
-    local CLUB_MULTI = "\1tk_book_club"
+    local CLUB_MULTI = "\1rlt_book_club"
     local function clubColls()
-        local v = A.get("tk_club_colls", nil)
+        local v = A.get("rlt_club_colls", nil)
         local out = {}
         if type(v) == "table" then for _, n in ipairs(v) do if type(n) == "string" then out[#out + 1] = n end end end
         return out
     end
-    if type(P.bookclub) == "table" and type(P.bookclub.collection) == "function" and not P.bookclub._tk_multi then
-        P.bookclub._tk_multi = true
+    if type(P.bookclub) == "table" and type(P.bookclub.collection) == "function" and not P.bookclub._rlt_multi then
+        P.bookclub._rlt_multi = true
         local orig_pick = P.bookclub.collection
         P.bookclub.collection = function(env, ...)
             if #clubColls() > 0 then return CLUB_MULTI end
@@ -3013,7 +4216,7 @@ local function apply(A)
 
     -- "hold", "tap" or off (an old true counts as "tap")
     local function clubMode()
-        local v = A.get("tk_club_picks", nil)
+        local v = A.get("rlt_club_picks", nil)
         if v == true then return "tap" end
         return (v == "hold" or v == "tap") and v or nil
     end
@@ -3050,8 +4253,8 @@ local function apply(A)
         if not f then warn("book club picks chooser not found; Book Club Opens Picks stays off") end
         return f
     end
-    if type(P.bookclub) == "table" and type(P.bookclub.tap) == "function" and not P.bookclub._tk_picks then
-        P.bookclub._tk_picks = true
+    if type(P.bookclub) == "table" and type(P.bookclub.tap) == "function" and not P.bookclub._rlt_picks then
+        P.bookclub._rlt_picks = true
         local orig_btap = P.bookclub.tap
         P.bookclub.tap = function(env, region, ...)
             if clubMode() == "tap" then
@@ -3079,14 +4282,44 @@ local function apply(A)
     end
 
     -- ════════════════════════════════════════════════════════════════════════
-    -- Book Taps Open BookOrbit
+    -- Book Tap Opens (schema 2): default | compact | bookorbit
     -- ════════════════════════════════════════════════════════════════════════
-    -- A tap on a book (a cover in Recently Finished, Year In Covers, Year Goal
-    -- With Covers, Continue Reading's details...) opens that book's page in
-    -- BookOrbit when BookOrbit knows the file; any other book gets Reading
-    -- Log's usual book details.
 
-    local function boOn() return A.get("tk_bo_details", false) == true end
+    local function compactAvailable()
+        local SP = package.loaded.simpleui_sidepanel
+        return type(SP) == "table" and type(SP.showCompactBookDetail) == "function"
+    end
+    -- 2.3.0: Compact Detail unless you chose otherwise, when the Side Panel
+    -- has its window (1.0.26+). "own" = you chose Reading Log's own. A stored
+    -- "default" only ever came from 2.0.2's migration by mistake: not a choice.
+    local function bookTapMode()
+        local m = A.get("rlt_book_tap", nil)
+        if m == "compact" or m == "bookorbit" then return m end
+        if m == "own" then return "default" end
+        return compactAvailable() and "compact" or "default"
+    end
+    local function compactOn() return bookTapMode() == "compact" end
+    -- Continue reading's cover: what Book Tap Opens says (Compact Detail or
+    -- BookOrbit through its details), or opening the book with Reading
+    -- Log's Own. Continue (the button) always opens.
+    if type(P.continue) == "table" and type(P.continue.tap) == "function" and not P.continue._rlt_cover then
+        P.continue._rlt_cover = true
+        local inner_ctap = P.continue.tap
+        P.continue.tap = function(env, region, ...)
+            if region == "cover_open" then
+                local fp = A.state.continue_fp
+                if fp and bookTapMode() ~= "default" then return D.showDetails(env.ctx, fp) end
+                region = "open"
+            end
+            -- Details (the button): always Reading Log's own simple details
+            -- (2.5.2), whatever Book Tap Opens says; the cover has that
+            if region == "details" and A.state.continue_fp and type(D._rlt_orig_details) == "function" then
+                return D._rlt_orig_details(env.ctx, A.state.continue_fp)
+            end
+            return inner_ctap(env, region, ...)
+        end
+    end
+    local function boOn() return bookTapMode() == "bookorbit" end
 
     local function boPlugin()
         for _, mod in ipairs({ "apps/filemanager/filemanager", "apps/reader/readerui" }) do
@@ -3132,10 +4365,7 @@ local function apply(A)
         return ok
     end
 
-    -- Compact Book Detail (1.1.11): same window as SimpleUI Side Panel.
-    -- When on, a tap that would show book details or open a book shows the
-    -- compact dialog instead (cover, author, description, Open / BookOrbit / Cancel).
-    local function compactOn() return A.get("tk_compact_detail", false) == true end
+    -- Compact Book Detail: same window as SimpleUI Side Panel (book_tap=compact).
 
     local function showSidepanelCompact(fp)
         local SP = package.loaded.simpleui_sidepanel
@@ -3184,6 +4414,7 @@ local function apply(A)
 
     local orig_details = D.showDetails
     if type(orig_details) == "function" then
+        D._rlt_orig_details = D._rlt_orig_details or orig_details
         D.showDetails = function(ctx, fp, ...)
             if compactOn() and showSidepanelCompact(fp) then
                 return
@@ -3213,10 +4444,97 @@ local function apply(A)
     local orig_open = D.openBook
     if type(orig_open) == "function" then
         D.openBook = function(ctx, fp, ...)
-            if compactOn() and showSidepanelCompact(fp) then
+            if direct_open == 0 and compactOn() and showSidepanelCompact(fp) then
                 return
             end
             return orig_open(ctx, fp, ...)
+        end
+    end
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Quote Of The Day: SimpleUI's quotes (2.5.0, on by default)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Reading Log's Quote of the day shows one of your highlights. Set to
+    -- SimpleUI's Quotes, it shows a quote from where SimpleUI's own Quote of
+    -- the Day module takes them on the home screen: its built-in list, or the
+    -- file you chose from sui_quotes/ (Quotes.lua...). One a day; Another
+    -- steps to the next. When SimpleUI is set to your highlights (or isn't
+    -- there), Reading Log's own highlight is shown.
+    local function quoteSource() return A.get("rlt_quote_source", "simpleui") end
+    local _qpool, _qpool_sig
+    local function suiQuotePool()
+        local okS, St = pcall(require, "infra/sui_store")
+        local function get(k)
+            if not (okS and type(St) == "table") then return nil end
+            local ok, v = pcall(function() return St:readSetting(k) end)
+            return ok and v or nil
+        end
+        local src = get("simpleui_hs_simpleui_quote_source") or get("simpleui_quote_source") or "quotes"
+        local file = get("simpleui_hs_simpleui_quote_custom_file") or get("simpleui_quote_custom_file") or ""
+        local sig = tostring(src) .. "|" .. tostring(file)
+        if _qpool_sig == sig then return _qpool end
+        _qpool_sig, _qpool = sig, nil
+        local list
+        if (src == "custom" or src == "custom_mixed") and file ~= "" then
+            local ok_ds, DS = pcall(require, "datastorage")
+            local path = ok_ds and (DS:getSettingsDir() .. "/simpleui/sui_quotes/" .. file)
+            local fn = path and loadfile(path)
+            if fn then
+                setfenv(fn, {})
+                local ok, data = pcall(fn)
+                if ok and type(data) == "table" then list = data end
+            end
+        elseif src == "quotes" or src == "mixed" then
+            local ok, data = pcall(require, "modules/quotes")
+            if ok and type(data) == "table" then list = data end
+        end
+        if type(list) == "table" then
+            local pool = {}
+            for _, e in ipairs(list) do
+                if type(e) == "table" and type(e.q) == "string" and e.q ~= "" then pool[#pool + 1] = e end
+            end
+            if #pool > 0 then _qpool = pool end
+        end
+        return _qpool
+    end
+    local function suiQuote()
+        if quoteSource() ~= "simpleui" then return nil end
+        local pool = suiQuotePool()
+        if not pool then return nil end
+        local day = tonumber(os.date("%j")) + 366 * (tonumber(os.date("%Y")) % 100)
+        if A.state.rlt_quote_day ~= os.date("%Y-%m-%d") then
+            A.state.rlt_quote_day, A.state.rlt_quote_off = os.date("%Y-%m-%d"), 0
+        end
+        local e = pool[(day * 7 + (A.state.rlt_quote_off or 0)) % #pool + 1]
+        local book = type(e.b) == "string" and e.b ~= "" and e.b or nil
+        local who = type(e.a) == "string" and e.a ~= "" and e.a or nil
+        -- the card writes "title, author": the author alone when there's no book
+        return { text = e.q, title = book or who or "", author = book and who or nil }
+    end
+    local orig_quote, orig_next_quote = D.quote, D.nextQuote
+    if type(orig_quote) == "function" and not D._rlt_sui_quote then
+        D._rlt_sui_quote = true
+        D.quote = function(refresh, sync)
+            local q = suiQuote()
+            if q then return q end
+            return orig_quote(refresh, sync)
+        end
+        local orig_has = D.hasQuotes
+        if type(orig_has) == "function" then
+            -- SimpleUI's quotes count even with no highlights yet
+            D.hasQuotes = function(...)
+                if suiQuote() then return true end
+                return orig_has(...)
+            end
+        end
+        if type(orig_next_quote) == "function" then
+            D.nextQuote = function(...)
+                if suiQuote() then
+                    A.state.rlt_quote_off = (A.state.rlt_quote_off or 0) + 1
+                    return
+                end
+                return orig_next_quote(...)
+            end
         end
     end
 
@@ -3232,10 +4550,10 @@ local function apply(A)
     end
 
     local CUR_CTX -- the Dashboard being drawn (headings don't get a ctx)
-    local tabsMoved, renderTK -- Move Tab Row (below)
+    local tabsMoved, renderLayout -- Move Tab Row (below)
     -- Move Tab Row: its own setting (Reading Log 2.0's Tab Bar Position keeps
     -- tabs_adjust). + down, - up, in pixels.
-    local function tabMove() return tonumber(A.get("tk_tabs_move", 0)) or 0 end
+    local function tabMove() return tonumber(A.get("rlt_tabs_move", 0)) or 0 end
     local _tab_grow = 0 -- Full Screen: pixels the dashboard reaches into the dots room
     local function curPage()
         local pages = A.dashPages()
@@ -3267,9 +4585,9 @@ local function apply(A)
                 end
                 local inset = env.see and px(26) or 0
                 if env.see then room = room - 2 * inset end
-                local tk = kicker and c:text(kicker, fpx(24), { bold = true, caps = true, max_w = room }) or nil
+                local kicker_t = kicker and c:text(kicker, fpx(24), { bold = true, caps = true, max_w = room }) or nil
                 local tt = c:text(title, fpx(74), { bold = true, max_w = room })
-                local text_end = inset + max(tk and tk.w or 0, tt.w) + inset + px(24)
+                local text_end = inset + max(kicker_t and kicker_t.w or 0, tt.w) + inset + px(24)
                 local free_w = right - text_end
                 if free_w <= 0 then return end
                 local cy = floor(h * 0.06)
@@ -3329,6 +4647,34 @@ local function apply(A)
         end
     end
 
+    -- Critters Say Notifications: the Dashboard's critter, when it's on screen
+    local function newsBox()
+        if not (C and critterOn and critterOn()) then return nil end
+        local page = curPage()
+        local id = (page and page.id) or "?"
+        local geo = A.state.critter_geo and A.state.critter_geo[id]
+        local cd = geo and geo.canvas and geo.canvas.dimen
+        if not (cd and cd.x) then return nil end
+        for box, e in pairs(LIVE) do
+            if e.painted and e.ctx and critterNews().onTop(box) then return box, e.ctx, page, cd end
+        end
+    end
+    critterNews().add(A, {
+        visible = function() return newsBox() ~= nil end,
+        say = function(text)
+            local box, ctx, page, cd = newsBox()
+            if not (box and C.say) then return false end
+            if not C.say(page, { text = text, mood = "curious" }) then return false end
+            local bd = ctx._box and ctx._box.dimen
+            if bd and bd.y and cd.y then
+                pcall(H.repaint, ctx, { strip = { y = cd.y - bd.y, h = cd.h }, reason = "critter" })
+            else
+                pcall(H.repaint, ctx, {})
+            end
+            return true
+        end,
+    })
+
     -- ─── the Dashboard: its ctx while drawing, critter taps ─────────────────
     local Dash = A.Dashboard
     local orig_render, orig_tap = Dash.render, Dash.on_tap
@@ -3337,8 +4683,8 @@ local function apply(A)
             want_rebuild = false   -- being rebuilt now: nothing waiting
             CUR_CTX = ctx
             local ok, c = pcall(function()
-                if tabsMoved and tabsMoved() and renderTK then
-                    local ok2, c2 = pcall(renderTK, ctx)
+                if tabsMoved and tabsMoved() and renderLayout then
+                    local ok2, c2 = pcall(renderLayout, ctx)
                     if ok2 and c2 then return c2 end
                     warn("moved tab bar layout failed, Reading Log's own used:", tostring(c2))
                 end
@@ -3387,7 +4733,7 @@ local function apply(A)
         end
         return floor(A.screen():getHeight() * 0.85)
     end
-    local function fullOn() return A.get("tk_dash_layout", "card") == "full" and contentTop() ~= nil end
+    local function fullOn() return A.get("rlt_dash_layout", "card") == "full" and contentTop() ~= nil end
 
     -- The automatic room for SimpleUI's page dots (0 with one page, or the
     -- dots hidden); Bottom Space adds or takes away pixels on top of it.
@@ -3410,7 +4756,7 @@ local function apply(A)
         return h
     end
     local function dotsRoom(sctx)
-        return max(0, autoDots(sctx) + (tonumber(A.get("tk_dash_bottom_adjust", 0)) or 0))
+        return max(0, autoDots(sctx) + (tonumber(A.get("rlt_dash_bottom_adjust", 0)) or 0))
     end
 
     -- Reading Log's Dashboard, with Move Tab Row added. Used only while the
@@ -3464,7 +4810,7 @@ local function apply(A)
         return ec
     end
 
-    local function buildDashboardTK(ctx, w, h)
+    local function buildDashboardLayout(ctx, w, h)
         local page_bg, page_fg, dark, _, page_look = A.dashPage()
         -- A theme with its own page colour: paint it, out to the edges of the
         -- cell. Over a Simple UI wallpaper with this module's Background Opacity
@@ -3673,14 +5019,14 @@ local function apply(A)
 
     tabsMoved = function() return tabMove() ~= 0 end
     local _seen_screens = setmetatable({}, { __mode = "k" })
-    renderTK = function(ctx)
+    renderLayout = function(ctx)
         local w = max(80, floor(tonumber(ctx.width) or 400))
         local h = (ctx.height and ctx.height > 0) and floor(ctx.height) or floor(w * 1.2)
         if ctx.screen and not _seen_screens[ctx.screen] then
             _seen_screens[ctx.screen] = true
             A.state.month_offset = 0
         end
-        local c = buildDashboardTK(ctx, w, h)
+        local c = buildDashboardLayout(ctx, w, h)
         A.state.regions_ok = true
         if ctx and ctx.set_tap_regions then pcall(ctx.set_tap_regions, c.regions) end
         H.wantTick(ctx, c.clock_y and { y = c.clock_y, h = c.clock_h } or nil)
@@ -3769,19 +5115,19 @@ local function apply(A)
                 help_text = "On: tick up to 3 cards below (a 4th replaces the oldest), then swipe left or right on the card, or tap its dots, to switch.",
                 callback = function()
                     if swipeOn() then
-                        local one = A.get("tk_today_card", nil)
+                        local one = A.get("rlt_today_card", nil)
                         if not (one and P[one]) then one = swipeCards()[1] or "bookclub" end
                         setTodaySlot(one)
                     else
                         local cur = todaySlot()
-                        if PICK_SET[cur or ""] then A.set("tk_today_card", cur) end
-                        local saved = A.get("tk_swipe_cards", nil)
+                        if PICK_SET[cur or ""] then A.set("rlt_today_card", cur) end
+                        local saved = A.get("rlt_swipe_cards", nil)
                         if type(saved) ~= "table" or #saved < 2 then
                             local one = todaySlot()
                             if not PICK_SET[one or ""] then one = "goal_covers" end
-                            A.set("tk_swipe_cards", { one, one == "goal_covers" and "finished" or "goal_covers" })
+                            A.set("rlt_swipe_cards", { one, one == "goal_covers" and "finished" or "goal_covers" })
                         end
-                        A.state.tk_swipe_i = nil
+                        A.state.rlt_swipe_i = nil
                         setTodaySlot(SWIPE)
                     end
                     after()
@@ -3808,8 +5154,8 @@ local function apply(A)
                                 list[#list + 1] = pk[1]
                                 while #list > 3 do table.remove(list, 1) end
                             end
-                            A.set("tk_swipe_cards", list)
-                            A.state.tk_swipe_i = nil
+                            A.set("rlt_swipe_cards", list)
+                            A.state.rlt_swipe_i = nil
                         else
                             setTodaySlot(pk[1])
                         end
@@ -3825,18 +5171,18 @@ local function apply(A)
             help_text = "With swipe on. Alternate: the next card each time you come back from a book or sleep. Keep Last: the one you swiped to.",
             sub_item_table = {
                 { text = "Alternate", radio = true, checked_func = function() return alternate() end,
-                  callback = function() A.set("tk_swipe_return", "next") end },
+                  callback = function() A.set("rlt_swipe_return", "next") end },
                 { text = "Keep Last", radio = true, checked_func = function() return not alternate() end,
-                  callback = function() A.set("tk_swipe_return", nil) end },
+                  callback = function() A.set("rlt_swipe_return", nil) end },
             },
         }
         today[#today + 1] = {
             text = "Flash On Swipe",
             enabled_func = swipeOn,
-            checked_func = function() return A.get("tk_swipe_flash", false) == true end,
+            checked_func = function() return A.get("rlt_swipe_flash", false) == true end,
             keep_menu_open = true,
             help_text = "Flashes the card when you swipe, to clear ghosting. Slower (about 0.6 s instead of 0.2 s).",
-            callback = function() A.set("tk_swipe_flash", not A.get("tk_swipe_flash", false) or nil) end,
+            callback = function() A.set("rlt_swipe_flash", not A.get("rlt_swipe_flash", false) or nil) end,
         }
 
         local function critterToggle(text, key, help)
@@ -3871,6 +5217,13 @@ local function apply(A)
             critterToggle("Critter's Own Voice", "critter_voice", "SimpleUI 3.0.2's critters (Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos, Hazel), and Donny, Blu and Donny & Blu with SimpleUI Tweaks and critter-phrases.lua, say some of the remarks their own way: about one in three, on the pages where their lines fit."),
             critterToggle("Games And Quotes", "critter_games", "Tap the critter to talk: Let's Play (rock, paper, scissors, heads or tails, guess the author) and Read Me A Quote, with SimpleUI 3.0.2. Its last word shows in the bubble."),
             {
+                text = "Critters Say Notifications",
+                help_text = "When a notification (a short toast like \"Wi-Fi on\") comes in while the critter is on screen, it says it in its bubble instead of the popup. Otherwise the popup shows as usual. Questions, failures and banners you can tap always stay popups. One setting for every critter (Shortcuts Toolbar Quick Shelf and SimpleUI Tweaks share it). Off by default.",
+                checked_func = function() return critterNews().on() end,
+                keep_menu_open = true,
+                callback = function() critterNews().set(not critterNews().on()) end,
+            },
+            {
                 text = "Critter Rewards",
                 help_text = "Little things the critter earns, drawn beside it here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.",
                 enabled_func = function() return C and C.available and C.available() or false end,
@@ -3904,30 +5257,30 @@ local function apply(A)
         local fine = {
             {
                 text_func = function()
-                    return "Layout: " .. (A.get("tk_dash_layout", "card") == "full" and "Full Screen" or "In The Page")
+                    return "Layout: " .. (A.get("rlt_dash_layout", "card") == "full" and "Full Screen" or "In The Page")
                 end,
                 sub_item_table = {
                     { text = "In The Page", radio = true, keep_menu_open = true,
                       help_text = "Sits in SimpleUI's page like other modules, with its margins and page dots.",
-                      checked_func = function() return A.get("tk_dash_layout", "card") ~= "full" end,
-                      callback = function() A.set("tk_dash_layout", nil); redrawAll() end },
+                      checked_func = function() return A.get("rlt_dash_layout", "card") ~= "full" end,
+                      callback = function() A.set("rlt_dash_layout", nil); redrawAll() end },
                     { text = "Full Screen", radio = true, keep_menu_open = true,
                       help_text = "Fills everything between the status bar and the nav bar, so every card is bigger.",
                       enabled_func = function() return contentTop() ~= nil end,
-                      checked_func = function() return A.get("tk_dash_layout", "card") == "full" end,
-                      callback = function() A.set("tk_dash_layout", "full"); redrawAll() end },
+                      checked_func = function() return A.get("rlt_dash_layout", "card") == "full" end,
+                      callback = function() A.set("rlt_dash_layout", "full"); redrawAll() end },
                 },
             },
             {
                 text_func = function()
-                    return "Bottom Space: " .. (px(tonumber(A.get("tk_dash_bottom_adjust", 0)) or 0) or "Auto")
+                    return "Bottom Space: " .. (px(tonumber(A.get("rlt_dash_bottom_adjust", 0)) or 0) or "Auto")
                 end,
                 help_text = "Full Screen only. Room left under the dashboard for SimpleUI's page dots. Auto fits the dots; add or take away pixels from there.",
-                enabled_func = function() return A.get("tk_dash_layout", "card") == "full" end,
+                enabled_func = function() return A.get("rlt_dash_layout", "card") == "full" end,
                 keep_menu_open = true,
                 callback = function(tmi)
                     spin("Bottom Space", "Pixels added to the automatic room for the page dots (0 = Auto).",
-                        "tk_dash_bottom_adjust", -200, 200)(tmi)
+                        "rlt_dash_bottom_adjust", -200, 200)(tmi)
                 end,
             },
             {
@@ -3939,8 +5292,15 @@ local function apply(A)
                 help_text = "Moves the Today / Monthly / Yearly ... tab row.\n\nDown (+): away from the cards, toward the page dots. The cards stay where they are, so the space between them and the tabs grows. In Full Screen the tabs can go into the room under the dashboard (add room with Bottom Space); past that the cards get a little shorter.\n\nUp (-): closer to the top; the cards get shorter.\n\n0 turns it off. Reading Log's own Tab Bar Position (Appearance) is separate.",
                 keep_menu_open = true,
                 callback = function(tmi)
-                    spin("Move Tab Row", "Pixels down (+) toward the page dots, or up (-). 0 = off.", "tk_tabs_move", -300, 300)(tmi)
+                    spin("Move Tab Row", "Pixels down (+) toward the page dots, or up (-). 0 = off.", "rlt_tabs_move", -300, 300)(tmi)
                 end,
+            },
+            {
+                text = "Swipe Between Tabs",
+                help_text = "Swipe left or right on the Dashboard to go to the next or previous tab, like tapping it. At the first or last tab the swipe turns Simple UI's page as usual. A swipe on the Today Page Card's swipe cards still flips those cards. Off by default.",
+                checked_func = tabSwipeOn,
+                keep_menu_open = true,
+                callback = function() A.set("rlt_tab_swipe", (not tabSwipeOn()) or nil) end,
             },
         }
 
@@ -3962,7 +5322,7 @@ local function apply(A)
                         text = "Last Viewed", radio = true,
                         checked_func = function() return startTabId() == "last" end,
                         keep_menu_open = true,
-                        callback = function() A.set("tk_start_tab", nil) end,
+                        callback = function() A.set("rlt_start_tab", nil) end,
                         separator = true,
                     } }
                     local tabs = A.state.dash_tabs
@@ -3983,7 +5343,7 @@ local function apply(A)
                                 text = tostring(t.label or t.id), radio = true,
                                 checked_func = function() return startTabId() == t.id end,
                                 keep_menu_open = true,
-                                callback = function() A.set("tk_start_tab", t.id) end,
+                                callback = function() A.set("rlt_start_tab", t.id) end,
                             }
                         end
                     end
@@ -3995,7 +5355,7 @@ local function apply(A)
                 help_text = "Opening a book or putting the device to sleep sends SimpleUI's home screen back to page 1. Off (default): it comes back on the page you left.",
                 checked_func = firstPageOn,
                 keep_menu_open = true,
-                callback = function() A.set("tk_first_page", (not firstPageOn()) or nil) end,
+                callback = function() A.set("rlt_first_page", (not firstPageOn()) or nil) end,
                 separator = true,
             },
             {
@@ -4004,7 +5364,7 @@ local function apply(A)
                 enabled_func = function() return boShare() ~= nil end,
                 checked_func = boCollsOn,
                 keep_menu_open = true,
-                callback = function() A.set("tk_bo_colls", (not boCollsOn()) and nil or false); redrawAll() end,
+                callback = function() A.set("rlt_bo_colls", (not boCollsOn()) and nil or false); redrawAll() end,
             },
             {
                 text_func = function()
@@ -4029,7 +5389,7 @@ local function apply(A)
                                     if c == n then found = true else list[#list + 1] = c end
                                 end
                                 if not found then list[#list + 1] = n end
-                                A.set("tk_club_colls", #list > 0 and list or nil)
+                                A.set("rlt_club_colls", #list > 0 and list or nil)
                                 redrawAll()
                             end,
                         }
@@ -4047,41 +5407,57 @@ local function apply(A)
                 sub_item_table = {
                     { text = "Off", radio = true, keep_menu_open = true,
                       checked_func = function() return clubMode() == nil end,
-                      callback = function() A.set("tk_club_picks", nil) end },
+                      callback = function() A.set("rlt_club_picks", nil) end },
                     { text = "On Hold", radio = true, keep_menu_open = true,
                       checked_func = function() return clubMode() == "hold" end,
-                      callback = function() A.set("tk_club_picks", "hold") end },
+                      callback = function() A.set("rlt_club_picks", "hold") end },
                     { text = "On Tap", radio = true, keep_menu_open = true,
                       checked_func = function() return clubMode() == "tap" end,
-                      callback = function() A.set("tk_club_picks", "tap") end },
+                      callback = function() A.set("rlt_club_picks", "tap") end },
                 },
             },
             {
-                text = "Compact Book Detail",
-                help_text = "On: a tap on a book (Book Club picks, covers that open book details) shows the same compact window as the SimpleUI Side Panel — cover, author, short description, Open / BookOrbit / Cancel — instead of opening the book or the full details page. Needs Side Panel 1.0.26+. Off (default): Reading Log's usual behaviour.",
-                enabled_func = function()
-                    local SP = package.loaded.simpleui_sidepanel
-                    return type(SP) == "table" and type(SP.showCompactBookDetail) == "function"
+                text_func = function()
+                    local m = bookTapMode()
+                    return "Book Tap Opens: " .. (m == "compact" and "Compact Detail"
+                        or m == "bookorbit" and "BookOrbit" or "Reading Log's Own")
                 end,
-                checked_func = compactOn,
-                keep_menu_open = true,
-                callback = function()
-                    A.set("tk_compact_detail", (not compactOn()) or nil)
-                end,
+                help_text = "What a tap on a book cover does, on every Reading Log card: Compact Detail (the Side Panel's window: cover, author, description, Open / BookOrbit / Cancel; needs Side Panel 1.0.26+, and is the default when it's there), BookOrbit (its page, when BookOrbit has that file), or Reading Log's Own (its details or opening the book). Continue reading's Continue always opens the book.",
+                sub_item_table = {
+                    {
+                        text = "Reading Log's Own", radio = true, keep_menu_open = true,
+                        checked_func = function() return bookTapMode() == "default" end,
+                        callback = function()
+                            A.set("rlt_book_tap", "own")
+                        end,
+                    },
+                    {
+                        text = "Compact Detail", radio = true, keep_menu_open = true,
+                        enabled_func = function()
+                            local SP = package.loaded.simpleui_sidepanel
+                            return type(SP) == "table" and type(SP.showCompactBookDetail) == "function"
+                        end,
+                        checked_func = function() return bookTapMode() == "compact" end,
+                        callback = function()
+                            A.set("rlt_book_tap", "compact")
+                        end,
+                    },
+                    {
+                        text = "BookOrbit", radio = true, keep_menu_open = true,
+                        enabled_func = function() return boPlugin() ~= nil end,
+                        checked_func = function() return bookTapMode() == "bookorbit" end,
+                        callback = function()
+                            A.set("rlt_book_tap", "bookorbit")
+                        end,
+                    },
+                },
             },
             {
                 text = "Continue Reading: Buttons Only",
                 help_text = "On: the Continue Reading card opens the book only when you tap its Continue button (or the cover, in the looks where the cover is the button). Details shows the details and the dots flip books; a tap anywhere else on the card does nothing. Off (default): a tap anywhere opens the book, as Reading Log does.",
                 checked_func = contButtons,
                 keep_menu_open = true,
-                callback = function() A.set("tk_continue_buttons", (not contButtons()) or nil) end,
-            },
-            {
-                text = "Book Taps Open BookOrbit",
-                help_text = "A tap on a book's cover opens its page in BookOrbit, when BookOrbit has that file. Other books get the usual book details.",
-                checked_func = boOn,
-                keep_menu_open = true,
-                callback = function() A.set("tk_bo_details", (not boOn()) or nil) end,
+                callback = function() A.set("rlt_continue_buttons", (not contButtons()) or nil) end,
                 separator = true,
             },
             { text = "Today Page Card", sub_item_table = today },
@@ -4089,29 +5465,59 @@ local function apply(A)
               enabled_func = function() return C ~= nil end, separator = true },
             { text = "About Reading Log Tweaks " .. PATCH_VERSION, enabled = false },
         }
-        -- 1.1.11: grouped. The items above, in the order they're listed:
+        -- 2.0.0 grouped. out[] order:
         -- 1 Fine Tuning, 2 Start On Tab, 3 Start On First Page, 4 BookOrbit
         -- Collections, 5 Book Club Collections, 6 Book Club Opens Picks,
-        -- 7 Compact Book Detail, 8 Continue Reading: Buttons Only,
-        -- 9 Book Taps Open BookOrbit, 10 Today Page Card, 11 Critter Remarks,
-        -- 12 About.
+        -- 7 Book Tap Opens, 8 Continue Reading: Buttons Only,
+        -- 9 Today Page Card, 10 Critter Remarks, 11 About.
         local function plain(it) it.separator = nil; return it end
         local grouped = {
-            { text = "Today Page Card", sub_item_table = out[10].sub_item_table },
-            plain(out[8]),
-            { text = "Book Club", sub_item_table = { plain(out[5]), plain(out[6]), plain(out[7]) } },
+            {
+                text = "Smart Cards On Today And Monthly",
+                help_text = "Today: Activity rings becomes Smart: Activity (with Today's timeline and Finish forecast) and Week rings becomes Smart: This Week (with Finish forecast and Today's timeline). Monthly: Pages per day becomes Smart: Month (with the Monthly challenge and This week vs last). Each shows whichever card matters when you come back to the Dashboard; dots or a swipe flip by hand. Untick to put the cards back. More Smart Cards (Current Book, Goals, Shelf) are in Pages And Cards.",
+                checked_func = smartSwapped,
+                keep_menu_open = true,
+                callback = function()
+                    useSmartCards(not smartSwapped())
+                    redrawAll()
+                end,
+            },
+            { text = "Today Page Card", sub_item_table = out[9].sub_item_table },
+            {
+                text = "Books",
+                sub_item_table = { plain(out[7]), plain(out[8]), {
+                    text = "Hold A Cover For Quick Actions",
+                    help_text = "Long-press a book's cover on the Dashboard for Open, Book Details, its status (Reading / On hold / Finished), Add To / Remove From To Be Read and Collections, the same as KOReader's file browser. On by default.",
+                    checked_func = coverHoldOn,
+                    keep_menu_open = true,
+                    callback = function() A.set("rlt_cover_hold", coverHoldOn() and false or nil) end,
+                }, {
+                    text_func = function()
+                        return "Quote Of The Day: " .. (quoteSource() == "simpleui" and "SimpleUI's Quotes" or "Your Highlights")
+                    end,
+                    help_text = "SimpleUI's Quotes: the Quote of the day card shows a quote from where SimpleUI's own Quote of the Day takes them (its built-in list, or the file you chose from sui_quotes/), one a day; Another shows the next. When SimpleUI is set to your highlights, or isn't there, it's one of your highlights as before. Your Highlights: Reading Log's own.",
+                    sub_item_table = {
+                        { text = "SimpleUI's Quotes", radio = true, keep_menu_open = true,
+                          checked_func = function() return quoteSource() == "simpleui" end,
+                          callback = function() A.set("rlt_quote_source", nil); pcall(D.invalidate); redrawAll() end },
+                        { text = "Your Highlights", radio = true, keep_menu_open = true,
+                          checked_func = function() return quoteSource() ~= "simpleui" end,
+                          callback = function() A.set("rlt_quote_source", "highlights"); pcall(D.invalidate); redrawAll() end },
+                    },
+                } },
+            },
+            { text = "Book Club", sub_item_table = { plain(out[5]), plain(out[6]) } },
             { text = "When You Come Back", sub_item_table = { plain(out[2]), plain(out[3]) }, separator = true },
         }
-        -- BookOrbit's two only with BookOrbit installed
         if boPlugin() then
-            grouped[#grouped + 1] = { text = "BookOrbit", sub_item_table = { plain(out[4]), plain(out[9]) }, separator = true }
+            grouped[#grouped + 1] = { text = "BookOrbit", sub_item_table = { plain(out[4]) }, separator = true }
         else
             grouped[#grouped].separator = true
         end
-        grouped[#grouped + 1] = out[11]
+        grouped[#grouped + 1] = out[10]
         grouped[#grouped + 1] = plain(out[1])
         grouped[#grouped].separator = true
-        grouped[#grouped + 1] = out[12]
+        grouped[#grouped + 1] = out[11]
         return grouped
     end
 
@@ -4177,7 +5583,7 @@ local function apply(A)
 end
 
 -- ─── Patch Backup & Restore (2-backup-patches.lua) ──────────────────────────
--- Our settings (keys tk_ and critter_) in Reading Log's own file. Works in
+-- Our settings (keys rlt_ and critter_) in Reading Log's own file. Works in
 -- either patch load order.
 do
     local BK = package.loaded.backup_patches or { targets = {} }
@@ -4187,7 +5593,9 @@ do
     local target = {
         id = "readinglog_tweaks",
         text = "Reading Log Tweaks",
-        setting_prefixes = { "tk_", "critter_" },
+        -- the 1.x prefix too, so a backup made before 2.0.2 restores (its
+        -- keys are moved over to rlt_ on the next start)
+        setting_prefixes = { "rlt_", "critter_", "t" .. "k_" },
         store = function(from_disk)
             local St = package.loaded.readinglog_store   -- Reading Log's live settings
             if not from_disk and type(St) == "table" and type(St.file) == "function" then
