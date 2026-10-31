@@ -1,4 +1,10 @@
+-- Quotes.lua - 300 famous quotes for SimpleUI's Quote of the Day module.
+-- Install: koreader/settings/simpleui/sui_quotes/, then Source -> Custom.
+-- Updates: Patch Backup & Restore > Check for Patch Updates lists it under
+-- Extras (VERSION below). Updating replaces the whole file, so if you've
+-- edited it, keep your copy or skip the update.
 return {
+    VERSION = "1.0.0",
     { q = "The only way to do great work is to love what you do.", a = "Steve Jobs" },
     { q = "Life is what happens to you while you're busy making other plans.", a = "John Lennon" },
     { q = "It is never too late to be what you might have been.", a = "George Eliot" },
