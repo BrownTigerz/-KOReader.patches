@@ -37,6 +37,7 @@ long-press away. Without BookOrbit, or not signed in, a tap does what it
 always did.
 
 Changelog
+  1.3.2  Clean-up: This Book trace lines removed from crash.log.
   1.3.1  Book Panel Tap: more reliable BookOrbit This Book (Dispatcher/event fallbacks;
          pager forwards taps on the book panel page).
   1.3.0  Book Panel Tap (Shortcuts toolbar menu): tap the book panel to
@@ -67,7 +68,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.3.1"
+local PATCH_VERSION = "1.3.2"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -557,7 +558,6 @@ end
 -- BookOrbit's This book sheet (it asks you to sign in when you're not).
 -- Returns false when BookOrbit isn't installed, so the tap falls back.
 openThisBook = function()
-    logger.info("shortcutstoolbar quick shelf: openThisBook")
     local bo = bookOrbit()
     if bo then
         if type(bo.onBookOrbitThisBook) == "function" then
@@ -575,20 +575,14 @@ openThisBook = function()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
     if ok_d and type(Dispatcher) == "table" and type(Dispatcher.execute) == "function" then
         local ok = pcall(Dispatcher.execute, Dispatcher, "bookorbit_this_book")
-        if ok then
-            logger.info("shortcutstoolbar quick shelf: This book via Dispatcher")
-            return true
-        end
+        if ok then return true end
     end
     local ok_ev, Event = pcall(require, "ui/event")
     if ok_ev then
         local ok = pcall(function()
             UIManager:sendEvent(Event:new("BookOrbitThisBook"))
         end)
-        if ok then
-            logger.info("shortcutstoolbar quick shelf: This book via event")
-            return true
-        end
+        if ok then return true end
     end
     logger.warn("shortcutstoolbar quick shelf: BookOrbit This book unavailable")
     return false
