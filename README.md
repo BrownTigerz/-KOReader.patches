@@ -21,10 +21,10 @@ All patches work independently and together. If one fails to attach (for example
 | Patch | File | Requires | Version |
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.11 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.21 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.22 |
 | [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.10 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks | 1.0.0 |
-| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.0.7 |
+| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.1.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.9 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.0 |
@@ -128,13 +128,32 @@ Its saved BookOrbit lists are shared with Reading Log Tweaks (1.0.18+), so BookO
 ![Addons Menu](images/addons-menu.png)
 ![Addons Menu 2](images/addons-menu-2.png)
 
-One **Tools → Add-ons** menu for plugins and patches. It pulls plugin menus (grouped, in an order you can edit near the top of the file) and patch settings into one place, so Tools stays tidy. Moved plugins work exactly the same.
+One **Tools → Add-ons** menu for plugins and patches, so Tools stays tidy. Moved plugins work exactly the same. Each patch sits with the plugin it tweaks:
 
-- **Auto-collect:** newly installed plugins and patches that add a menu get picked up automatically. You get a one-time notice and they show up marked "New" under "Other" in "Choose What's In Add-ons".
-- **Choose What's In Add-ons** (bottom of the list): tap an item to turn it on or off (off puts it back where it was), hold it to move it to another group. Both apply after a restart.
+| Group | What's in it |
+|---|---|
+| Home & Library | SimpleUI, SimpleUI Tweaks, SimpleUI Side Panel, Bookshelf, Shortcuts Toolbar |
+| Reading | X-Ray, Page Scrubber, Glimpse, Footcream, Track Reading Location |
+| Stats & Progress | ReadMastery, Reading Insights, Reading Insights Tweaks, Reading Log Tweaks, Book Card |
+| Sync & Network | ShelfSync, BookOrbit, BookOrbit Tweaks, Network Tweaks |
+| System | Storefront, Device Backup & Restore, Menu Disabler |
+| Maintenance | Patch Backup & Restore, Check For Patch Updates, Debugging, Screenshot in 10 s |
+| Other / Patches | new plugins / new patches that don't say where they go |
+
+Only what's installed shows; empty groups are hidden.
+
+- **Auto-collect:** newly installed plugins and patches that add a menu show up automatically, marked "New", with a one-time notice. Turn off **New Add-ons Show Up Automatically** to have them listed unticked instead.
+- **Arrange Add-ons** (bottom of the list), applied after a restart:
+  - tap an item to turn it on or off (off puts it back where it was)
+  - hold an item: Move Up / Down, Move To Top / Bottom, or Move To Another Group
+  - tap a group name: move the group up or down, rename it, delete it (groups you added), or go back to its original name
+  - **Add Group…**: your own group header; hold items to move them in
+  - **Sort Items:** Custom (your order) or A To Z (inside each group)
+  - **Reset Layout:** groups, names, order and moved items back to the defaults (on/off choices stay)
+  - **Reset Everything To Default:** the whole menu back to a fresh install: every item in its usual group and turned on, your own groups and names gone
 - **Safe to remove:** KOReader's menu order stays untouched. Delete the file and restart and every menu goes back where it was. Only your Add-ons choices are saved, in `settings.reader.lua`. IDs that don't exist are skipped, and items hidden with Menu Disabler stay hidden.
 
-For patch authors: register with the shared table at `package.loaded.tweaks_mods`. The format is documented at the top of the file. Return an item with `sub_item_table_func` so large menus are only built when opened.
+For patch authors: register with the shared table at `package.loaded.tweaks_mods`. The format is documented at the top of the file; `group = "Reading"` picks the default group. Return an item with `sub_item_table_func` so large menus are only built when opened.
 
 ---
 
@@ -144,7 +163,7 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 
 Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.10.23; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
-Menu: **Tools → Patch Backup & Restore** (or **Tools → Add-ons → Patches** once `backup_patches` is in the Add-ons menu's `PATCH_MENUS` list).
+Menu: **Tools → Patch Backup & Restore** (or **Tools → Add-ons → Maintenance** with the Add-ons menu).
 
 ```
 Patch Backup & Restore
@@ -391,7 +410,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
-Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Patches** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
+Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Stats & Progress** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
 
 - **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
 - **Year Goal With Covers:** the year goal on the left, this year's covers on the right, a pace bar along the bottom. Also in Pages And Cards and as its own Simple UI module.
