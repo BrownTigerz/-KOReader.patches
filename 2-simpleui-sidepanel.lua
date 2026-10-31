@@ -1,7 +1,25 @@
--- SimpleUI Side Panel v1.0.22
+-- SimpleUI Side Panel v1.0.27
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.27 Fix: Cancel on the compact detail now refreshes only the dialog
+--        card, as 1.0.26 meant to (it looked up the card before it was
+--        made, so it refreshed the whole window). Patch Backup & Restore
+--        3.0: registers its settings (BookOrbit list caches stay out). Two
+--        leftovers from SimpleUI Tweaks that never ran here are gone.
+-- 1.0.26 Compact detail close: refresh only the dialog rectangle (ui, not
+--        full-screen flash) so Cancel clears the e-ink ghost without a
+--        whole-screen update.
+-- 1.0.25 Compact detail includes the book cover again (non-tappable). Uses
+--        ButtonTable so Cancel / Open / BookOrbit always work. Side panel
+--        still closes while the dialog is open; author + short description.
+-- 1.0.24 Compact detail: Cancel now closes the dialog; side panel is hidden
+--        while the dialog is open so it sits cleanly on the home screen;
+--        shows author + short description when metadata has one.
+-- 1.0.23 Compact book detail on tap: instead of opening the book immediately,
+--        a small dialog shows cover (non-tappable), title, author, status and
+--        buttons only. Open / Open in BookOrbit (when available) / Cancel.
+--        Prevents accidental opens; same compact design for local and BookOrbit.
 -- 1.0.22 Add-ons menu: no second copy in Tools. The panel added its own
 --        Tools entry even when it was in Tools > Add-ons, so it never
 --        moved; now it does that only without the Add-ons menu (or when
@@ -39,7 +57,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.22"
+local VERSION = "1.0.27"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -159,10 +177,7 @@ local function newBooksList()
             if ok and type(list) == "table" then return list end
         end
     end
-    -- SimpleUI without book sources (2.7.5 release): same ranking as its
-    -- New Books module gets from this patch
-    local ok, fps = pcall(newestBooks)
-    return (ok and type(fps) == "table") and fps or {}
+    return {}   -- SimpleUI without book sources (2.7.5 and older)
 end
 
 local function historyList()
@@ -347,6 +362,280 @@ end
 
 local boAfterShow -- 1.0.15, set after the BookOrbit list code
 
+-- Compact book detail dialog (tap instead of immediate open).
+-- Cover is display-only; only the buttons open the book or BookOrbit.
+-- Side panel is closed while this is open so the dialog sits cleanly on home.
+local function showCompactBookDetail(hs, opts)
+    -- opts: title, authors, fp (or nil), entry (BO table or nil), percent, status,
+    --       on_device (bool), is_bo (bool)
+    local UIManager       = require("ui/uimanager")
+    local InputContainer  = require("ui/widget/container/inputcontainer")
+    local FrameContainer  = require("ui/widget/container/framecontainer")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local VerticalGroup   = require("ui/widget/verticalgroup")
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local VerticalSpan    = require("ui/widget/verticalspan")
+    local HorizontalSpan  = require("ui/widget/horizontalspan")
+    local TextWidget      = require("ui/widget/textwidget")
+    local TextBoxWidget   = require("ui/widget/textboxwidget")
+    local Font            = require("ui/font")
+    local Geom            = require("ui/geometry")
+    local GestureRange    = require("ui/gesturerange")
+    local Size            = require("ui/size")
+    local Blitbuffer      = require("ffi/blitbuffer")
+    local ButtonTable     = require("ui/widget/buttontable")
+
+    local title     = opts.title or _("Untitled")
+    local authors   = opts.authors or ""
+    local fp        = opts.fp
+    local entry     = opts.entry
+    local percent   = opts.percent
+    local status    = opts.status
+    local on_device = opts.on_device
+    local is_bo     = opts.is_bo
+
+    -- Try to pull a short description from local book metadata
+    local description = ""
+    if type(fp) == "string" and fp ~= "" then
+        local okb, SH = pcall(require, "modules/module_books_shared")
+        if okb and type(SH) == "table" and type(SH.getBookData) == "function" then
+            local okd, bd = pcall(SH.getBookData, fp)
+            if okd and type(bd) == "table" then
+                description = bd.description or bd.summary or bd.comment or ""
+                if type(description) ~= "string" then description = "" end
+                if description ~= "" then
+                    description = description:gsub("<[^>]+>", " "):gsub("%s+", " "):match("^%s*(.-)%s*$") or description
+                    if #description > 220 then
+                        description = description:sub(1, 217) .. "…"
+                    end
+                end
+            end
+        end
+        if description == "" then
+            local okds, DocSettings = pcall(require, "docsettings")
+            if okds and type(DocSettings) == "table" then
+                local okopen, ds = pcall(function() return DocSettings:open(fp) end)
+                if okopen and type(ds) == "table" then
+                    local summary = ds:readSetting("summary")
+                    if type(summary) == "table" and type(summary.note) == "string" and summary.note ~= "" then
+                        description = summary.note
+                    end
+                    local props = ds:readSetting("doc_props") or ds:readSetting("custom_props")
+                    if description == "" and type(props) == "table" then
+                        description = props.description or props.summary or ""
+                    end
+                    if type(description) == "string" and description ~= "" then
+                        description = description:gsub("<[^>]+>", " "):gsub("%s+", " "):match("^%s*(.-)%s*$") or description
+                        if #description > 220 then description = description:sub(1, 217) .. "…" end
+                    else
+                        description = ""
+                    end
+                    if type(ds.close) == "function" then pcall(ds.close, ds) end
+                end
+            end
+        end
+    end
+
+    -- Status line
+    local status_text
+    if is_bo then
+        status_text = on_device and _("On device") or _("Not on device")
+    end
+    if status == "complete" or (percent and percent >= 1) then
+        status_text = (status_text and (status_text .. " · ") or "") .. _("Completed")
+    elseif percent and percent > 0 then
+        status_text = (status_text and (status_text .. " · ") or "")
+            .. string.format(_("%d%% read"), math.floor(percent * 100))
+    elseif not status_text and not is_bo then
+        status_text = _("Not started")
+    end
+
+    -- Close the side panel so the dialog is the only overlay
+    if tbr_panel_open and tbr_panel_root then
+        local root = tbr_panel_root
+        tbr_panel_open, tbr_panel_root = false, nil
+        if bo_refresh_task then
+            pcall(UIManager.unschedule, UIManager, bo_refresh_task)
+            bo_refresh_task = nil
+        end
+        bo_refreshed_open = false
+        pcall(UIManager.close, UIManager, root)
+    end
+
+    local sw, sh = Screen:getWidth(), Screen:getHeight()
+    local dlg_w = math.floor(math.min(sw, sh) * 0.86)
+    local pad = Screen:scaleBySize(14)
+    local cover_h = Screen:scaleBySize(110)
+    local cover_w = math.floor(cover_h * 2 / 3)
+    local text_w = dlg_w - pad * 3 - cover_w
+
+    local title_face  = Font:getFace("smalltfont")
+    local author_face = Font:getFace("cfont", 15)
+    local status_face = Font:getFace("cfont", 14)
+    local desc_face   = Font:getFace("cfont", 14)
+
+    -- Cover (display only — no gesture handlers)
+    local cover_widget
+    local okb, SH = pcall(require, "modules/module_books_shared")
+    if on_device and type(fp) == "string" and fp ~= "" and okb and type(SH) == "table" then
+        if type(SH.getBookCover) == "function" then
+            cover_widget = SH.getBookCover(fp, cover_w, cover_h)
+        end
+        if not cover_widget and type(SH.coverPlaceholder) == "function" then
+            cover_widget = SH.coverPlaceholder(title, authors, cover_w, cover_h)
+        end
+    end
+    if not cover_widget and okb and type(SH) == "table" and type(SH.coverPlaceholder) == "function" then
+        cover_widget = SH.coverPlaceholder(title, authors, cover_w, cover_h)
+    end
+    if not cover_widget then
+        cover_widget = FrameContainer:new{
+            bordersize = Size.border.thin, padding = 0,
+            dimen = Geom:new{ w = cover_w, h = cover_h },
+            VerticalSpan:new{ width = cover_h - 2 },
+        }
+    end
+
+    local meta = VerticalGroup:new{ align = "left" }
+    meta[#meta + 1] = TextBoxWidget:new{
+        text = title, face = title_face, bold = true, width = text_w,
+        height = title_face.size * 2.8, height_adjust = true,
+        height_overflow_show_ellipsis = true,
+    }
+    if authors ~= "" then
+        meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(3) }
+        meta[#meta + 1] = TextWidget:new{ text = authors, face = author_face, max_width = text_w }
+    end
+    if status_text then
+        meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
+        meta[#meta + 1] = TextWidget:new{ text = status_text, face = status_face, max_width = text_w }
+    end
+
+    local top = HorizontalGroup:new{ align = "center",
+        cover_widget,
+        HorizontalSpan:new{ width = pad },
+        meta,
+    }
+
+    local content = VerticalGroup:new{ align = "center", top }
+    if description ~= "" then
+        content[#content + 1] = VerticalSpan:new{ width = Screen:scaleBySize(10) }
+        content[#content + 1] = TextBoxWidget:new{
+            text = description,
+            face = desc_face,
+            width = dlg_w - pad * 2,
+            height = desc_face.size * 4.2,
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+        }
+    end
+    content[#content + 1] = VerticalSpan:new{ width = Screen:scaleBySize(12) }
+
+    local open_enabled = type(fp) == "string" and fp ~= ""
+    local bo_id = entry and entry.id
+    local show_bo_btn = is_bo and type(bo_id) ~= "nil" and bookOrbitInstalled()
+
+    local dlg, frame   -- frame: the dialog card, built below
+    local function closeDlg()
+        if not dlg then return end
+        -- Refresh only the dialog card area (not the whole screen) to clear
+        -- the e-ink ghost without a full-screen flash.
+        local region = (frame and frame.dimen) or dlg.dimen
+        UIManager:close(dlg, "ui", region)
+        if region then
+            UIManager:setDirty("all", function() return "ui", region end)
+        end
+    end
+
+    local buttons = {}
+    local row1 = {}
+    row1[#row1 + 1] = {
+        text = _("Open"),
+        enabled = open_enabled,
+        callback = function()
+            closeDlg()
+            if open_enabled then
+                local open_fn = hs and hs._ctx_cache and hs._ctx_cache.open_fn
+                if type(open_fn) == "function" then
+                    open_fn(fp)
+                else
+                    require("apps/reader/readerui"):showReader(fp)
+                end
+            end
+        end,
+    }
+    if show_bo_btn then
+        row1[#row1 + 1] = {
+            text = _("BookOrbit"),
+            callback = function()
+                closeDlg()
+                if hs then hs._navbar_closing_intentionally = true end
+                UIManager:nextTick(function()
+                    local ok = openBoBookDetail(bo_id, title)
+                    if hs then hs._navbar_closing_intentionally = nil end
+                    if not ok then
+                        panelNote(_("Could not open BookOrbit. Is the plugin installed and signed in?"))
+                    end
+                end)
+            end,
+        }
+    end
+    buttons[#buttons + 1] = row1
+    buttons[#buttons + 1] = {
+        {
+            text = _("Cancel"),
+            callback = function()
+                closeDlg()
+            end,
+        },
+    }
+
+    local button_table = ButtonTable:new{
+        width = dlg_w - pad * 2,
+        buttons = buttons,
+        zero_sep = true,
+        show_parent = nil, -- set after dlg exists
+    }
+
+    content[#content + 1] = button_table
+
+    frame = FrameContainer:new{
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = Size.border.window,
+        radius = Size.radius.window,
+        padding = pad,
+        margin = 0,
+        content,
+    }
+
+    dlg = InputContainer:new{
+        dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh },
+        modal = true,
+        name = "sui_sidepanel_compact_detail",
+        CenterContainer:new{
+            dimen = Geom:new{ w = sw, h = sh },
+            frame,
+        },
+    }
+    -- so ButtonTable callbacks / focus work
+    button_table.show_parent = dlg
+
+    -- Tap outside the frame closes the dialog (Cancel equivalent)
+    dlg.ges_events = {
+        TapClose = { GestureRange:new{ ges = "tap", range = function() return dlg.dimen end } },
+    }
+    function dlg:onTapClose(_, ges)
+        if not ges or not ges.pos then return true end
+        -- only close when the tap is outside the white card
+        if frame.dimen and not frame.dimen:contains(ges.pos) then
+            closeDlg()
+        end
+        return true
+    end
+
+    UIManager:show(dlg)
+end
+
 local function openTBRPanel(hs, view, switching, reuse)
     if tbr_panel_open and not reuse then return end
     -- Apply the configured default view on every open, unless set to "last"
@@ -461,15 +750,6 @@ local function openTBRPanel(hs, view, switching, reuse)
             pcall(hs._refreshImmediate, hs, false)   -- the home's TBR module catches up
         end
     end
-    local function openBook(fp)
-        close()
-        local open_fn = hs and hs._ctx_cache and hs._ctx_cache.open_fn
-        if type(open_fn) == "function" then
-            open_fn(fp)
-        else
-            require("apps/reader/readerui"):showReader(fp)
-        end
-    end
     local function showAll()
         close()
         if bo_view and type(openBoInCatalog) == "function" then
@@ -546,11 +826,6 @@ local function openTBRPanel(hs, view, switching, reuse)
                 if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
             end
         end
-        if not hist_icon_path and type(sui_name) == "string" and sui_name ~= "" then
-            local p = "plugins/" .. sui_name .. ".koplugin/icons/history.svg"
-            local lfs = require("libs/libkoreader-lfs")
-            if lfs.attributes(p, "mode") == "file" then hist_icon_path = p end
-        end
     end
     local hist_icon_child
     if not is_history_view and hist_icon_path then
@@ -619,40 +894,6 @@ local function openTBRPanel(hs, view, switching, reuse)
                 panelNote(_("Could not open BookOrbit. Is the plugin installed and signed in?"))
             end
         end)
-    end
-
-    -- Tap: open file if still on device; otherwise offer download via BookOrbit
-    local function handleBoEntry(entry)
-        local fp = liveBookPath(entry and entry.id, entry and entry.path)
-        if entry then entry.path = fp end  -- keep list accurate after deletes
-        if type(fp) == "string" and fp ~= "" then
-            openBook(fp)
-            return
-        end
-        -- Close the panel first so the dialog is not buried under it
-        close()
-        local ButtonDialog = require("ui/widget/buttondialog")
-        local dlg
-        local title = (entry and entry.title) or _("Book")
-        dlg = ButtonDialog:new{
-            title = title,
-            title_align = "center",
-            buttons = {
-                {{
-                    text = _("Download / open in BookOrbit"),
-                    callback = function()
-                        UIManager:close(dlg)
-                        -- panel already closed; openBoDetail still nextTick-opens BO
-                        openBoDetail(entry)
-                    end,
-                }},
-                {{
-                    text = _("Cancel"),
-                    callback = function() UIManager:close(dlg) end,
-                }},
-            },
-        }
-        UIManager:show(dlg)
     end
 
     local SH
@@ -764,11 +1005,25 @@ local function openTBRPanel(hs, view, switching, reuse)
         }
         if is_bo then
             local entry = item
-            function row:onTapRow() handleBoEntry(entry) return true end
-            -- Hold always opens BookOrbit book detail (same as catalog hold)
+            function row:onTapRow()
+                showCompactBookDetail(hs, {
+                    title = title, authors = authors, fp = fp, entry = entry,
+                    percent = percent, status = status, on_device = on_device,
+                    is_bo = true,
+                })
+                return true
+            end
+            -- Hold still opens full BookOrbit book detail (same as catalog hold)
             function row:onHoldRow() openBoDetail(entry) return true end
         else
-            function row:onTapRow() openBook(fp) return true end
+            function row:onTapRow()
+                showCompactBookDetail(hs, {
+                    title = title, authors = authors, fp = fp, entry = nil,
+                    percent = percent, status = status, on_device = true,
+                    is_bo = false,
+                })
+                return true
+            end
             function row:onHoldRow()
                 if view ~= "tbr" and not coll_name then return false end
                 local ButtonDialog = require("ui/widget/buttondialog")
@@ -1703,6 +1958,25 @@ package.loaded.simpleui_sidepanel = {
     name = "simpleui_sidepanel",
     version = VERSION,
     onHomeShow = onHomeShow,
+    -- Shared compact book detail (cover, author, description, Open / BookOrbit / Cancel).
+    -- Used by this panel and by Reading Log Tweaks (Book Club, etc.).
+    showCompactBookDetail = showCompactBookDetail,
 }
+
+-- Patch Backup & Restore (2-backup-patches.lua): our settings as a backup
+-- target. Works in either patch load order.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    BK.targets = BK.targets or {}
+    local target = {
+        id = "simpleui_sidepanel",
+        text = "SimpleUI Side Panel",
+        setting_prefix = SETTINGS_KEY,
+        -- BookOrbit lists kept for the panel: fetched again when needed
+        skip_keys = { BO_COLLS_CACHE_KEY, BO_BOOKS_CACHE_KEY },
+    }
+    if type(BK.register) == "function" then pcall(BK.register, target) else table.insert(BK.targets, target) end
+end
 
 logger.info(TAG, "========== v" .. VERSION .. " LOADED ==========")
