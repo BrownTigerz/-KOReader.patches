@@ -1,7 +1,24 @@
--- SimpleUI Side Panel v1.0.29
+-- SimpleUI Side Panel v1.0.32
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.32 A book downloaded from here counts as on the device straight
+--        away (even before BookOrbit links it), here and in Reading Log.
+--        The compact window's Open says Read, Continue Reading or Read
+--        Again, and a BookOrbit book on the device gets Remove From Device
+--        (KOReader's own delete: the file, its sidecar, History and
+--        collections; reading statistics stay). It stays in BookOrbit.
+-- 1.0.31 Compact detail of a BookOrbit book not on the device: its cached
+--        BookOrbit cover, what BookOrbit knows (series, year, pages, file,
+--        description; fetched in the background the first time), and a
+--        Download button that downloads it straight from BookOrbit (its
+--        download folder and layout, hash-checked, linked so it syncs),
+--        then offers to open it. Covers and downloads shared with Reading
+--        Log Tweaks.
+-- 1.0.30 BookOrbit books not on this device show their cover: the one
+--        BookOrbit already keeps in koreader/cache/bookorbit/, or, when it
+--        isn't there yet and Wi-Fi is on, fetched in the background (up to 8
+--        at a time) into that same folder and shown in place.
 -- 1.0.29 Fix: compact detail had a blank strip under Cancel that looked like
 --        part of the button but did nothing. Cancel now runs to the card's
 --        bottom edge, and a tap under the buttons counts as Cancel.
@@ -63,13 +80,14 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.29"
+local VERSION = "1.0.32"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
 
 local logger = require("logger")
 local _ = require("gettext")
+local T = require("ffi/util").template
 local Screen = require("device").screen
 local G_reader_settings = rawget(_G, "G_reader_settings")
 
@@ -367,6 +385,7 @@ local function clampOpensToSetting()
 end
 
 local boAfterShow -- 1.0.15, set after the BookOrbit list code
+local BoThumbs = {} -- 1.0.30: covers of BookOrbit books not on this device (below)
 
 -- Compact book detail dialog (tap instead of immediate open).
 -- Cover is display-only; only the buttons open the book or BookOrbit.
@@ -497,6 +516,32 @@ local function showCompactBookDetail(hs, opts)
             cover_widget = SH.coverPlaceholder(title, authors, cover_w, cover_h)
         end
     end
+    -- 1.0.31: a BookOrbit book not on the device: its cached BookOrbit cover
+    local bo_id = is_bo and type(entry) == "table" and tonumber(entry.id) or nil
+    if not cover_widget and bo_id and BoThumbs.path then
+        local tp = BoThumbs.path(entry)
+        if tp then
+            local okI, ImageWidget = pcall(require, "ui/widget/imagewidget")
+            if okI then
+                local okW, w = pcall(function()
+                    return FrameContainer:new{ bordersize = Size.border.thin, padding = 0, margin = 0,
+                        ImageWidget:new{ file = tp, width = cover_w - 2 * Size.border.thin,
+                            height = cover_h - 2 * Size.border.thin, scale_factor = 0 } }
+                end)
+                if okW then cover_widget = w end
+            end
+        elseif BoThumbs.fetchItems and not opts._tw_cover_tried then
+            opts._tw_cover_tried = true
+            BoThumbs.fetchItems({ entry }, function()
+                for _i, e in ipairs(UIManager._window_stack or {}) do
+                    if type(e.widget) == "table" and e.widget.name == "sui_sidepanel_compact_detail" then
+                        UIManager:close(e.widget)
+                        return showCompactBookDetail(hs, opts)
+                    end
+                end
+            end)
+        end
+    end
     if not cover_widget and okb and type(SH) == "table" and type(SH.coverPlaceholder) == "function" then
         cover_widget = SH.coverPlaceholder(title, authors, cover_w, cover_h)
     end
@@ -521,6 +566,41 @@ local function showCompactBookDetail(hs, opts)
     if status_text then
         meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(4) }
         meta[#meta + 1] = TextWidget:new{ text = status_text, face = status_face, max_width = text_w }
+    end
+    -- 1.0.31: what BookOrbit knows about it (series, year, pages, the file)
+    local bod = bo_id and BoThumbs.detailOf and BoThumbs.detailOf(bo_id) or nil
+    if type(bod) == "table" then
+        local bits = {}
+        if type(bod.seriesName) == "string" and bod.seriesName ~= "" then
+            local n = tonumber(bod.seriesIndex)
+            bits[#bits + 1] = n and string.format("%s #%s", bod.seriesName, n == math.floor(n) and tostring(math.floor(n)) or tostring(n)) or bod.seriesName
+        end
+        if bod.publishedYear then bits[#bits + 1] = tostring(bod.publishedYear) end
+        if tonumber(bod.pageCount) then bits[#bits + 1] = string.format(_("%d pages"), tonumber(bod.pageCount)) end
+        if not on_device then
+            local fl = BoThumbs.fileLabel(BoThumbs.pickFile(bod))
+            if fl and fl ~= "" then bits[#bits + 1] = fl end
+        end
+        if #bits > 0 then
+            meta[#meta + 1] = VerticalSpan:new{ width = Screen:scaleBySize(3) }
+            meta[#meta + 1] = TextBoxWidget:new{ text = table.concat(bits, " · "), face = status_face, width = text_w,
+                height = status_face.size * 2.6, height_adjust = true, height_overflow_show_ellipsis = true }
+        end
+        if description == "" and type(bod.description) == "string" then
+            description = bod.description:gsub("<[^>]+>", " "):gsub("%s+", " "):match("^%s*(.-)%s*$") or ""
+            if #description > 220 then description = description:sub(1, 217) .. "…" end
+        end
+    elseif bo_id and BoThumbs.fetchDetail and not opts._tw_detail_tried then
+        -- shown now; redrawn once BookOrbit's page data is in
+        opts._tw_detail_tried = true
+        BoThumbs.fetchDetail(bo_id, function()
+            for _i, e in ipairs(UIManager._window_stack or {}) do
+                if type(e.widget) == "table" and e.widget.name == "sui_sidepanel_compact_detail" then
+                    UIManager:close(e.widget)
+                    return showCompactBookDetail(hs, opts)
+                end
+            end
+        end)
     end
 
     local top = HorizontalGroup:new{ align = "center",
@@ -561,8 +641,28 @@ local function showCompactBookDetail(hs, opts)
 
     local buttons = {}
     local row1 = {}
+    -- 1.0.31: not on the device: Download, straight from BookOrbit
+    if is_bo and not open_enabled and bo_id and bookOrbitInstalled() then
+        local fl = type(bod) == "table" and BoThumbs.fileLabel(BoThumbs.pickFile(bod)) or nil
+        row1[#row1 + 1] = {
+            text = fl and fl ~= "" and T(_("Download %1"), fl:match("^[^·]+"):gsub("%s+$", "")) or _("Download"),
+            callback = function()
+                closeDlg()
+                BoThumbs.download({ id = bo_id, title = title }, function()
+                    if type(opts.on_downloaded) == "function" then pcall(opts.on_downloaded) end
+                end)
+            end,
+        }
+    else
+    -- 1.0.32: says what opening it means: Read, Continue Reading or Read Again
+    local open_text = _("Open")
+    if open_enabled then
+        if status == "complete" or (percent and percent >= 1) then open_text = _("Read Again")
+        elseif percent and percent > 0 then open_text = _("Continue Reading")
+        else open_text = _("Read") end
+    end
     row1[#row1 + 1] = {
-        text = _("Open"),
+        text = open_text,
         enabled = open_enabled,
         callback = function()
             closeDlg()
@@ -576,6 +676,7 @@ local function showCompactBookDetail(hs, opts)
             end
         end,
     }
+    end
     if show_bo_btn then
         row1[#row1 + 1] = {
             text = _("BookOrbit"),
@@ -593,14 +694,41 @@ local function showCompactBookDetail(hs, opts)
         }
     end
     buttons[#buttons + 1] = row1
-    buttons[#buttons + 1] = {
-        {
-            text = _("Cancel"),
+    local row2 = {}
+    -- 1.0.32: a BookOrbit book on the device can go again (it stays in
+    -- BookOrbit): KOReader's own delete, which also clears its sidecar
+    if is_bo and open_enabled and bookOrbitInstalled() then
+        row2[#row2 + 1] = {
+            text = _("Remove From Device"),
             callback = function()
                 closeDlg()
+                local FM = require("apps/filemanager/filemanager")
+                local fm = FM and FM.instance
+                if fm and type(fm.showDeleteFileDialog) == "function" then
+                    fm:showDeleteFileDialog(fp, function()
+                        if G_reader_settings and bo_id then
+                            local mine = G_reader_settings:readSetting("simpleui_sidepanel_bo_local")
+                            if type(mine) == "table" and mine[tostring(bo_id)] then
+                                mine[tostring(bo_id)] = nil
+                                G_reader_settings:saveSetting("simpleui_sidepanel_bo_local", mine)
+                            end
+                        end
+                        pcall(onDeviceByBookId, true)
+                        if type(opts.on_downloaded) == "function" then pcall(opts.on_downloaded) end
+                    end)
+                else
+                    UIManager:show(require("ui/widget/infomessage"):new{ text = _("Open the file browser to remove this book.") })
+                end
             end,
-        },
+        }
+    end
+    row2[#row2 + 1] = {
+        text = _("Cancel"),
+        callback = function()
+            closeDlg()
+        end,
     }
+    buttons[#buttons + 1] = row2
 
     local button_table = ButtonTable:new{
         width = dlg_w - pad * 2,
@@ -682,6 +810,7 @@ local function openTBRPanel(hs, view, switching, reuse)
         tbr_panel_view = firstAvailableView()
     end
     if not switching then pcall(noteEmptyCollections) end
+    if not switching and not reuse and BoThumbs.reset then BoThumbs.reset() end
     local side = cfg.tbr_panel
     local UIManager       = require("ui/uimanager")
     local InputContainer  = require("ui/widget/container/inputcontainer")
@@ -951,6 +1080,24 @@ local function openTBRPanel(hs, view, switching, reuse)
                 cover = SH.coverPlaceholder(title, authors, cover_w, cover_h)
             end
         end
+        -- 1.0.30: a BookOrbit book not on this device: its cover from
+        -- BookOrbit's own cover cache (fetched when it isn't there yet)
+        if not cover and is_bo and not on_device and BoThumbs.path then
+            local tp = BoThumbs.path(item)
+            if tp then
+                local okI, ImageWidget = pcall(require, "ui/widget/imagewidget")
+                if okI then
+                    local okW, w = pcall(function()
+                        return FrameContainer:new{ bordersize = Size.border.thin, padding = 0, margin = 0,
+                            ImageWidget:new{ file = tp, width = cover_w - 2 * Size.border.thin,
+                                height = cover_h - 2 * Size.border.thin, scale_factor = 0 } }
+                    end)
+                    if okW then cover = w end
+                end
+            elseif BoThumbs.want then
+                BoThumbs.want(item)
+            end
+        end
         if not cover and SH and SH.coverPlaceholder then
             cover = SH.coverPlaceholder(title, authors, cover_w, cover_h)
         end
@@ -1188,6 +1335,9 @@ local function openTBRPanel(hs, view, switching, reuse)
     local stale = bo_stale
     bo_stale = nil
     if stale and boAfterShow then boAfterShow(hs, stale, tbr_panel_view) end
+    -- covers still missing: fetched in the background, then shown in place
+    -- (not while the list itself is about to be refreshed: that redraw asks)
+    if not stale and BoThumbs.fetch then BoThumbs.fetch(hs, tbr_panel_view) end
 end
 
 -- hookHomeEdgeSwipe moved to onHomeShow in this patch
@@ -1277,6 +1427,10 @@ liveBookPath = function(book_id, cached_path)
     if type(fp) == "string" and fp ~= "" and lfs.attributes(fp, "mode") == "file" then
         return fp
     end
+    -- 1.0.32: downloaded from here (even before BookOrbit has linked it)
+    local mine = G_reader_settings and G_reader_settings:readSetting("simpleui_sidepanel_bo_local")
+    fp = type(mine) == "table" and mine[tostring(book_id)] or nil
+    if type(fp) == "string" and lfs.attributes(fp, "mode") == "file" then return fp end
     return nil
 end
 
@@ -1287,7 +1441,7 @@ refreshCachedBooks = function(books)
         if type(b) == "table" then
             local path = liveBookPath(b.id, b.path)
             out[#out + 1] = {
-                id = b.id, title = b.title, authors = b.authors or "", path = path,
+                id = b.id, title = b.title, authors = b.authors or "", path = path, cv = b.cv,
             }
         end
     end
@@ -1417,6 +1571,12 @@ local function fetchBoEntries(cache_key, api_params, force)
                     title = book.title or book.name or _("Untitled"),
                     authors = authors,
                     path = type(fp) == "string" and fp or nil,
+                    -- BookOrbit names its cached covers <id>_<this>.jpg
+                    cv = (function()
+                        local t = tostring(book.updatedAt or ""):gsub("%D", "")
+                        if #t > 32 then t = t:sub(1, 16) .. t:sub(-16) end
+                        return t ~= "" and t or "0"
+                    end)(),
                 }
             end
         end
@@ -1447,6 +1607,243 @@ boAfterShow = function(hs, stale, view)
         end
     end
     UIManager:scheduleIn(0.4, bo_refresh_task)
+end
+
+-- ── 1.0.30: covers for BookOrbit books not on this device ─────────────────
+-- BookOrbit keeps the covers it has shown in koreader/cache/bookorbit/ as
+-- <book id>_<cover version>.jpg. The panel uses those; a cover that isn't
+-- there yet is fetched the way BookOrbit does (in the background, a few at a
+-- time, only with Wi-Fi on) into the same folder, so BookOrbit gets it too.
+do
+    local index, index_at   -- book id -> newest cached file, rebuilt per panel open
+    local wanted, tried, busy = {}, {}, false
+    local function dir()
+        return require("datastorage"):getDataDir() .. "/cache/bookorbit"
+    end
+    local function buildIndex()
+        local lfs = require("libs/libkoreader-lfs")
+        index = {}
+        local d = dir()
+        if lfs.attributes(d, "mode") ~= "directory" then return end
+        for f in lfs.dir(d) do
+            local id, tok = f:match("^(%d+)_(%d+)%.jpg$")
+            if id and (not index[id] or tok > index[id].tok) then index[id] = { tok = tok, path = d .. "/" .. f } end
+        end
+    end
+    function BoThumbs.reset() index = nil end
+    function BoThumbs.path(item)
+        if type(item) ~= "table" or item.id == nil then return nil end
+        if not index or os.time() - (index_at or 0) > 600 then buildIndex(); index_at = os.time() end
+        local hit = index[tostring(item.id)]
+        return hit and hit.path or nil
+    end
+    function BoThumbs.want(item)
+        local id = tonumber(item and item.id)
+        if id and not tried[id] then wanted[id] = item.cv or "0" end
+    end
+    -- covers for any list of { id, cv } (Reading Log's picks too); on_done(n)
+    -- once fetched. Same folder and names as BookOrbit's own.
+    function BoThumbs.fetchItems(items, on_done)
+        for _i, it in ipairs(items or {}) do BoThumbs.want(it) end
+        BoThumbs.fetch(nil, nil, on_done)
+    end
+
+    -- ── a book's BookOrbit page data (description, series, files), kept in
+    -- memory for this session; fetched in the background
+    local details, detail_busy = {}, {}
+    function BoThumbs.detailOf(id) return details[tonumber(id) or id] end
+    function BoThumbs.fetchDetail(id, on_done)
+        id = tonumber(id)
+        if not id or details[id] or detail_busy[id] or not isWifiOn() then return false end
+        local client = boApiClient()
+        if not client then return false end
+        detail_busy[id] = true
+        require("ui/trapper"):wrap(function()
+            local ok_run, completed, result = pcall(client.runInSubprocess, client, function()
+                return client:catalogBook(id)
+            end)
+            detail_busy[id] = nil
+            local body = ok_run and completed and type(result) == "table" and result.body
+            if type(body) == "table" then
+                details[id] = body
+                if on_done then on_done(body) end
+            end
+        end)
+        return true
+    end
+
+    -- the file a download takes: the main supported one
+    local function pickFile(detail)
+        local okU, CU = pcall(require, "bookorbit_catalog_util")
+        local function ok(f) return type(f) == "table" and f.id and (not okU or CU.isSupportedFormat(f.format)) end
+        for _i, f in ipairs(type(detail) == "table" and detail.files or {}) do
+            if ok(f) and f.role == "primary" then return f end
+        end
+        for _i, f in ipairs(type(detail) == "table" and detail.files or {}) do
+            if ok(f) then return f end
+        end
+        return nil
+    end
+    BoThumbs.pickFile = pickFile
+
+    -- "EPUB · 1.2 MB"
+    function BoThumbs.fileLabel(file)
+        if type(file) ~= "table" then return nil end
+        local bits = { tostring(file.format or ""):upper() }
+        local n = tonumber(file.sizeBytes)
+        if n and n > 0 then
+            bits[#bits + 1] = n >= 1048576 and string.format("%.1f MB", n / 1048576) or string.format("%d KB", math.ceil(n / 1024))
+        end
+        return table.concat(bits, " · ")
+    end
+
+    -- Downloads a book straight from BookOrbit the way its own book page
+    -- does: KOReader's download folder, BookOrbit's folder layout, checked
+    -- against the server's hash, then linked so BookOrbit syncs it.
+    -- entry = { id, title }. on_done(path) once it's on the device.
+    function BoThumbs.download(entry, on_done)
+        local id = tonumber(entry and entry.id)
+        if not id then return end
+        local client = boApiClient()
+        if not client then panelNote(_("Sign in to BookOrbit first.")) return end
+        local UIManager = require("ui/uimanager")
+        local function fail(msg)
+            UIManager:show(require("ui/widget/infomessage"):new{ text = msg })
+        end
+        local function run()
+            require("ui/trapper"):wrap(function()
+                local okT, Toast = pcall(require, "bookorbit_toast")
+                local pill = okT and Toast.loading and Toast.loading(T(_("Downloading %1…"), tostring(entry.title or _("book")))) or nil
+                local function done() if pill and pill.close then pcall(pill.close, pill) end end
+                local detail = details[id]
+                if type(detail) ~= "table" then
+                    local ok_run, completed, result = pcall(client.runInSubprocess, client, function() return client:catalogBook(id) end)
+                    detail = ok_run and completed and type(result) == "table" and result.body or nil
+                    if type(detail) == "table" then details[id] = detail end
+                end
+                local file = pickFile(detail)
+                if not file then done(); return fail(_("BookOrbit has no file of this book this device can open.")) end
+                local okR, Root = pcall(require, "bookorbit_download_root")
+                local root = okR and Root.get() or (G_reader_settings and G_reader_settings:readSetting("home_dir"))
+                if type(root) ~= "string" or root == "" then done(); return fail(_("Set a download folder in BookOrbit first.")) end
+                local util = require("util")
+                -- the server's folder layout under the download folder, like BookOrbit
+                local rel
+                local dp = tostring(file.devicePath or ""):gsub("\\", "/"):gsub("^/+", "")
+                if dp ~= "" then
+                    local segs, bad = {}, false
+                    for seg in dp:gmatch("[^/]+") do
+                        if seg == ".." then bad = true break end
+                        if seg ~= "." then segs[#segs + 1] = util.getSafeFilename(seg, root) end
+                    end
+                    if not bad and #segs > 0 then rel = table.concat(segs, "/") end
+                end
+                if not rel then
+                    local okC, CU = pcall(require, "bookorbit_catalog_util")
+                    local base = okC and CU.safeFilenameBase(detail) or tostring(detail.title or ("book-" .. id))
+                    rel = util.getSafeFilename(base .. "." .. tostring(file.format or "epub"):lower(), root)
+                end
+                local path = (root ~= "/" and root or "") .. "/" .. rel
+                local parent = path:match("^(.*)/[^/]+$")
+                if parent then util.makePath(parent) end
+                local lfs = require("libs/libkoreader-lfs")
+                if lfs.attributes(path, "mode") ~= "file" then
+                    local okX, Transfer = pcall(require, "bookorbit_download_transfer")
+                    if not okX then done(); return fail(_("This BookOrbit version can't download from here.")) end
+                    pcall(Transfer.sweepStale, root)
+                    local ok_t, ok, err = pcall(Transfer.run, {
+                        root = root, destination = path, generation = os.time(),
+                        expected_bytes = file.sizeBytes, expected_hash = file.fileHash, hash = "partial_md5",
+                        perform = function(o)
+                            o.variant = file.selection and (file.requestedVariant or file.downloadVariant) or nil
+                            o.selection = file.selection
+                            return client:downloadCatalogFile(file.id, path, o)
+                        end,
+                    })
+                    if not (ok_t and ok) then
+                        done()
+                        if err ~= "cancelled" then fail(T(_("Couldn't download it:\n%1"), tostring(ok_t and err or ok))) end
+                        return
+                    end
+                end
+                -- this panel (and Reading Log) know it's here straight away
+                if G_reader_settings then
+                    local mine = G_reader_settings:readSetting("simpleui_sidepanel_bo_local")
+                    if type(mine) ~= "table" then mine = {} end
+                    mine[tostring(id)] = path
+                    G_reader_settings:saveSetting("simpleui_sidepanel_bo_local", mine)
+                end
+                -- linked to its BookOrbit book, so it syncs (like BookOrbit's own download)
+                pcall(function()
+                    local digest = util.partialMD5(path)
+                    if not digest then return end
+                    local body = client:matchCheck({ digest }, { [digest] = { source = "file", book_file_id = file.id } })
+                    local SM = require("bookorbit_state_manager")
+                    if type(body) ~= "table" then return end
+                    if SM.applyLibraryVersion then SM.applyLibraryVersion(body.libraryVersion) end
+                    for _i, m in ipairs(body.matches or {}) do
+                        if m.hash == digest then
+                            SM.linkFile(digest, m.bookFileId, m.bookId, path)
+                            return
+                        end
+                    end
+                end)
+                done()
+                if on_done then pcall(on_done, path) end
+                UIManager:show(require("ui/widget/confirmbox"):new{
+                    text = T(_("Downloaded %1.\n\nOpen it now?"), tostring(entry.title or "")),
+                    ok_text = _("Open"),
+                    cancel_text = _("Later"),
+                    ok_callback = function() require("apps/reader/readerui"):showReader(path) end,
+                })
+            end)
+        end
+        local okN, NetworkMgr = pcall(require, "ui/network/manager")
+        if okN and NetworkMgr.runWhenConnected then NetworkMgr:runWhenConnected(run) else run() end
+    end
+
+    function BoThumbs.fetch(hs, view, on_done)
+        if busy or next(wanted) == nil or not isWifiOn() then return end
+        local client = boApiClient()
+        if not client then wanted = {} return end
+        local jobs, d = {}, dir()
+        for id, cv in pairs(wanted) do
+            if #jobs < 8 then
+                tried[id] = true
+                jobs[#jobs + 1] = { id = id, path = string.format("%s/%d_%s.jpg", d, id, cv) }
+            end
+        end
+        for _i, j in ipairs(jobs) do wanted[j.id] = nil end -- the rest wait for the next call
+        if #jobs == 0 then return end
+        busy = true
+        require("util").makePath(d)
+        local Trapper = require("ui/trapper")
+        Trapper:wrap(function()
+            local got = 0
+            local ok_run, completed, result = pcall(client.runInSubprocess, client, function()
+                local n = 0
+                for _i, j in ipairs(jobs) do
+                    local ok = client:downloadCatalogThumbnail(j.id, j.path,
+                        { temp_path = j.path .. ".part", max_bytes = 4 * 1024 * 1024, background = false })
+                    if ok then n = n + 1 end
+                end
+                return n
+            end)
+            busy = false
+            if ok_run and completed and type(result) == "table" then got = tonumber(result.body) or 0 end
+            -- more waiting (over 8): the next batch, right after this one
+            if next(wanted) ~= nil then
+                require("ui/uimanager"):nextTick(function() BoThumbs.fetch(hs, view, on_done) end)
+            end
+            if got > 0 then
+                index = nil
+                if view and tbr_panel_open and tbr_panel_view == view and tbr_panel_root then
+                    openTBRPanel(hs, view, true, tbr_panel_root)
+                end
+                if on_done then pcall(on_done, got) end
+            end
+        end)
+    end
 end
 
 boCollList = function(id, force)
@@ -1982,6 +2379,13 @@ package.loaded.simpleui_sidepanel = {
     -- Shared compact book detail (cover, author, description, Open / BookOrbit / Cancel).
     -- Used by this panel and by Reading Log Tweaks (Book Club, etc.).
     showCompactBookDetail = showCompactBookDetail,
+    -- 1.0.31: BookOrbit books that aren't on the device, for other patches
+    -- (Reading Log Tweaks' picks). item = { id, cv (cover version) }
+    boCoverPath = function(item) return BoThumbs.path and BoThumbs.path(item) or nil end,
+    boFetchCovers = function(items, on_done) if BoThumbs.fetchItems then BoThumbs.fetchItems(items, on_done) end end,
+    boDownload = function(entry, on_done) if BoThumbs.download then BoThumbs.download(entry, on_done) end end,
+    -- 1.0.32: where a BookOrbit book is on this device, or nil
+    boLocalPath = function(id) return liveBookPath(id, nil) end,
 }
 
 -- Patch Backup & Restore (2-backup-patches.lua): our settings as a backup
