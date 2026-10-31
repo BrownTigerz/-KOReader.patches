@@ -21,13 +21,13 @@ All patches work independently and together. If one fails to attach (for example
 | Patch | File | Requires | Version |
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.11 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.22 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.10 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.27 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.12 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks | 1.0.0 |
-| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.1.0 |
-| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 2.4.9 |
+| [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.1.2 |
+| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.0.0 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.0 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.20 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
@@ -41,7 +41,7 @@ All patches work independently and together. If one fails to attach (for example
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.14.6 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.14.10 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -117,6 +117,8 @@ Settings: Tools → SimpleUI Side Panel.
 
 If you used the panel inside SimpleUI Tweaks, your panel settings carry over.
 
+**Tap a book:** a small window shows its cover, title, author, status and a short description, with **Open**, **Open In BookOrbit** (when it's a BookOrbit book) and **Cancel**, so a stray tap never opens a book. Reading Log Tweaks can use the same window (Compact Book Detail).
+
 **BookOrbit views are instant:** opening and swiping the panel never waits on the BookOrbit server. The list shows from what's saved, and when it's more than 30 minutes old (and Wi-Fi is on) it refreshes in the background and redraws in place, at most once per panel open (the view you stop on); views you swipe to after that show their saved list. A pending refresh is cancelled when the panel closes or the device sleeps.
 
 The header shows the view's whole name: a long one ("Book Club Anthology", "BookOrbit Newly Added") wraps onto two lines at full size (one that nearly fits gets slightly smaller text instead), so it isn't cut off.
@@ -134,13 +136,15 @@ One **Tools → Add-ons** menu for plugins and patches, so Tools stays tidy. Mov
 |---|---|
 | Home & Library | SimpleUI, SimpleUI Tweaks, SimpleUI Side Panel, Bookshelf, Shortcuts Toolbar |
 | Reading | X-Ray, Page Scrubber, Glimpse, Footcream, Track Reading Location |
-| Stats & Progress | ReadMastery, Reading Insights, Reading Insights Tweaks, Reading Log Tweaks, Book Card |
+| Stats & Progress | ReadMastery (off by default: stays in Tools until you tick it), Reading Insights, Reading Insights Tweaks, Reading Log, Reading Log Tweaks, Book Card |
 | Sync & Network | ShelfSync, BookOrbit, BookOrbit Tweaks, Network Tweaks |
-| System | Storefront, Device Backup & Restore, Menu Disabler |
-| Maintenance | Patch Backup & Restore, Check For Patch Updates, Debugging, Screenshot in 10 s |
+| System | Storefront, Device Backup & Restore, Patch Backup & Restore, Menu Disabler |
+| Maintenance | Check For Patch Updates, Debugging, Screenshot in 10 s |
 | Other / Patches | new plugins / new patches that don't say where they go |
 
 Only what's installed shows; empty groups are hidden.
+
+**Tweaks inside their plugin** (on by default): Simple UI is one entry (Open Simple UI, SimpleUI Tweaks, SimpleUI Side Panel), BookOrbit Tweaks sits at the bottom of BookOrbit's menu, Reading Insights Tweaks inside Reading Insights, and Reading Log Tweaks inside Reading Log. The plugins' own menus aren't changed. Turn it off with **Put Tweaks Inside Their Plugin** in Arrange Add-ons; moving one of these patches to another group takes just that one out.
 
 - **Auto-collect:** newly installed plugins and patches that add a menu show up automatically, marked "New", with a one-time notice. Turn off **New Add-ons Show Up Automatically** to have them listed unticked instead.
 - **Arrange Add-ons** (bottom of the list), applied after a restart:
@@ -149,6 +153,7 @@ Only what's installed shows; empty groups are hidden.
   - tap a group name: move the group up or down, rename it, delete it (groups you added), or go back to its original name
   - **Add Group…**: your own group header; hold items to move them in
   - **Sort Items:** Custom (your order) or A To Z (inside each group)
+  - **Put Tweaks Inside Their Plugin:** on or off (see above)
   - **Reset Layout:** groups, names, order and moved items back to the defaults (on/off choices stay)
   - **Reset Everything To Default:** the whole menu back to a fresh install: every item in its usual group and turned on, your own groups and names gone
 - **Safe to remove:** KOReader's menu order stays untouched. Delete the file and restart and every menu goes back where it was. Only your Add-ons choices are saved, in `settings.reader.lua`. IDs that don't exist are skipped, and items hidden with Menu Disabler stay hidden.
@@ -161,17 +166,19 @@ For patch authors: register with the shared table at `package.loaded.tweaks_mods
 
 ![Patch Backup Menu](images/patch-backup-menu.png)
 
-Per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.10.23; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
+One-tap backup of everything your patches are (files, settings, icons), undo for patch updates, per-patch backups, icon cleanup, and better device backups via Device Backup & Restore (`backup.koplugin`, build 26.9.29+ for icons). Tested with backup.koplugin 26.10.23; recheck after a major update to it, SimpleUI or ShelfSync, since this patch relies on how they store settings and logins.
 
-Menu: **Tools → Patch Backup & Restore** (or **Tools → Add-ons → Maintenance** with the Add-ons menu).
+Menu: **Tools → Patch Backup & Restore** (or **Tools → Add-ons → System** with the Add-ons menu).
 
 ```
 Patch Backup & Restore
-├─ Shortcuts toolbar, SimpleUI, …   one entry per target you use
+├─ Everything                      patches, settings, icons, phrases, quotes
 │  ├─ Back up now
 │  ├─ Restore latest
-│  └─ History                      every backup: restore or delete,
-│                                   or delete all of this target's
+│  └─ History                      every backup: restore or delete
+├─ Undo a patch update             put back a file the updater replaced
+├─ One patch or plugin             one entry per target you use
+│  └─ SimpleUI, Reading Log Tweaks, …  Back up now / Restore latest / History
 ├─ Delete all backups              every target's, safety backups too
 ├─ Icons
 │  ├─ Tidy icons
@@ -180,6 +187,8 @@ Patch Backup & Restore
 └─ Check for Patch Updates         update patches on the device
 ```
 
+- **Everything:** one zip (`koreader/backups/everything/`) with every file in `patches/` and `patches/debug/` (so `critter-phrases.lua` too), SimpleUI's `sui_quotes/` folder, and every patch's settings, settings files and icons. **Restore** puts it all back (patches you added since stay), after an "everything before restore" backup, then asks to restart. On a new device, the settings of patches that came back with the restore are applied on the next start, once they've loaded. Saved logins are never in it.
+- **Undo a patch update:** Check for Patch Updates keeps the copy it replaces (the last 3 of each file, in `koreader/backups/patch-updates/`). Put one back; the version you have then is kept too, so you can switch back.
 - **Back up now:** the target's settings, any settings files it keeps in `koreader/settings/`, and every icon its settings point to, in one zip at `koreader/backups/<target>/<target>_<date>.zip`.
 - **Restore:** puts settings and files back, unpacks icons into the target's icon folder and repoints settings there. Takes a "before restore" safety backup first (and stops if it can't), then asks to restart. "Restore latest" skips those automatic safety backups.
 - **Tidy icons:** copies every icon a target uses into its own flat folder (`koreader/icons/<target>/`; SimpleUI uses its own `sui_icons/`) and repoints settings there. Originals stay put. Takes a "before tidy" backup first.
@@ -189,7 +198,7 @@ Patch Backup & Restore
 
 **Device Backup & Restore integration:** with Settings and Icons ticked, every icon a target uses is included (wherever it lives) plus a map of its old paths, so the icons work on another device too (Kobo, Kindle, Android). The Logins toggle is off by default: saved logins, session tokens and the keys that decrypt them (ShelfSync, ShelfSync tweaks, backup cloud credentials) are excluded, including from Beam. Files that mix tokens with normal settings go in with only the tokens stripped, and a restore keeps the device's own logins. Turning it on includes everything, so keep that backup file private.
 
-Built-in targets: Shortcuts toolbar, Track Reading Location, Add-ons menu, Reading Insights tweaks, ReadMastery Notify/Quests, ShelfSync tweaks (settings only, never logins), and SimpleUI. Targets you don't use stay hidden.
+Patches that register themselves: SimpleUI Tweaks, Reading Log Tweaks, BookOrbit Tweaks (saved server logins left out) and Network Tweaks. Built-in targets: Shortcuts toolbar (with Quick Shelf and Icon Tweaks), SimpleUI Side Panel, Track Reading Location, Add-ons menu, Reading Insights tweaks, ReadMastery Notify/Quests, ShelfSync tweaks (settings only, never logins), and SimpleUI. A patch that registers the same id replaces the built-in one. Targets you don't use stay hidden.
 
 **For patch authors, add a target:**
 ```lua
@@ -198,6 +207,8 @@ package.loaded.backup_patches = BK
 BK.register{            -- or table.insert(BK.targets, {...}) if not loaded yet
     id = "mything", text = "My thing",
     setting_prefix = "mything",     -- optional: G_reader_settings keys
+    setting_prefixes = { "a_", "b_" }, -- optional: several prefixes
+    skip_keys = { "mything_cache" },   -- optional: keys left out (logins, caches)
     files = { "mything.lua" },      -- optional: files in koreader/settings/
     store = function(from_disk)     -- optional: settings kept in your own
         return data_table, flush_fn --   file (every key, or those
@@ -406,11 +417,11 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.10
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.12
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
-Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Stats & Progress** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
+Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Add-ons → Stats & Progress → Reading Log** (with the Add-ons menu). Everything is saved in Reading Log's own settings file (keys starting `tk_` and `critter_`).
 
 - **Today Page Card:** the card under the rings on the Today tab: Year Goal With Covers, Year Goal, Book Club, Recently Finished or TBR Shelf. Or **Swipe Between 2-3 Cards**: tick up to 3, then swipe left/right on the card or tap its dots.
 - **Year Goal With Covers:** the year goal on the left, this year's covers on the right, a pace bar along the bottom. Also in Pages And Cards and as its own Simple UI module.
@@ -418,6 +429,7 @@ Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Ad
 - **Book Club**
   - **Book Club Collections** (the card's own by default): tick one or more collections, KOReader's and BookOrbit's, and the Book Club card and its picks chooser use all their books together.
   - **Book Club Opens Picks** (Off by default, On Hold or On Tap): go straight to choosing this month's books (Reading Log's own chooser). On Hold: long-press the card, and a tap on a pick still opens that book. On Tap: any tap on the card.
+  - **Compact Book Detail** (off by default, needs SimpleUI Side Panel 1.0.26+): a tap on a book (Book Club picks, covers that open book details) shows the Side Panel's compact window (cover, author, description, Open / BookOrbit / Cancel) instead of opening it straight away.
 - **When You Come Back**
   - **Start On Tab** (Last Viewed by default): which Dashboard tab shows when you come back to it, after a book, after sleep or turning back onto its page. When SimpleUI shows the home screen again without rebuilding it (after sleep, or after a book with Fast Book Closing), the Dashboard is rebuilt once so the tab (and the Today card's Alternate) actually changes.
   - **Start On First Page After Reading Or Sleep** (off by default): opening a book or sleeping sends SimpleUI's home screen back to page 1.
@@ -514,7 +526,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.6
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.10
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -555,9 +567,14 @@ Flashes only fire while BookOrbit is the window on top (no stray flash on the fi
 
 **Keep Covers Original In Night Mode** — catalog and dashboard covers keep their artwork instead of being inverted.
 
-### Resume pill colour
+### Action colours
 
-**Resume Pill Colour** — pick the colour of the Resume pill on the dashboard (White by default).
+**Action Colours** — three colours, each White (BookOrbit's own look) by default:
+- **Continue Reading:** the Resume / Download pill and the round Download button on the dashboard.
+- **Book Detail:** the Start reading / Read again / Resume buttons on a book's page.
+- **Dialogs:** the main button in BookOrbit's bottom sheets and the open-book dialog.
+
+If you'd only set the old Resume Pill Colour, Book Detail and Dialogs start with that colour until you pick their own. Light colours keep the black icons readable; for the solid buttons Blue, Pink, Gold or Lavender read best. On a colour screen each tinted button gets a dithered refresh of its own area, so the colour looks the same on a book's page and in dialogs as on the dashboard. **Pill Colour Trace (crash.log)**, off by default, logs which buttons got a colour, for troubleshooting.
 
 ### Flash to reduce ghosting
 
