@@ -2,22 +2,35 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.0.7
+Version: 1.1.0
 
-  Tools > Add-ons   one list: your plugins, grouped (PLUGINS below), then
-                    settings from patches that support it (e.g. 2-simpleui-mod.lua),
-                    groups split by separators
+  Tools > Add-ons   your plugins and your patches' settings in one list,
+                    grouped: each patch sits with the plugin it tweaks
+                    (SimpleUI Tweaks under Home & Library, BookOrbit Tweaks
+                    under Sync & Network...), and the patch tools
+                    (Patch Backup & Restore, Check For Patch Updates,
+                    Debugging, Screenshot) under Maintenance.
 
 Moved plugins work exactly the same, they're just shown here instead of their
 usual spot.
 
-Newly installed plugins and patches (anything that adds a menu) get picked up
-automatically (AUTO_COLLECT): you get a one-time notice, and they show up
-marked "New" in "Choose what's in Add-ons", under "Other", for you to tick.
+Newly installed plugins and patches (anything that adds a menu) show up
+automatically (AUTO_COLLECT), marked "New", with a one-time notice. A patch
+that says where it belongs goes in that group, otherwise under Patches; a
+new plugin goes under Other. "New Add-ons Show Up Automatically" off: they're
+listed unticked instead, for you to choose.
 
-"Choose what's in Add-ons" (bottom of the list): tap an item to turn it on or
-off (off puts it back where it originally was), hold it to move it to another
-group. Both apply after a restart.
+"Arrange Add-ons" (bottom of the list):
+  - tap an item to turn it on or off (off puts it back where it originally was)
+  - hold an item: move it up or down, to the top or bottom, or to another group
+  - tap a group name: move the group up or down, rename it, or delete it
+    (groups you added)
+  - Add Group: your own group header, then hold items to move them in
+  - Sort Items: Custom (your order) or A To Z (inside each group)
+  - Reset Layout: groups, names and order back to the defaults
+  - Reset Everything To Default: also turns every item back on, as on a
+    fresh install
+  Changes apply after a restart.
 
 KOReader's menu order stays untouched: each menu build works on a copy, so
 delete this file and restart, and every menu goes back where it was. Only your
@@ -32,6 +45,17 @@ Versioning: 1.0.x fixes (e.g. a KOReader or plugin menu id rename),
             1.x.0 new features, 2.0.0 changes to how saved Add-ons choices work.
 
 Changelog:
+  1.1.0  2026-10-30  Layout: patches sit with the plugin they tweak, and
+                     Debugging, Check For Patch Updates, Patch Backup &
+                     Restore and Screenshot get their own Maintenance group.
+                     "Choose what's in Add-ons" is now "Arrange Add-ons":
+                     move items up/down/top/bottom or to another group, add,
+                     rename, reorder and delete group headers, sort each
+                     group by Custom order or A To Z, Reset Layout, and
+                     Reset Everything To Default. New add-ons now show up
+                     ticked (switchable). Registry entries can name their
+                     group (group = "..."). A patch that also adds its own
+                     copy to Tools has that copy moved out too.
   1.0.0  2026-10-02  First release.
   1.0.1  2026-10-02  "New" tags clear per menu (reader-only add-ons keep theirs);
                      group lists tracked per menu; labels computed once when
@@ -69,49 +93,67 @@ Changelog:
                      now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.0.7"
+local PATCH_VERSION = "1.1.0"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
 local SHOW_HEADERS = true        -- group names above each group (false = separators only)
 local AUTO_COLLECT = true        -- find add-ons not listed below (new installs) and
                                  -- offer them in "Choose what's in Add-ons"
-local NEW_GO_IN    = false       -- true: newly found add-ons go straight into
+local NEW_GO_IN    = true        -- true: newly found add-ons go straight into
                                  -- Add-ons; false: listed unticked, you choose
+                                 -- (Arrange Add-ons can switch this)
 
--- Plugins, by group, shown in this order. An id is the key a plugin uses in
--- addToMainMenu (menu_items.<id>), or a built-in id from KOReader's
--- frontend/ui/elements/*_menu_order.lua. Move lines between groups, add or
--- remove ids, or add groups - then restart.
+-- Default groups, shown in this order (Arrange Add-ons can reorder, rename
+-- and add to them without editing this file). An id is the key a plugin uses
+-- in addToMainMenu (menu_items.<id>), a built-in id from KOReader's
+-- frontend/ui/elements/*_menu_order.lua, or "patch:<id>" for a patch that
+-- registers below (package.loaded.tweaks_mods). Ids that aren't installed are
+-- skipped.
 local PLUGINS = {
     { header = "Home & Library",
-        "simpleui",               -- SimpleUI
-        "bookshelf_tab",          -- Bookshelf (its whole menu tab moves here)
-        "shortcutstoolbar",       -- Shortcuts Toolbar
+        "simpleui",                     -- SimpleUI
+        "patch:simpleui_mod",           -- SimpleUI Tweaks
+        "patch:simpleui_sidepanel",     -- SimpleUI Side Panel
+        "bookshelf_tab",                -- Bookshelf (its whole menu tab moves here)
+        "shortcutstoolbar",             -- Shortcuts Toolbar (+ Quick Shelf, Icon Tweaks)
     },
     { header = "Reading",
-        "xray",                   -- X-Ray
-        "page_scrubber",          -- Page Scrubber
-        "glimpse",                -- Glimpse
-        "foot_cream",             -- Footcream
+        "xray",                         -- X-Ray
+        "page_scrubber",                -- Page Scrubber
+        "glimpse",                      -- Glimpse
+        "foot_cream",                   -- Footcream
+        "go_to_furthest_reading_location", -- Track Reading Location (reader only)
     },
     { header = "Stats & Progress",
-        "readmastery",            -- ReadMastery
-        "reading_insights_popup", -- Reading Insights
-        "bookcard",               -- Book Card
-        "shelfsync",              -- ShelfSync
+        "readmastery",                  -- ReadMastery
+        "reading_insights_popup",       -- Reading Insights
+        "patch:ri_tweaks",              -- Reading Insights Tweaks
+        "patch:readinglog_tweaks",      -- Reading Log Tweaks
+        "bookcard",                     -- Book Card
+    },
+    { header = "Sync & Network",
+        "shelfsync",                    -- ShelfSync (+ ShelfSync Tweaks)
+        "bookorbit",                    -- BookOrbit
+        "patch:bookorbit_tweaks",       -- BookOrbit Tweaks
+        "patch:network_tweaks",         -- Network Tweaks
     },
     { header = "System",
-        "Storefront",             -- Storefront
-        "backup",                 -- Device Backup & Restore
-        "backup_patches",         -- Patch Backup & Restore (patch)
-        "menu_disabler",          -- Menu Disabler (Menu customizer)
+        "Storefront",                   -- Storefront
+        "backup",                       -- Device Backup & Restore
+        "menu_disabler",                -- Menu Disabler (Menu customizer)
+    },
+    { header = "Maintenance",
+        "backup_patches",               -- Patch Backup & Restore
+        "patch:check_patch_updates",    -- Check For Patch Updates
+        "patch:debugging_menu",         -- Debugging
+        "patch:screenshot_timer",       -- Screenshot in 10 s
     },
 }
 
--- Menus added by patches that aren't placed in a group above: they go in the
--- "Patches" group, with settings from patches that register themselves
--- (e.g. SimpleUI Mod). Any id - plugin or patch - can go in any group above.
+-- Top-level menus that patches add without registering (ids KOReader would
+-- otherwise see as new plugins). Placed by PLUGINS above when listed there,
+-- otherwise under "Patches".
 local PATCH_MENUS = {
     "go_to_furthest_reading_location", -- Track Reading Location (reader only)
 }
@@ -124,9 +166,11 @@ local PATCH_MENUS = {
         text  = "My Patch",              -- fallback label
         order = 100,                      -- optional, lower = higher up (ties sort by name)
         where = "filemanager",            -- optional: "filemanager" or "reader" only (default: both)
+        group = "Reading",                -- optional: default group (a header above); else "Patches"
         build = function(where) return { text = "My Patch", sub_item_table = {...} } end,
     }
-  Entries show at the end of Add-ons, under "Patches". build() runs every time the menu is
+  Entries listed in PLUGINS as "patch:<id>" go there; others go in their
+  group, or under "Patches". build() runs every time the menu is
   built, so keep it cheap: return an item with sub_item_table_func to build the
   submenu only when it's opened.
   TM.shows(id) is false when the user turned your entry off in "Choose what's in
@@ -218,11 +262,9 @@ function TM.shows(id)
     return not excluded["patch:" .. tostring(id)]
 end
 
--- What the last menu build found, per menu ("filemanager" / "reader"), for the
--- chooser: seen[where] = { { key, label, header, default }, ... },
--- seen_groups[where] = group names in display order.
+-- What the last menu build found, per menu ("filemanager" / "reader"), for
+-- Arrange Add-ons: seen[where] = { { key, id, label, default, broken }, ... }.
 local seen = {}
-local seen_groups = {}
 
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -261,7 +303,108 @@ local function shared_note(banner_text, minimal_text, timeout)
     return false
 end
 
--- ---- "Choose what's in Add-ons" ---------------------------------------------------
+-- ---- Layout ("Arrange Add-ons") ------------------------------------------------------
+-- Everything here is optional; missing fields mean the defaults above.
+--   order  = { group id, ... }               group order
+--   custom = { group id, ... }               groups you added
+--   names  = { [group id] = shown name }     renamed groups
+--   items  = { [group id] = { key, ... } }   item order (Custom sort)
+--   sort   = "custom" | "alpha"
+--   auto   = true | false                    new add-ons show up ticked
+-- A group id is its default header (or the name you gave a new group), so
+-- the group choices in addons_menu_groups keep working across renames.
+local LAYOUT_KEY = "addons_menu_layout"
+local layout = G_reader_settings and G_reader_settings:readSetting(LAYOUT_KEY) or {}
+if type(layout) ~= "table" then layout = {} end
+
+local function list(field)
+    if type(layout[field]) ~= "table" then layout[field] = {} end
+    return layout[field]
+end
+local function groupName(id)
+    local n = type(layout.names) == "table" and layout.names[id]
+    return (type(n) == "string" and n ~= "") and n or id
+end
+local function alphaSort() return layout.sort == "alpha" end
+local function newGoIn()
+    if layout.auto == nil then return NEW_GO_IN end
+    return layout.auto == true
+end
+local function isCustom(id)
+    for _i, g in ipairs(list("custom")) do if g == id then return true end end
+    return false
+end
+
+local OTHER, PATCHES = _("Other"), _("Patches")
+local DEFAULT_GROUPS = {}
+do
+    local known = {}
+    for _i, g in ipairs(PLUGINS) do
+        if g.header and not known[g.header] then DEFAULT_GROUPS[#DEFAULT_GROUPS + 1] = g.header; known[g.header] = true end
+    end
+    for _i, n in ipairs({ OTHER, PATCHES }) do
+        if not known[n] then DEFAULT_GROUPS[#DEFAULT_GROUPS + 1] = n; known[n] = true end
+    end
+end
+
+-- Every group in display order (saved order first, then the rest), plus a
+-- set of them.
+local function groupOrder()
+    local exists = {}
+    for _i, g in ipairs(DEFAULT_GROUPS) do exists[g] = true end
+    for _i, g in ipairs(list("custom")) do exists[g] = true end
+    local all, known = {}, {}
+    local function push(g)
+        if exists[g] and not known[g] then known[g] = true; all[#all + 1] = g end
+    end
+    for _i, g in ipairs(list("order")) do push(g) end
+    for _i, g in ipairs(DEFAULT_GROUPS) do push(g) end
+    for _i, g in ipairs(list("custom")) do push(g) end
+    return all, known
+end
+
+-- Candidates { key, id, label, default, broken } -> { { id = group, items = {...} }, ... }
+-- in display order. A group's own items come first, then ones moved into it;
+-- Custom sort then applies your saved order, A To Z sorts by name.
+local function arrange(cands)
+    local order, known = groupOrder()
+    local buckets = {}
+    for pass = 1, 2 do
+        for _i, c in ipairs(cands) do
+            local g = group_of[c.key]
+            local default = known[c.default] and c.default or PATCHES
+            c.group = (g and known[g]) and g or default
+            if (pass == 1) == (c.group == default) then
+                buckets[c.group] = buckets[c.group] or {}
+                table.insert(buckets[c.group], c)
+            end
+        end
+    end
+    local out = {}
+    for _i, g in ipairs(order) do
+        local items = buckets[g] or {}
+        for i, c in ipairs(items) do c._pos = i end
+        if alphaSort() then
+            table.sort(items, function(x, y)
+                local lx, ly = x.label:lower(), y.label:lower()
+                if lx ~= ly then return lx < ly end
+                return x._pos < y._pos
+            end)
+        else
+            local saved = type(layout.items) == "table" and layout.items[g]
+            if type(saved) == "table" and #saved > 0 then
+                local rank = {}
+                for i, k in ipairs(saved) do rank[k] = i end
+                table.sort(items, function(x, y)
+                    return (rank[x.key] or 10000 + x._pos) < (rank[y.key] or 10000 + y._pos)
+                end)
+            end
+        end
+        out[#out + 1] = { id = g, items = items }
+    end
+    return out
+end
+
 -- KOReader builds its main menu once per file browser / book and can't safely
 -- rebuild it in place (the base entries are used up by the first build), so a
 -- change applies after a restart.
@@ -280,75 +423,345 @@ local function askRestart()
     end
 end
 
-local restart_asked = false   -- one prompt per visit to the chooser
+local restart_asked = false   -- one prompt per visit to Arrange Add-ons
 
-local function saveAndAsk(key, value)
+local function saveAndAsk(key, value, no_restart)
     if G_reader_settings then
         G_reader_settings:saveSetting(key, value)
         if G_reader_settings.flush then G_reader_settings:flush() end
     end
-    if not restart_asked then
+    if not restart_asked and not no_restart then
         restart_asked = true
         askRestart()
     end
 end
+local function saveLayout(no_restart) saveAndAsk(LAYOUT_KEY, layout, no_restart) end
 
--- Hold an item in the chooser: pick the group it goes in.
+local chooserItems   -- defined below; the dialogs refresh the open list with it
+
+-- Rebuilds the open Arrange Add-ons list in place after a change.
+local function refresh(where, touchmenu)
+    if type(touchmenu) ~= "table" or type(touchmenu.item_table) ~= "table" then return end
+    local fresh = chooserItems(where)
+    local t = touchmenu.item_table
+    for i = #t, 1, -1 do t[i] = nil end
+    for i, v in ipairs(fresh) do t[i] = v end
+    if touchmenu.updateItems then touchmenu:updateItems() end
+end
+
+local function ui()
+    local UIManager = require("ui/uimanager")
+    return UIManager, require("ui/widget/buttondialog")
+end
+
+-- Asks for a group name: on_done(name) with a non-empty, trimmed name.
+local function askName(title, current, on_done)
+    local UIManager = require("ui/uimanager")
+    local InputDialog = require("ui/widget/inputdialog")
+    local dlg
+    dlg = InputDialog:new{
+        title = title,
+        input = current or "",
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
+            { text = _("Save"), is_enter_default = true, callback = function()
+                local name = (dlg:getInputText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                UIManager:close(dlg)
+                if name ~= "" then on_done(name) end
+            end },
+        }},
+    }
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
+end
+
+-- An item's group, its position there, and the group's keys in order.
+local function placeOf(where, key)
+    for _i, g in ipairs(arrange(seen[where] or {})) do
+        for i, c in ipairs(g.items) do
+            if c.key == key then
+                local keys = {}
+                for j, x in ipairs(g.items) do keys[j] = x.key end
+                return g.id, i, keys
+            end
+        end
+    end
+end
+
+local function forgetOrder(key)
+    for _g, keys in pairs(list("items")) do
+        if type(keys) == "table" then
+            for i = #keys, 1, -1 do if keys[i] == key then table.remove(keys, i) end end
+        end
+    end
+end
+
+-- Hold an item: pick the group it goes in.
 local function pickGroup(where, c, touchmenu)
-    local ok, ButtonDialog = pcall(require, "ui/widget/buttondialog")
-    local okm, UIManager = pcall(require, "ui/uimanager")
-    if not (ok and okm) then return end
+    local UIManager, ButtonDialog = ui()
     local dlg
     local buttons = {}
-    for _i, name in ipairs(seen_groups[where] or {}) do
-        local current = (group_of[c.key] or c.default) == name
+    local current = c.group or group_of[c.key] or c.default
+    for _i, id in ipairs((groupOrder())) do
         buttons[#buttons + 1] = {{
-            text = (current and "\u{2713} " or "") .. name
-                .. (name == c.default and ("  " .. titlecase(_("(default)"))) or ""),
+            text = (current == id and "\u{2713} " or "") .. groupName(id)
+                .. (id == c.default and ("  " .. titlecase(_("(default)"))) or ""),
             callback = function()
                 UIManager:close(dlg)
-                local value = (name ~= c.default) and name or nil
+                local value = (id ~= c.default) and id or nil
                 if group_of[c.key] == value then return end
                 group_of[c.key] = value
+                forgetOrder(c.key)
                 saveAndAsk(GROUPS_KEY, group_of)
-                if touchmenu then touchmenu:updateItems() end
+                saveLayout()
+                refresh(where, touchmenu)
             end,
         }}
     end
+    dlg = ButtonDialog:new{ title = titlecase(_("move to group")) .. ": " .. c.label, buttons = buttons }
+    UIManager:show(dlg)
+end
+
+-- Hold an item: move it inside its group, or to another group.
+local function itemDialog(where, c, touchmenu)
+    local UIManager, ButtonDialog = ui()
+    local gid, pos, keys = placeOf(where, c.key)
+    local dlg
+    local function moveTo(new_pos)
+        UIManager:close(dlg)
+        if not keys or new_pos == pos then return end
+        table.remove(keys, pos)
+        table.insert(keys, new_pos, c.key)
+        list("items")[gid] = keys
+        saveLayout()
+        refresh(where, touchmenu)
+    end
+    local n = keys and #keys or 0
+    local buttons = {}
+    if alphaSort() then
+        buttons[#buttons + 1] = {{ text = titlecase(_("sorted A to Z: set Sort Items to Custom to reorder")), enabled = false }}
+    elseif gid then
+        buttons[#buttons + 1] = {
+            { text = titlecase(_("move up")), enabled = pos > 1, callback = function() moveTo(pos - 1) end },
+            { text = titlecase(_("move down")), enabled = pos < n, callback = function() moveTo(pos + 1) end },
+        }
+        buttons[#buttons + 1] = {
+            { text = titlecase(_("move to top")), enabled = pos > 1, callback = function() moveTo(1) end },
+            { text = titlecase(_("move to bottom")), enabled = pos < n, callback = function() moveTo(n) end },
+        }
+    end
+    buttons[#buttons + 1] = {{ text = titlecase(_("move to another group…")), callback = function()
+        UIManager:close(dlg)
+        pickGroup(where, c, touchmenu)
+    end }}
     dlg = ButtonDialog:new{ title = c.label, buttons = buttons }
     UIManager:show(dlg)
 end
 
-local function chooserItems(where)
-    restart_asked = false
-    local list = seen[where] or {}
-    local out, last_header = { { text = titlecase(_("Tap to turn on or off · Hold to move to a group")), enabled = false, separator = true } }, nil
-    for _i, c in ipairs(list) do
-        if c.header ~= last_header then
-            if #out > 0 then out[#out].separator = true end
-            if SHOW_HEADERS and c.header then
-                out[#out + 1] = { text = c.header, enabled = false }
-            end
-            last_header = c.header
-        end
-        local is_new = new_ids[c.key]
-        out[#out + 1] = {
-            text = is_new and (c.label .. "  • " .. _("New")) or c.label,
-            checked_func = function() return not excluded[c.key] end,
-            keep_menu_open = true,
-            callback = function()
-                excluded[c.key] = (not excluded[c.key]) or nil
-                saveAndAsk(SETTINGS_KEY, excluded)
-            end,
-            hold_callback = function(touchmenu) pickGroup(where, c, touchmenu) end,
-        }
+-- Tap a group name: move it, rename it, delete it (your own groups).
+local function groupDialog(where, gid, touchmenu)
+    local UIManager, ButtonDialog = ui()
+    local order = groupOrder()
+    local idx = 1
+    for i, g in ipairs(order) do if g == gid then idx = i break end end
+    local dlg
+    local function move(to)
+        UIManager:close(dlg)
+        table.remove(order, idx)
+        table.insert(order, to, gid)
+        layout.order = order
+        saveLayout()
+        refresh(where, touchmenu)
     end
-    if #out == 1 then out[1] = { text = titlecase(_("Nothing to choose yet")), enabled = false } end
-    -- shown once: the next time you open this list they're no longer "new".
-    -- Only clear what this menu actually showed, so a reader-only add-on keeps
-    -- its tag until you open the chooser in the reader.
+    local buttons = {
+        {
+            { text = titlecase(_("move up")), enabled = idx > 1, callback = function() move(idx - 1) end },
+            { text = titlecase(_("move down")), enabled = idx < #order, callback = function() move(idx + 1) end },
+        },
+        {{ text = titlecase(_("rename…")), callback = function()
+            UIManager:close(dlg)
+            askName(titlecase(_("group name")), groupName(gid), function(name)
+                list("names")[gid] = (name ~= gid) and name or nil
+                saveLayout()
+                refresh(where, touchmenu)
+            end)
+        end }},
+    }
+    if isCustom(gid) then
+        buttons[#buttons + 1] = {{ text = titlecase(_("delete group")), callback = function()
+            UIManager:close(dlg)
+            local ConfirmBox = require("ui/widget/confirmbox")
+            UIManager:show(ConfirmBox:new{
+                text = groupName(gid) .. "\n\n" .. _("Delete this group? Its items go back to their usual groups."),
+                ok_text = _("Delete"),
+                ok_callback = function()
+                    for _l, field in ipairs({ "custom", "order" }) do
+                        local l = list(field)
+                        for i = #l, 1, -1 do if l[i] == gid then table.remove(l, i) end end
+                    end
+                    list("items")[gid] = nil
+                    list("names")[gid] = nil
+                    for k, g in pairs(group_of) do if g == gid then group_of[k] = nil end end
+                    saveAndAsk(GROUPS_KEY, group_of)
+                    saveLayout()
+                    refresh(where, touchmenu)
+                end,
+            })
+        end }}
+    elseif groupName(gid) ~= gid then
+        buttons[#buttons + 1] = {{ text = titlecase(_("use original name")) .. ": " .. gid, callback = function()
+            UIManager:close(dlg)
+            list("names")[gid] = nil
+            saveLayout()
+            refresh(where, touchmenu)
+        end }}
+    end
+    dlg = ButtonDialog:new{ title = groupName(gid), buttons = buttons }
+    UIManager:show(dlg)
+end
+
+local function addGroup(where, touchmenu)
+    askName(titlecase(_("new group name")), "", function(name)
+        local order = groupOrder()
+        for _i, g in ipairs(order) do
+            if g == name or groupName(g) == name then
+                if not shared_note(_("That group already exists."), _("Already exists")) then
+                    local UIManager = require("ui/uimanager")
+                    UIManager:show(require("ui/widget/infomessage"):new{ text = _("That group already exists."), timeout = 3 })
+                end
+                return
+            end
+        end
+        local custom = list("custom")
+        custom[#custom + 1] = name
+        -- new groups go above Other and Patches
+        local pos = #order + 1
+        for i, g in ipairs(order) do if g == OTHER or g == PATCHES then pos = i break end end
+        table.insert(order, pos, name)
+        layout.order = order
+        saveLayout()
+        refresh(where, touchmenu)
+    end)
+end
+
+local function resetLayout(where, touchmenu)
+    local UIManager = require("ui/uimanager")
+    local ConfirmBox = require("ui/widget/confirmbox")
+    UIManager:show(ConfirmBox:new{
+        text = _("Put groups, group names, item order and moved items back to the defaults?\n\nWhat's turned on or off stays as it is."),
+        ok_text = _("Reset"),
+        ok_callback = function()
+            layout = { auto = layout.auto }
+            for k in pairs(group_of) do group_of[k] = nil end
+            saveAndAsk(GROUPS_KEY, group_of)
+            saveLayout()
+            refresh(where, touchmenu)
+        end,
+    })
+end
+
+-- Everything back to a fresh install: on/off choices, groups, names, order,
+-- moved items, "New" tags. What's installed is looked at again on the next
+-- start, like the first time.
+local function resetAll(where, touchmenu)
+    local UIManager = require("ui/uimanager")
+    local ConfirmBox = require("ui/widget/confirmbox")
+    UIManager:show(ConfirmBox:new{
+        text = _("Put the whole Add-ons menu back to the defaults?\n\nEvery plugin and patch goes back to its usual group and is turned on again, your own groups and names are removed, and the order goes back to the default."),
+        ok_text = _("Reset"),
+        ok_callback = function()
+            layout = {}
+            for _i, t in ipairs({ excluded, group_of, new_ids }) do
+                for k in pairs(t) do t[k] = nil end
+            end
+            known_ids = nil
+            if G_reader_settings then
+                G_reader_settings:delSetting(KNOWN_KEY)
+                G_reader_settings:saveSetting(NEW_KEY, new_ids)
+                G_reader_settings:saveSetting(SETTINGS_KEY, excluded)
+            end
+            saveAndAsk(GROUPS_KEY, group_of)
+            saveLayout()
+            refresh(where, touchmenu)
+        end,
+    })
+end
+
+chooserItems = function(where)
+    local cands = seen[where] or {}
+    local out = {
+        { text = titlecase(_("tap an item to turn it on or off, hold it to move it")), enabled = false },
+        { text = titlecase(_("tap a group name to move, rename or delete it")), enabled = false, separator = true },
+        {
+            text_func = function()
+                return titlecase(_("sort items")) .. ": " .. (alphaSort() and titlecase(_("A to Z")) or titlecase(_("custom")))
+            end,
+            sub_item_table = {
+                { text = titlecase(_("custom (your order)")), radio = true,
+                  checked_func = function() return not alphaSort() end,
+                  callback = function(tm) layout.sort = nil; saveLayout() end },
+                { text = titlecase(_("A to Z (inside each group)")), radio = true,
+                  checked_func = alphaSort,
+                  callback = function(tm) layout.sort = "alpha"; saveLayout() end },
+            },
+        },
+        {
+            text = titlecase(_("new add-ons show up automatically")),
+            help_text = _("On: newly installed plugins and patches go straight into Add-ons. Off: they're listed here unticked, for you to choose."),
+            checked_func = newGoIn,
+            keep_menu_open = true,
+            callback = function() layout.auto = not newGoIn(); saveLayout(true) end,
+        },
+        { text = titlecase(_("add group…")), keep_menu_open = true,
+          callback = function(tm) addGroup(where, tm) end, separator = true },
+    }
+    local any = false
+    for _i, g in ipairs(arrange(cands)) do
+        if #g.items > 0 or isCustom(g.id) then
+            any = true
+            local gid = g.id
+            out[#out + 1] = { text = groupName(gid), bold = true, keep_menu_open = true,
+                              callback = function(tm) groupDialog(where, gid, tm) end }
+            if #g.items == 0 then
+                out[#out + 1] = { text = "   " .. titlecase(_("empty: hold an item to move it here")), enabled = false }
+            end
+            for _j, c in ipairs(g.items) do
+                local label = c.broken and (c.label .. "  • " .. _("Error"))
+                    or (new_ids[c.key] and (c.label .. "  • " .. _("New")) or c.label)
+                out[#out + 1] = {
+                    text = label,
+                    checked_func = function() return not excluded[c.key] end,
+                    keep_menu_open = true,
+                    callback = function()
+                        excluded[c.key] = (not excluded[c.key]) or nil
+                        saveAndAsk(SETTINGS_KEY, excluded)
+                    end,
+                    hold_callback = function(tm) itemDialog(where, c, tm) end,
+                }
+            end
+            out[#out].separator = true
+        end
+    end
+    if not any then out[#out + 1] = { text = titlecase(_("nothing to arrange yet")), enabled = false, separator = true } end
+    out[#out + 1] = { text = titlecase(_("reset layout")),
+                      help_text = _("Groups, group names, item order and moved items back to the defaults. What's turned on or off stays as it is."),
+                      keep_menu_open = true,
+                      callback = function(tm) resetLayout(where, tm) end }
+    out[#out + 1] = { text = titlecase(_("reset everything to default")),
+                      help_text = _("The whole Add-ons menu back to a fresh install: every item in its usual group and turned on, your own groups and names gone, default order."),
+                      keep_menu_open = true,
+                      callback = function(tm) resetAll(where, tm) end }
+    return out
+end
+
+-- Opening the list: one restart prompt per visit, and "New" tags shown once.
+-- Only clear what this menu actually showed, so a reader-only add-on keeps
+-- its tag until you open the list in the reader.
+local function openChooser(where)
+    restart_asked = false
+    local out = chooserItems(where)
     local cleared = false
-    for _i, c in ipairs(list) do
+    for _i, c in ipairs(seen[where] or {}) do
         if new_ids[c.key] then
             new_ids[c.key] = nil
             cleared = true
@@ -395,18 +808,18 @@ local function buildEntries(where)
             local label = named and e.text or id
             if excluded["patch:" .. id] then
                 -- turned off: listed in the chooser only, not built
-                list[#list + 1] = { id = id, order = order, text = label, off = true }
+                list[#list + 1] = { id = id, order = order, text = label, off = true, group = e.group }
             else
                 -- one broken patch must not take the whole menu (or KOReader) down
                 local ok, item = pcall(e.build, where)
                 if ok and type(item) == "table" then
                     if not item.text and not item.text_func then item.text = label end
-                    list[#list + 1] = { id = id, order = order, item = item,
+                    list[#list + 1] = { id = id, order = order, item = item, group = e.group,
                                         text = named and label or itemLabel(item, id) }
                 else
                     logger.warn(TAG, "menu build failed for", id, ok and "build() returned no menu item" or item)
                     -- still listed in the chooser (marked), so it can be turned off
-                    list[#list + 1] = { id = id, order = order, text = label, broken = true }
+                    list[#list + 1] = { id = id, order = order, text = label, broken = true, group = e.group }
                 end
             end
         end
@@ -437,19 +850,18 @@ local function inject(where, items, order)
 
     -- Rows of the Add-ons list
     local plist = {}
-    local function addGroup(header, ids)
+    local function addRows(gid, ids)
         if #ids == 0 then return end
         if #plist > 0 then plist[#plist + 1] = SEPARATOR end
-        if SHOW_HEADERS and header then
-            local hid = ENTRY_ID .. "h:" .. header
-            items[hid] = { text = header, enabled = false }
+        if SHOW_HEADERS and gid then
+            local hid = ENTRY_ID .. "h:" .. gid
+            items[hid] = { text = groupName(gid), enabled = false }
             plist[#plist + 1] = hid
         end
         for _i, id in ipairs(ids) do plist[#plist + 1] = id end
     end
 
-    -- Every candidate in its default order: { key, id, label, group }
-    local OTHER, PATCHES = _("Other"), _("Patches")
+    -- Every candidate in its default order: { key, id, label, default }
     local cands = {}
     local function add(key, id, label, group, broken)
         claimed[id] = true
@@ -457,9 +869,23 @@ local function inject(where, items, order)
         -- are shared with their original menus and keep their own text)
         cands[#cands + 1] = { key = key, id = id, label = titlecase(label), default = group, broken = broken }
     end
+    -- patch settings that register (built once per menu build)
+    local entries, entry_by_id = buildEntries(where), {}
+    for _i, e in ipairs(entries) do entry_by_id[e.id] = e end
+    local function addEntry(e, group)
+        e.placed = true
+        local cid = ENTRY_ID .. "p:" .. e.id
+        items[cid] = e.item
+        add("patch:" .. e.id, cid, e.text, group, e.broken)
+    end
     for _i, g in ipairs(PLUGINS) do
         for _j, id in ipairs(g) do
-            if usable(id) then add(id, id, itemLabel(items[id], id), g.header) end
+            if id:sub(1, 6) == "patch:" then
+                local e = entry_by_id[id:sub(7)]
+                if e and not e.placed then addEntry(e, g.header) end
+            elseif usable(id) then
+                add(id, id, itemLabel(items[id], id), g.header)
+            end
         end
     end
 
@@ -521,7 +947,7 @@ local function inject(where, items, order)
                 else
                     fresh[#fresh + 1] = id
                     new_ids[id] = true
-                    if not NEW_GO_IN then excluded[id] = true end
+                    if not newGoIn() then excluded[id] = true end
                 end
             end
             add(id, id, labels[id], OTHER)
@@ -547,60 +973,53 @@ local function inject(where, items, order)
         end
     end
 
-    -- menus added by patches, then settings from patches that register
+    -- menus added by patches, then patch settings not placed above: in the
+    -- group they ask for, else under Patches (sorted by their order field).
+    -- A patch seen for the first time is tagged "New", like a new plugin.
     for _i, id in ipairs(PATCH_MENUS) do
         if usable(id) then add(id, id, itemLabel(items[id], id), PATCHES) end
     end
-    for _i, e in ipairs(buildEntries(where)) do
-        local cid = ENTRY_ID .. "p:" .. e.id
-        items[cid] = e.item
-        add("patch:" .. e.id, cid, e.text, PATCHES, e.broken)
-    end
-
-    -- groups in display order; a group chosen by hold must be one of them
-    -- (an unknown saved group, e.g. a renamed header, falls back to the default
-    -- but is kept, so renaming it back restores your choice)
-    local names, known = {}, {}
-    for _i, g in ipairs(PLUGINS) do
-        if g.header and not known[g.header] then names[#names + 1] = g.header; known[g.header] = true end
-    end
-    for _i, n in ipairs({ OTHER, PATCHES }) do
-        if not known[n] then names[#names + 1] = n; known[n] = true end
-    end
-    -- a group's own items first, then ones moved into it (in the order listed)
-    local buckets = {}
-    for pass = 1, 2 do
-        for _i, c in ipairs(cands) do
-            local g = group_of[c.key]
-            c.group = (g and known[g]) and g or c.default
-            if (pass == 1) == (c.group == c.default) then
-                buckets[c.group] = buckets[c.group] or {}
-                table.insert(buckets[c.group], c)
-            end
+    known_ids = known_ids or {}
+    local new_patches = false
+    for _i, e in ipairs(entries) do
+        if not e.placed then addEntry(e, type(e.group) == "string" and e.group or PATCHES) end
+        local k = "patch:" .. e.id
+        if not known_ids[k] then
+            known_ids[k] = true
+            new_patches = true
+            if known_ids["@patches_seen"] then new_ids[k] = true end
         end
     end
-    for _i, name in ipairs(names) do
+    if not known_ids["@patches_seen"] then known_ids["@patches_seen"] = true; new_patches = true end
+    if new_patches and G_reader_settings then
+        G_reader_settings:saveSetting(KNOWN_KEY, known_ids)
+        G_reader_settings:saveSetting(NEW_KEY, new_ids)
+    end
+
+    for _i, g in ipairs(arrange(cands)) do
         local ids = {}
-        for _j, c in ipairs(buckets[name] or {}) do
-            found[#found + 1] = { key = c.key, header = name, default = c.default,
-                                  label = c.broken and (c.label .. "  • " .. _("Error")) or c.label }
+        for _j, c in ipairs(g.items) do
+            found[#found + 1] = c
             if not excluded[c.key] and not c.broken then
                 moved[c.id] = true
                 ids[#ids + 1] = c.id
+                -- a patch that also adds its own copy to Tools (older
+                -- versions, or ones that always do): that copy goes too
+                local pid = c.key:match("^patch:(.+)$")
+                if pid and items[pid] ~= nil then moved[pid] = true end
             end
         end
-        addGroup(name, ids)
+        addRows(g.id, ids)
     end
 
     if #found == 0 then return nil end
-    seen[where] = found
-    seen_groups[where] = names
+    seen[where] = cands
 
     -- the chooser, always last, so turned-off items can be turned back on
     local cid = ENTRY_ID .. "choose"
     items[cid] = {
-        text = titlecase(_("Choose what's in Add-ons")),
-        sub_item_table_func = function() return chooserItems(where) end,
+        text = titlecase(_("Arrange Add-ons")),
+        sub_item_table_func = function() return openChooser(where) end,
     }
     if #plist > 0 then plist[#plist + 1] = SEPARATOR end
     plist[#plist + 1] = cid
