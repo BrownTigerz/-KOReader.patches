@@ -32,9 +32,15 @@ Purpose:
 
 This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
+
+Changes:
+  2.14.6  2026-10-30  Clean-up: debugging trace lines removed from crash.log
+                      (hooks, page loops, menu routes, setting changes); a
+                      failed BookOrbit open is now logged as a warning; dead
+                      code removed.
 ]]
 
-local VERSION = "2.14.5"
+local VERSION = "2.14.6"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -169,7 +175,6 @@ end
 local function toggle()
     cfg.keep_covers_original_in_nightmode = not isEnabled()
     saveConfig()
-    logger.info(TAG, "keep covers original in Night Mode =", isEnabled())
 end
 
 -- Recursively visit numeric widget children. KOReader widget containers keep
@@ -222,7 +227,6 @@ local function hookCatalogWidgets()
         return widget
     end
 
-    logger.info(TAG, "hooked BookOrbit catalog cover builder")
     return true
 end
 
@@ -296,7 +300,6 @@ local function hookBoardCover()
         if not ok then error(err, 0) end
     end
 
-    logger.info(TAG, "hooked BookOrbit board cover painter")
     return true
 end
 
@@ -419,7 +422,6 @@ local function hookHeroNight()
             inner = result,
         }
     end
-    logger.info(TAG, "hooked BookOrbit hero tile for night mode")
     return true
 end
 
@@ -462,12 +464,6 @@ local function findCatalogOnStack(catalog)
         return nil, nil, nil
     end
     local stack = UIManager._window_stack
-    local top
-    if type(UIManager.getTopmostVisibleWidget) == "function" then
-        local ok_top, w = pcall(UIManager.getTopmostVisibleWidget, UIManager)
-        if ok_top then top = w end
-    end
-    if top == nil and stack[#stack] then top = stack[#stack].widget end
     local idx
     for i = 1, #stack do
         local w = stack[i] and stack[i].widget
@@ -529,7 +525,6 @@ local function raiseCatalogWindow(catalog)
         if widget then UIManager:show(widget) end
         UIManager:setDirty("all", "full")
     end)
-    logger.info(TAG, "raised buried BookOrbit catalog to the top")
     return true, widget
 end
 
@@ -572,9 +567,6 @@ local function closeAllBookOrbitCatalogs(reason)
     end
     clearPlugin("apps/filemanager/filemanager", "bookorbit")
     clearPlugin("apps/reader/readerui", "bookorbit")
-    if closed > 0 then
-        logger.info(TAG, "TRACE closeAllBookOrbitCatalogs:", reason or "?", "closed=", closed)
-    end
     return closed
 end
 
@@ -590,9 +582,6 @@ local function closeBookOrbitExtras(reason)
         end
     end
     for _i, w in ipairs(to_close) do pcall(UIManager.close, UIManager, w) end
-    if #to_close > 0 then
-        logger.info(TAG, "closed BookOrbit extras:", reason or "?", #to_close)
-    end
     return #to_close
 end
 
@@ -613,13 +602,11 @@ local function sleepWipe(phase, reason)
         if phase == "Suspend" then return closeBookOrbitExtras(reason) end
         return 0
     end
-    logger.info(TAG, "TRACE sleep wipe:", reason or phase)
     return closeAllBookOrbitCatalogs(reason)
 end
 
 -- Nuclear open: close any leftover catalog, then open fresh via the live plugin.
 local function forceOpenBookOrbit(reason)
-    logger.info(TAG, "TRACE forceOpenBookOrbit:", reason or "?")
     closeAllBookOrbitCatalogs(reason or "force-open")
     local FM = package.loaded["apps/filemanager/filemanager"]
     local fm = type(FM) == "table" and FM.instance
@@ -630,21 +617,21 @@ local function forceOpenBookOrbit(reason)
         plugin = type(reader) == "table" and (reader.bookorbit or reader.BookOrbit)
     end
     if type(plugin) ~= "table" then
-        logger.warn(TAG, "TRACE forceOpenBookOrbit: no plugin instance")
+        logger.warn(TAG, "forceOpenBookOrbit: no plugin instance")
         return false
     end
     plugin.catalog_browser = nil
-    local opened = false
+    local opened
     if type(plugin.browseCatalog) == "function" then
         local ok, err = pcall(plugin.browseCatalog, plugin, false)
-        logger.info(TAG, "TRACE forceOpenBookOrbit browseCatalog ok=", ok, "err=", err)
+        if not ok then logger.warn(TAG, "browseCatalog failed:", err) end
         opened = ok and true or false
     elseif type(plugin.openBookOrbit) == "function" then
         local ok, err = pcall(plugin.openBookOrbit, plugin)
-        logger.info(TAG, "TRACE forceOpenBookOrbit openBookOrbit ok=", ok, "err=", err)
+        if not ok then logger.warn(TAG, "openBookOrbit failed:", err) end
         opened = ok and true or false
     else
-        logger.warn(TAG, "TRACE forceOpenBookOrbit: no browseCatalog/openBookOrbit")
+        logger.warn(TAG, "forceOpenBookOrbit: no browseCatalog/openBookOrbit")
         return false
     end
     -- After open, SimpleUI home often remains on the stack and can paint over
@@ -674,7 +661,6 @@ local function forceOpenBookOrbit(reason)
             else
                 pcall(function() UIManager:setDirty("all", "ui") end)
             end
-            logger.info(TAG, "TRACE forceOpenBookOrbit: closed home + raised catalog")
         end
     end
     return opened
@@ -692,13 +678,12 @@ local function raiseKeptCatalog(reason)
         if isBookOrbitRelated(w) then above[#above + 1] = w end
     end
     for _i, w in ipairs(above) do pcall(UIManager.close, UIManager, w) end
-    local _raised, widget = raiseCatalogWindow(nil)
+    local _, widget = raiseCatalogWindow(nil)
     if not widget then return false end
     if cfg.reopen_at == "home" and type(widget.dashboardMode) == "function"
             and type(widget.goDashboard) == "function" and not widget:dashboardMode() then
         pcall(widget.goDashboard, widget)
     end
-    logger.info(TAG, "kept catalog brought back:", reason or "?")
     return true, widget
 end
 
@@ -742,7 +727,6 @@ local function hookDispatcherOpen()
         local original = Dispatcher.execute
         Dispatcher.execute = function(self, action_id, ...)
             if action_id == "bookorbit_open_dashboard" then
-                logger.info(TAG, "TRACE Dispatcher.execute bookorbit_open_dashboard")
                 -- After sleep the catalog is often buried under SimpleUI home and
                 -- the normal early-return path does nothing. Always force a clean open.
                 openOrRaise("dispatcher")
@@ -750,7 +734,6 @@ local function hookDispatcherOpen()
             end
             return original(self, action_id, ...)
         end
-        logger.info(TAG, "hooked Dispatcher.execute for BookOrbit open")
     end
 
     local ok_ui, UIManager = pcall(require, "ui/uimanager")
@@ -761,7 +744,6 @@ local function hookDispatcherOpen()
         UIManager.sendEvent = function(self, event, ...)
             local name = type(event) == "table" and event.name
             if name == "BookOrbitOpenDashboard" then
-                logger.info(TAG, "TRACE UIManager.sendEvent BookOrbitOpenDashboard")
                 openOrRaise("sendEvent")
                 return true
             end
@@ -791,7 +773,6 @@ local function hookDispatcherOpen()
                         ges = event.ges
                     end
                     if type(ges) == "table" and ges.direction == "south" then
-                        logger.info(TAG, "sendEvent south on menu sheet -> tools menu")
                         pcall(function() self:close(w) end)
                         pcall(function()
                             self:nextTick(function()
@@ -824,7 +805,6 @@ local function hookDispatcherOpen()
             end
             return original_send(self, event, ...)
         end
-        logger.info(TAG, "hooked UIManager.sendEvent for BookOrbitOpenDashboard + second swipe")
         -- Attach second-swipe handler whenever a BookOrbit menu/settings widget is shown
         if not UIManager._bookorbit_tweaks_show_second_swipe then
             UIManager._bookorbit_tweaks_show_second_swipe = true
@@ -848,7 +828,6 @@ local function hookDispatcherOpen()
                 end
                 return res
             end
-            logger.info(TAG, "hooked UIManager.show for second swipe on BO settings")
         end
     end
 
@@ -880,7 +859,6 @@ local function hookDispatcherOpen()
             end
             return res
         end
-        logger.info(TAG, "hooked UIManager.broadcastEvent for Suspend/Resume wipe")
     end
 
     if ok_ui and type(UIManager) == "table" and type(UIManager.event_handlers) == "table" then
@@ -900,7 +878,6 @@ local function hookDispatcherOpen()
                 end
                 return res
             end
-            logger.info(TAG, "hooked UIManager.event_handlers.Resume")
         end
         if type(handlers.Suspend) == "function" and not handlers._bookorbit_tweaks_suspend then
             handlers._bookorbit_tweaks_suspend = true
@@ -909,7 +886,6 @@ local function hookDispatcherOpen()
                 pcall(sleepWipe, "Suspend", "event_handlers.Suspend")
                 return original_suspend_handler(...)
             end
-            logger.info(TAG, "hooked UIManager.event_handlers.Suspend")
         end
     end
     return true
@@ -957,7 +933,6 @@ local function hookPluginOpen(plugin)
                         return true
                     end
                 end
-                logger.info(TAG, "TRACE ensureCatalogVisible: stack polluted, forceOpen")
                 forceOpenBookOrbit("ensure-visible")
                 return true
             end
@@ -1023,7 +998,6 @@ local function hookPluginOpen(plugin)
     local original_dashboard = plugin.onBookOrbitOpenDashboard
     if type(original_dashboard) == "function" then
         plugin.onBookOrbitOpenDashboard = function(self, ...)
-            logger.info(TAG, "TRACE onBookOrbitOpenDashboard")
             -- If anything is above the catalog (home / menu sheet), force clean open.
             if ensureCatalogVisible(self) then
                 return true
@@ -1121,7 +1095,6 @@ local function hookPluginOpen(plugin)
                 local inst = type(M) == "table" and M.instance
                 local menu = type(inst) == "table" and inst.menu
                 if type(menu) == "table" and type(menu.onShowMenu) == "function" then
-                    logger.info(TAG, "opening tools menu via", mod_name)
                     pcall(menu.onShowMenu, menu)
                     return true
                 end
@@ -1135,7 +1108,6 @@ local function hookPluginOpen(plugin)
             if ok_d and type(Dispatcher) == "table" and type(Dispatcher.execute) == "function" then
                 local ok = pcall(Dispatcher.execute, Dispatcher, "show_menu")
                 if ok then
-                    logger.info(TAG, "opening tools menu via Dispatcher show_menu")
                     return true
                 end
             end
@@ -1144,7 +1116,6 @@ local function hookPluginOpen(plugin)
             local ok_ev, Event = pcall(require, "ui/event")
             local ok_ui, UIManager = pcall(require, "ui/uimanager")
             if ok_ev and ok_ui then
-                logger.info(TAG, "opening tools menu via ShowMenu event")
                 pcall(function()
                     UIManager:sendEvent(Event:new("ShowMenu"))
                 end)
@@ -1168,7 +1139,6 @@ local function hookPluginOpen(plugin)
             local function maybeToolsFromSouth(ges_ev)
                 if not cfg.second_swipe_tools then return false end
                 if gesDirection(ges_ev) ~= "south" then return false end
-                logger.info(TAG, "menu sheet south swipe -> tools menu")
                 local ok_ui, UIManager = pcall(require, "ui/uimanager")
                 if ok_ui then
                     pcall(function() UIManager:close(widget) end)
@@ -1227,7 +1197,6 @@ local function hookPluginOpen(plugin)
                     return original_handle(this, event, ...)
                 end
             end
-            logger.info(TAG, "attached second-swipe tools on BookOrbit chrome (onSwipePage)")
             -- Expose for MenuPage / UIManager.show hooks
             package.loaded.bookorbit_tweaks_attach_second_swipe = attachSecondSwipe
         end
@@ -1323,7 +1292,6 @@ local function hookCatalogClose()
         end
         return result
     end
-    logger.info(TAG, "hooked BookOrbit catalog close")
     return true
 end
 
@@ -1331,8 +1299,6 @@ end
 -- When loop_pages is on, a swipe that would have been a no-op at either end
 -- of a multi-page book list wraps to the other end. When loop_pages is off,
 -- boundary swipes stay no-ops and do not arm the flash.
-local FLASH_PENDING_S = 15
-
 local function pageFingerprint(catalog)
     local ctx = catalog and catalog.current_context
     if type(ctx) == "table" then
@@ -1370,11 +1336,9 @@ local function tryLoopPages(catalog, direction)
         local page_count = tonumber(ctx.page_count)
         if not page or not page_count or page_count < 2 then return false end
         if direction > 0 and page >= page_count then
-            logger.info(TAG, "loop books next:", page, "-> 1")
             catalog:onGotoPage(1)
             return true
         elseif direction < 0 and page <= 1 then
-            logger.info(TAG, "loop books prev: 1 ->", page_count)
             catalog:onGotoPage(page_count)
             return true
         end
@@ -1387,14 +1351,12 @@ local function tryLoopPages(catalog, direction)
         local page = tonumber(ctx.board_page) or 1
         if page_count < 2 then return false end
         if direction > 0 and page >= page_count then
-            logger.info(TAG, "loop dashboard next:", page, "-> 1")
             ctx.board_page = 1
             if type(catalog.updateItems) == "function" then
                 catalog:updateItems(nil, true)
             end
             return true
         elseif direction < 0 and page <= 1 then
-            logger.info(TAG, "loop dashboard prev: 1 ->", page_count)
             ctx.board_page = page_count
             if type(catalog.updateItems) == "function" then
                 catalog:updateItems(nil, true)
@@ -1472,7 +1434,6 @@ local function hookCatalogFlash()
             UIManager:setDirty(catalog and (catalog.show_parent or catalog) or "all",
                 "flashui", catalog and catalog.dimen)
         end
-        if why then logger.info(TAG, "flash:", why) end
     end
 
     local turns = 0
@@ -1586,8 +1547,7 @@ local function hookCatalogFlash()
                     flashNow(self, "page-turn-landed")
                 end
             elseif cfg.flash_content then
-                if open_t > 0 and (nowS() - open_t) < 8 then
-                else
+                if not (open_t > 0 and (nowS() - open_t) < 8) then
                     flashNow(self, "content")
                 end
             end
@@ -1643,7 +1603,6 @@ local function hookCatalogFlash()
         end
     end
 
-    logger.info(TAG, "hooked BookOrbit catalog page-turn loop + flash")
     return true
 end
 
@@ -1683,7 +1642,6 @@ local function hookCatalogSwipeClose()
         end
         return true
     end
-    logger.info(TAG, "hooked BookOrbit catalog swipe (no close on swipe south)")
     return true
 end
 
@@ -1700,14 +1658,6 @@ local PILL_COLORS = {
     { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" }, { "Gold", "#D4A017" },
     { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
 }
-
-local function pillColorName(hex)
-    if type(hex) ~= "string" then return "White" end
-    for _i, c in ipairs(PILL_COLORS) do
-        if c[2]:upper() == hex:upper() then return c[1] end
-    end
-    return hex
-end
 
 local function pillColorValue(hex)
     if type(hex) ~= "string" then return nil end
@@ -1756,7 +1706,6 @@ local function hookResumePillColor()
         end
         return original_box(o, child)
     end
-    logger.info(TAG, "hooked BoardUI.box for Resume pill colour")
     return true
 end
 
@@ -1797,7 +1746,6 @@ local function hookSettingsFlash()
         end
         return result
     end
-    logger.info(TAG, "hooked BookOrbit menu/settings pages for ghosting flash")
     return true
 end
 
@@ -1999,7 +1947,6 @@ local function hookSignInPage()
             return true
         end
 
-        logger.info(TAG, "hooked BookOrbit sign-in page for saved servers")
         return page
     end
     return true
@@ -2017,7 +1964,6 @@ local function showServerChooser(plugin, on_enter_new, on_switched)
     -- Without this, the MenuPage path stacked two choosers and Enter
     -- Different had to be tapped twice (TK: chooser stayed, 2-3 presses).
     if skip_server_chooser then
-        logger.info(TAG, "server entry: chooser bypassed (skip flag), calling original directly")
         if on_enter_new then on_enter_new() end
         return
     end
@@ -2095,7 +2041,6 @@ local function hookSettingsPage()
                         -- setServerAddress hooks: without it, the original
                         -- action's setServerAddress call is re-intercepted
                         -- and the chooser pops back up instead of the entry.
-                        logger.info(TAG, "server entry: Settings hook, skip flag set, calling original")
                         skip_server_chooser = true
                         local ok, err = pcall(function()
                             if type(original_action) == "function" then
@@ -2107,7 +2052,6 @@ local function hookSettingsPage()
                             end
                         end)
                         skip_server_chooser = false
-                        logger.info(TAG, "server entry: Settings hook, original action returned")
                         if not ok then error(err, 0) end
                     end, function()
                         if p.refresh then p:refresh() end
@@ -2121,7 +2065,6 @@ local function hookSettingsPage()
             end
             return page
         end
-        logger.info(TAG, "hooked BookOrbit settings page for server chooser")
     end
     return true
 end
@@ -2140,7 +2083,6 @@ local function hookMenuPageRunAction()
             local list = loadServers()
             if #list > 0 then
                 showServerChooser(self.plugin, function()
-                    logger.info(TAG, "server entry: MenuPage hook, skip flag set, calling original")
                     skip_server_chooser = true
                     local ok, err = pcall(original, self, action)
                     skip_server_chooser = false
@@ -2153,7 +2095,6 @@ local function hookMenuPageRunAction()
         end
         return original(self, action)
     end
-    logger.info(TAG, "hooked MenuPage.runAction for server chooser")
     return true
 end
 
@@ -2164,10 +2105,8 @@ local function hookPluginServerAddress(plugin)
     local original = plugin.setServerAddress
     plugin.setServerAddress = function(self, on_done)
         if skip_server_chooser then
-            logger.info(TAG, "server entry: setServerAddress running unwrapped (skip flag)")
             return original(self, on_done)
         end
-        logger.info(TAG, "server entry: setServerAddress intercepted, showing chooser")
         local list = loadServers()
         if #list == 0 then
             return original(self, on_done)
@@ -2181,7 +2120,6 @@ local function hookPluginServerAddress(plugin)
             if on_done then pcall(on_done) end
         end)
     end
-    logger.info(TAG, "hooked plugin setServerAddress for server chooser")
 end
 
 -- ---- Persistent library filter -------------------------------------------------------
@@ -2223,7 +2161,6 @@ local function hookCatalogLibraryFilter()
             query = original(self, query) or query
             return applyLibraryFilterToParams(query)
         end
-        logger.info(TAG, "hooked listDecorateBookQuery for library filter")
     end
 
     local ok_cat, Catalog = pcall(require, "bookorbit_catalog")
@@ -2237,7 +2174,6 @@ local function hookCatalogLibraryFilter()
             end
             return original_load(self, params, title, push)
         end
-        logger.info(TAG, "hooked loadBooks for library filter")
     end
 
     local ok_api, Api = pcall(require, "bookorbit_api")
@@ -2251,7 +2187,6 @@ local function hookCatalogLibraryFilter()
             end
             return original_books(self, params)
         end
-        logger.info(TAG, "hooked api.catalogBooks for library filter")
     end
     return true
 end
@@ -2358,7 +2293,6 @@ local function buildLibraryMenu()
             cfg.library_filter_id = false
             cfg.library_filter_name = ""
             saveConfig()
-            logger.info(TAG, "library filter: all")
             askRestartAfterLibraryChange(old_id, false)
             if touchmenu_instance then
                 touchmenu_instance.item_table = buildLibraryMenu()
@@ -2389,7 +2323,6 @@ local function buildLibraryMenu()
                     cfg.library_filter_id = lid
                     cfg.library_filter_name = label
                     saveConfig()
-                    logger.info(TAG, "library filter:", label, lid)
                     askRestartAfterLibraryChange(old_id, lid)
                     if touchmenu_instance then
                         touchmenu_instance.item_table = buildLibraryMenu()
@@ -2524,7 +2457,6 @@ local function buildServerMenu()
         callback = function()
             cfg.server_chooser_in_settings = not (cfg.server_chooser_in_settings ~= false)
             saveConfig()
-            logger.info(TAG, "server_chooser_in_settings =", cfg.server_chooser_in_settings)
         end,
     })
 
@@ -2663,7 +2595,6 @@ local function buildServerMenu()
                                                         end
                                                     end
                                                     saveServers(list2)
-                                                    logger.info(TAG, "edited saved server", url, user)
                                                     if touchmenu_instance then
                                                         touchmenu_instance.item_table = buildServerMenu()
                                                         touchmenu_instance:updateItems()
@@ -2724,7 +2655,6 @@ local function buildMenu()
             callback = function()
                 cfg.loop_pages = not (cfg.loop_pages == true)
                 saveConfig()
-                logger.info(TAG, "loop_pages =", cfg.loop_pages)
             end,
         },
         {
@@ -2734,7 +2664,6 @@ local function buildMenu()
             callback = function()
                 cfg.keep_open_sleep = not (cfg.keep_open_sleep == true)
                 saveConfig()
-                logger.info(TAG, "keep_open_sleep =", cfg.keep_open_sleep)
             end,
         },
         {
@@ -2743,7 +2672,6 @@ local function buildMenu()
             callback = function()
                 cfg.second_swipe_tools = not (cfg.second_swipe_tools == true)
                 saveConfig()
-                logger.info(TAG, "second_swipe_tools =", cfg.second_swipe_tools)
             end,
         },
         {
@@ -2765,7 +2693,6 @@ local function buildMenu()
                         callback = function()
                             cfg.resume_pill_color = hex
                             saveConfig()
-                            logger.info(TAG, "resume_pill_color =", hex)
                         end,
                     }
                 end
