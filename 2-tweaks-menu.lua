@@ -2,7 +2,7 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.1.2
+Version: 1.2.0
 
   Tools > Add-ons   your plugins and your patches' settings in one list,
                     grouped: each patch sits with the plugin it tweaks
@@ -34,7 +34,8 @@ listed unticked instead, for you to choose.
   - Put Tweaks Inside Their Plugin (on): SimpleUI Tweaks and SimpleUI Side
     Panel inside Simple UI, BookOrbit Tweaks inside BookOrbit, Reading
     Insights Tweaks inside Reading Insights, Reading Log Tweaks inside
-    Reading Log (COMBINE below)
+    Reading Log, and Device Backup & Restore with Patch Backup & Restore as
+    one Backup & Restore menu (COMBINE below)
   Changes apply after a restart.
 
 KOReader's menu order stays untouched: each menu build works on a copy, so
@@ -50,6 +51,10 @@ Versioning: 1.0.x fixes (e.g. a KOReader or plugin menu id rename),
             1.x.0 new features, 2.0.0 changes to how saved Add-ons choices work.
 
 Changelog:
+  1.2.0  2026-10-31  Backup & Restore: Device Backup & Restore and Patch
+                     Backup & Restore are one entry in System, with each
+                     menu inside it (Put Tweaks Inside Their Plugin; moving
+                     Patch Backup to another group splits them again).
   1.1.2  2026-10-30  Fix: Simple UI, BookOrbit, Reading Insights and their
                      tweaks also showed in Tools (and the tweaks as "NEW:
                      ..." in the first tab), and a patch's own Tools copy
@@ -114,7 +119,7 @@ Changelog:
                      now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.1.2"
+local PATCH_VERSION = "1.2.0"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -183,6 +188,13 @@ local COMBINE = {
     bookorbit              = { "patch:bookorbit_tweaks" },
     reading_insights_popup = { "patch:ri_tweaks" },
     readinglog             = { "patch:readinglog_tweaks" },
+    backup                 = { "backup_patches" },
+}
+
+-- Combined entries that keep each menu whole, one row apiece, under a name of
+-- their own (instead of the patch's rows at the bottom of the plugin's menu).
+local COMBINE_NEST = {
+    backup = "Backup & Restore",   -- Device Backup & Restore + Patch Backup & Restore
 }
 
 -- Listed in a group above but left in their usual spot until you tick them
@@ -1109,6 +1121,15 @@ local function inject(where, items, order)
             end
             drop[h.id] = true
             local host_label = h.label
+            local nest = COMBINE_NEST[hkey]
+            if nest then
+                local rows = { it }
+                for _i, k in ipairs(kid_items) do rows[#rows + 1] = k end
+                items[ENTRY_ID .. "c:" .. h.id] = {
+                    text = nest,
+                    sub_item_table_func = function() return rows end,
+                }
+            else
             items[ENTRY_ID .. "c:" .. h.id] = {
                 text = it.text, text_func = it.text_func, help_text = it.help_text,
                 sub_item_table_func = function()
@@ -1134,6 +1155,7 @@ local function inject(where, items, order)
                     return out
                 end,
             }
+            end
         end
     end
 
