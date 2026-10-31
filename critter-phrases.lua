@@ -9,8 +9,12 @@
 -- Don't name it phrases.lua or put it in settings/simpleui/sui_critters/:
 -- that's SimpleUI's own custom phrase file, in another format.
 --
+-- Updates: Patch Backup & Restore > Check for Patch Updates lists this
+-- file under Extras (VERSION below). Updating replaces the whole file, so
+-- if you've edited it, keep your copy or skip the update.
+--
 -- Edit freely. Missing or broken, both fall back to their built-in lines
--- (Debugging logs which). Keep lines short: about 35 characters fits the
+-- (crash.log says which). Keep lines short: about 35 characters fits the
 -- bubble on two rows.
 --
 -- insights[kind]: list of { mood, text = function(d), sub = function(d),
@@ -59,6 +63,7 @@ local function readToday(f) return mins(math.floor((f.today_secs or 0) / 60)) en
 local function title(f) return q(f.book and f.book.title) end
 
 return {
+    VERSION = "1.0.0",
     version = 1,
 
     insights = {
