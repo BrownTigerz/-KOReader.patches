@@ -36,6 +36,27 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.0  2026-10-30  Add To Collection: BookOrbit's book sheet (hold a book
+                      in a list, or ⋯ on a book's page) gets a row listing
+                      your BookOrbit collections, ✓ on the ones the book is
+                      in; tap to add or remove, or make a new collection. It
+                      signs in like the web app (BookOrbit's KOReader sign-in
+                      can't change collections); the password is saved only
+                      if you say so, encrypted like ShelfSync Tweaks' logins,
+                      and never in backups. A security notice explains all
+                      that before the password is first asked for (and About
+                      The Saved Password in the menu); Forget Saved BookOrbit
+                      Password removes it. Results follow Network Tweaks'
+                      notification style; failures stay popups.
+  2.14.12 2026-10-30  Open Book Only From Buttons (off by default): on the
+                      dashboard, only the Resume / Download pill and the round
+                      play button open the book; a tap anywhere else on the
+                      Continue Reading tile does nothing.
+  2.14.11 2026-10-30  Fix: in Night Mode, Book Detail and Dialog colours came
+                      out inverted (Blue showed as tan): the screen inverts
+                      them, and only the dashboard hero is inverted back. Those
+                      colours are now given pre-inverted in Night Mode, so they
+                      show as picked.
   2.14.10 2026-10-30  Fix: Book Detail and Dialog colours looked pale and grainy
                       next to Continue Reading. A colour screen needs a
                       dithered refresh to show colour, and only BookOrbit's
@@ -67,7 +88,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.14.10"
+local VERSION = "2.15.0"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -104,6 +125,8 @@ local DEFAULTS = {
     library_filter_name = "",
     server_chooser_in_settings = true,
     keep_open_sleep = false,   -- keep the catalog through sleep instead of closing it
+    buttons_only_open = false, -- dashboard: only the Resume / Download buttons open a book
+    collections_row = true,    -- book sheet: Add To Collection
 }
 
 local cfg = {}
@@ -1704,11 +1727,15 @@ local function pillColorName(hex)
     return hex
 end
 
-local function pillColorValue(hex)
+-- invert: for buttons outside the dashboard hero in Night Mode. The screen
+-- inverts everything there, so a colour given already inverted shows as
+-- picked (the hero tile is inverted back by BookOrbit, so it doesn't need it).
+local function pillColorValue(hex, invert)
     if type(hex) ~= "string" then return nil end
     local r, g, b = hex:match("^#?(%x%x)(%x%x)(%x%x)$")
     if not r then return nil end
     r, g, b = tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+    if invert then r, g, b = 255 - r, 255 - g, 255 - b end
     local ok_bb, Blitbuffer = pcall(require, "ffi/blitbuffer")
     if not ok_bb or type(Blitbuffer) ~= "table" then return nil end
     if r == g and g == b then return Blitbuffer.Color8(r) end
@@ -1815,8 +1842,10 @@ local function hookResumePillColor()
             elseif isBlack(o.bg) and border == 0 and isRoundedAction(o) then
                 local hex = (in_dialog > 0) and cfg.dialog_pill_color or cfg.detail_pill_color
                 if hexActive(hex) then
-                    local col = pillColorValue(hex)
-                    pillTrace("MATCH solid-primary",
+                    local ok_dev, Device = pcall(require, "device")
+                    local night = ok_dev and Device.screen and Device.screen.night_mode == true
+                    local col = pillColorValue(hex, night)
+                    pillTrace("MATCH solid-primary", night and "night" or "day",
                         (in_dialog > 0) and "dialog" or "detail",
                         "cfg=" .. tostring(hex),
                         "h=" .. tostring(h), "r=" .. tostring(r))
@@ -1865,6 +1894,26 @@ local function hookResumePillColor()
 end
 
 -- ---- Flash on BookOrbit settings / menu pages --------------------------------------
+-- Open Book Only From Buttons: on the dashboard, a tap on the Continue
+-- Reading tile (or the chapters / forecast tiles) outside its buttons opened
+-- the book. That tap is the tile's default action; with the option on it
+-- does nothing, and the Resume / Download / play buttons still open the book.
+local function hookButtonsOnly()
+    local ok, Catalog = pcall(require, "bookorbit_catalog")
+    if not ok or type(Catalog) ~= "table" or type(Catalog.boardItemAction) ~= "function" then return false end
+    if Catalog._bookorbit_tweaks_buttons_only then return true end
+    Catalog._bookorbit_tweaks_buttons_only = true
+    local original = Catalog.boardItemAction
+    Catalog.boardItemAction = function(self, item, d, ...)
+        local action = original(self, item, d, ...)
+        if cfg.buttons_only_open and type(action) == "table" and action.kind == "book" then
+            return nil
+        end
+        return action
+    end
+    return true
+end
+
 local function hookSettingsFlash()
     local ok, MenuPage = pcall(require, "bookorbit_menu_page")
     if not ok or type(MenuPage) ~= "table" or type(MenuPage.refresh) ~= "function" then
@@ -2516,6 +2565,415 @@ local function buildLibraryMenu()
 end
 
 
+-- ---- Add To Collection --------------------------------------------------------------
+-- BookOrbit's book sheet (hold a book in a list, or ⋯ on a book's page) gets
+-- an "Add To Collection" row: your BookOrbit collections, ✓ on the ones the
+-- book is in; tap to add or remove, or make a new one. BookOrbit's KOReader
+-- sign-in can't change collections, so this signs in like the web app, with
+-- your BookOrbit password. Saved only if you say so, AES-encrypted with a key
+-- kept in its own file (like ShelfSync Tweaks), and never in backups.
+
+local T = require("ffi/util").template
+local LOGIN_FILE = "bookorbit_tweaks_login.lua"
+
+-- Shared notification contract (same as Network Tweaks' other patches):
+-- results follow Network Tweaks' style (Banner / Minimal / Normal), then
+-- ReadMastery's, else a short KOReader note; never over the sleep screen.
+-- Questions and failures always stay popups.
+local function note(banner_text, minimal_text, timeout)
+    timeout = timeout or 2
+    local okd, Device = pcall(require, "device")
+    if okd and Device.screen_saver_mode then return end
+    local okn, NetworkMgr = pcall(require, "ui/network/manager")
+    if okn and type(NetworkMgr) == "table" and type(NetworkMgr.__network_tweaks_note) == "function" then
+        local ok, handled = pcall(NetworkMgr.__network_tweaks_note, banner_text, minimal_text, timeout)
+        if ok and handled then return end
+    end
+    local rm = _G.__readmastery_note
+    if type(rm) == "function" then
+        local ok, handled = pcall(rm, banner_text or minimal_text, timeout)
+        if ok and handled then return end
+    end
+    local UIManager = require("ui/uimanager")
+    UIManager:show(require("ui/widget/infomessage"):new{ text = banner_text, timeout = timeout })
+end
+local function failure(text)
+    local UIManager = require("ui/uimanager")
+    UIManager:show(require("ui/widget/infomessage"):new{ text = text })
+end
+
+-- Shown before the password is first asked for, and from the menu.
+local SECURITY_TEXT = _([[
+Add To Collection needs your BookOrbit password.
+
+• Why: BookOrbit's KOReader sign-in can read your library and sync, but it can't change collections. Only the web sign-in can, the same one the BookOrbit website uses.
+• Where it goes: only to your own BookOrbit server's sign-in, over the server address you set in BookOrbit. Nothing is sent anywhere else.
+• While KOReader runs: the server's session key is kept in memory for 10 minutes, then it signs in again. Nothing about the session is written to disk.
+• If you save it: it's encrypted (AES-256) in koreader/settings/bookorbit_tweaks_login.lua, with the key in a separate file, bookorbit_tweaks_keyring.lua. That stops someone casually browsing your files. It does not stop someone with full access to the e-reader, because the key is on the same device.
+• Backups: neither file goes into Patch Backup & Restore's backups or device backups.
+• Remove it anytime: BookOrbit Tweaks > Forget Saved BookOrbit Password.
+If you'd rather not keep it, choose Not Now when asked: you'll be asked again after 10 minutes or a restart.]])
+local KEYRING_FILE = "bookorbit_tweaks_keyring.lua"
+
+local Crypto = {}
+do
+    local ok_ffi, ffi = pcall(require, "ffi")
+    local lib, cdef_done
+    local function libcrypto()
+        if lib ~= nil then return lib or nil end
+        if not ok_ffi then lib = false return nil end
+        local ok, res = pcall(function()
+            if not cdef_done then
+                cdef_done = true
+                pcall(ffi.cdef, [[
+                    typedef struct engine_st ENGINE;
+                    typedef struct evp_cipher_st EVP_CIPHER;
+                    typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
+                    EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void);
+                    void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *);
+                    int EVP_EncryptInit_ex(EVP_CIPHER_CTX *, const EVP_CIPHER *, ENGINE *, const unsigned char *, const unsigned char *);
+                    int EVP_EncryptUpdate(EVP_CIPHER_CTX *, unsigned char *, int *, const unsigned char *, int);
+                    int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *, unsigned char *, int *);
+                    int EVP_DecryptInit_ex(EVP_CIPHER_CTX *, const EVP_CIPHER *, ENGINE *, const unsigned char *, const unsigned char *);
+                    int EVP_DecryptUpdate(EVP_CIPHER_CTX *, unsigned char *, int *, const unsigned char *, int);
+                    int EVP_DecryptFinal_ex(EVP_CIPHER_CTX *, unsigned char *, int *);
+                    const EVP_CIPHER *EVP_aes_256_cbc(void);
+                    int RAND_bytes(unsigned char *, int);
+                ]])
+            end
+            if ffi.loadlib then return ffi.loadlib("crypto", "57") end
+            local okl, l = pcall(ffi.load, "libs/libcrypto.so.57")
+            if okl and l then return l end
+            return ffi.load("crypto")
+        end)
+        lib = (ok and res) or false
+        return lib or nil
+    end
+    local function hex(s) return (s:gsub(".", function(c) return string.format("%02x", c:byte()) end)) end
+    local function unhex(s)
+        if type(s) ~= "string" or not s:match("^%x*$") or #s % 2 ~= 0 then return nil end
+        return (s:gsub("%x%x", function(cc) return string.char(tonumber(cc, 16)) end))
+    end
+    local function rand(l, n)
+        local buf = ffi.new("unsigned char[?]", n)
+        if l.RAND_bytes(buf, n) ~= 1 then return nil end
+        return ffi.string(buf, n)
+    end
+    local function cipher(encrypt, key, iv, input)
+        local l = libcrypto()
+        if not l then return nil end
+        local ctx = l.EVP_CIPHER_CTX_new()
+        if ctx == nil then return nil end
+        local init = encrypt and l.EVP_EncryptInit_ex or l.EVP_DecryptInit_ex
+        local update = encrypt and l.EVP_EncryptUpdate or l.EVP_DecryptUpdate
+        local final = encrypt and l.EVP_EncryptFinal_ex or l.EVP_DecryptFinal_ex
+        local out, out_len
+        local ok = init(ctx, l.EVP_aes_256_cbc(), nil, key, iv) == 1
+        if ok then
+            out = ffi.new("unsigned char[?]", #input + 16)
+            local n1, n2 = ffi.new("int[1]"), ffi.new("int[1]")
+            ok = update(ctx, out, n1, input, #input) == 1 and final(ctx, out + n1[0], n2) == 1
+            if ok then out_len = n1[0] + n2[0] end
+        end
+        l.EVP_CIPHER_CTX_free(ctx)
+        return ok and ffi.string(out, out_len) or nil
+    end
+    local function key()
+        local l = libcrypto()
+        if not l then return nil end
+        local s = require("luasettings"):open(require("datastorage"):getSettingsDir() .. "/" .. KEYRING_FILE)
+        local k = unhex(s:readSetting("aes_key"))
+        if k and #k == 32 then return k end
+        k = rand(l, 32)
+        if not k then return nil end
+        s:saveSetting("aes_key", hex(k))
+        s:flush()
+        return k
+    end
+    function Crypto.encrypt(plain)
+        local ok, res = pcall(function()
+            local k = key()
+            local l = libcrypto()
+            local iv = k and rand(l, 16)
+            local c = iv and cipher(true, k, iv, plain)
+            return c and hex(iv .. c) or nil
+        end)
+        return ok and res or nil
+    end
+    function Crypto.decrypt(blob)
+        local ok, res = pcall(function()
+            local raw, k = unhex(blob), key()
+            if not (raw and k and #raw > 16) then return nil end
+            return cipher(false, k, raw:sub(1, 16), raw:sub(17))
+        end)
+        return ok and res or nil
+    end
+end
+
+local function loginStore()
+    return require("luasettings"):open(require("datastorage"):getSettingsDir() .. "/" .. LOGIN_FILE)
+end
+
+-- server url -> { token, until }: the web session, in memory only
+local web_sessions = {}
+
+local function forgetLogin(server)
+    web_sessions[server] = nil
+    local s = loginStore()
+    s:delSetting(server)
+    s:flush()
+end
+
+-- Signs in the way the web app does and hands the access token to done().
+-- Uses a saved password when there is one; otherwise asks, then offers to
+-- save it.
+local function webSignIn(catalog, done, ask)
+    local client = catalog.client
+    local server = client and client.server_url
+    if not server then return end
+    local cached = web_sessions[server]
+    if not ask and cached and cached.token and os.time() < cached["until"] then return done(cached.token) end
+
+    local UIManager = require("ui/uimanager")
+    local function login(username, password, offer_save)
+        local body, err = catalog:fetch(_("Signing in to BookOrbit…"), function()
+            return client:requestBlocking("POST", "/auth/login",
+                { username = username, password = password, clientKind = "native", deviceLabel = "KOReader" })
+        end)
+        if not (type(body) == "table" and type(body.accessToken) == "string") then
+            if err == "cancelled" then return end
+            if not offer_save then forgetLogin(server) end -- a saved password that no longer works
+            failure(err == 401 and _("BookOrbit didn't accept that username or password.") or T(_("Couldn't sign in to BookOrbit:\n%1"), tostring(err)))
+            if not offer_save then return webSignIn(catalog, done, true) end
+            return
+        end
+        web_sessions[server] = { token = body.accessToken, ["until"] = os.time() + 10 * 60 }
+        if offer_save then
+            UIManager:show(require("ui/widget/confirmbox"):new{
+                text = _("Signed in to BookOrbit.\n\nSave your password so you don't have to type it again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to your own BookOrbit server's sign-in, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Never in backups.\n• Remove it anytime with BookOrbit Tweaks > Forget Saved BookOrbit Password."),
+                ok_text = _("Save"),
+                cancel_text = _("Not Now"),
+                ok_callback = function()
+                    local enc = Crypto.encrypt(password)
+                    if enc then
+                        local s = loginStore()
+                        s:saveSetting(server, { username = username, password_enc = enc })
+                        s:flush()
+                        note(_("Password saved on this device (encrypted)."), _("Password saved"))
+                    else
+                        -- never kept in plain text
+                        failure(_("Encryption isn't available on this device, so the password wasn't saved. You'll be asked for it again after a restart."))
+                    end
+                end,
+            })
+        end
+        return done(body.accessToken)
+    end
+
+    if not ask then
+        local saved = loginStore():readSetting(server)
+        local password = type(saved) == "table" and Crypto.decrypt(saved.password_enc)
+        if password then return login(saved.username, password, false) end
+    end
+    local function askPassword()
+    local MultiInputDialog = require("ui/widget/multiinputdialog")
+    local dlg
+    dlg = MultiInputDialog:new{
+        title = _("Sign in to BookOrbit"),
+        fields = {
+            { text = client.username or "", hint = _("Username") },
+            { text = "", hint = _("Password"), text_type = "password" },
+        },
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
+            { text = _("Sign In"), is_enter_default = true, callback = function()
+                local f = dlg:getFields()
+                UIManager:close(dlg)
+                if f[1] ~= "" and f[2] ~= "" then login(f[1], f[2], true) end
+            end },
+        }},
+    }
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
+    end
+    -- The first time on this device (and after Forget): what happens to the
+    -- password, before it's typed.
+    if G_reader_settings and not G_reader_settings:isTrue("bookorbit_tweaks_password_notice_seen") then
+        UIManager:show(require("ui/widget/confirmbox"):new{
+            text = SECURITY_TEXT,
+            ok_text = _("Continue"),
+            cancel_text = _("Cancel"),
+            ok_callback = function()
+                G_reader_settings:saveSetting("bookorbit_tweaks_password_notice_seen", true)
+                askPassword()
+            end,
+        })
+        return
+    end
+    askPassword()
+end
+
+-- One authorised call; a session the server turned down signs in again once.
+local function webCall(catalog, label, method, path, body, done, retried)
+    webSignIn(catalog, function(token)
+        local res, err = catalog:fetch(label, function()
+            return catalog.client:requestBlocking(method, path, body, { ["Authorization"] = "Bearer " .. token })
+        end)
+        if err == 401 and not retried then
+            web_sessions[catalog.client.server_url] = nil
+            return webCall(catalog, label, method, path, body, done, true)
+        end
+        done(res, err)
+    end)
+end
+
+local showCollections
+showCollections = function(catalog, detail)
+    local book_id = detail and tonumber(detail.id)
+    if not book_id then return end
+    local UIManager = require("ui/uimanager")
+    catalog:runConnected(function()
+        webCall(catalog, _("Loading your collections…"), "GET", "/collections?bookIds=" .. book_id, nil, function(list, err)
+            if type(list) ~= "table" then
+                if err ~= "cancelled" then failure(T(_("Couldn't load your BookOrbit collections:\n%1"), tostring(err))) end
+                return
+            end
+            local ButtonDialog = require("ui/widget/buttondialog")
+            local dlg
+            local buttons = {}
+            for _i, c in ipairs(list) do
+                if type(c) == "table" and c.id and c.isOwner ~= false then
+                    local inside = (tonumber(c.memberCount) or 0) > 0
+                    buttons[#buttons + 1] = {{
+                        text = (inside and "\u{2713} " or "") .. tostring(c.name or c.id),
+                        callback = function()
+                            UIManager:close(dlg)
+                            webCall(catalog, inside and _("Removing…") or _("Adding…"),
+                                inside and "DELETE" or "POST", "/collections/" .. c.id .. "/books",
+                                { bookIds = { book_id } }, function(res, e)
+                                    if res == nil and e ~= nil then
+                                        if e ~= "cancelled" then failure(T(_("Couldn't change the collection:\n%1"), tostring(e))) end
+                                        return
+                                    end
+                                    if catalog.markStackDirty then pcall(catalog.markStackDirty, catalog) end
+                                    local msg = T(inside and _("Removed from %1") or _("Added to %1"), tostring(c.name))
+                                    note(msg, inside and _("Removed") or _("Added"))
+                                end)
+                        end,
+                    }}
+                end
+            end
+            buttons[#buttons + 1] = {{
+                text = _("New Collection…"),
+                callback = function()
+                    UIManager:close(dlg)
+                    local InputDialog = require("ui/widget/inputdialog")
+                    local input
+                    input = InputDialog:new{
+                        title = _("New collection"),
+                        buttons = {{
+                            { text = _("Cancel"), id = "close", callback = function() UIManager:close(input) end },
+                            { text = _("Create"), is_enter_default = true, callback = function()
+                                local name = (input:getInputText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                                UIManager:close(input)
+                                if name == "" then return end
+                                webCall(catalog, _("Creating…"), "POST", "/collections", { name = name, icon = "library" }, function(made, e)
+                                    if type(made) ~= "table" or not made.id then
+                                        if e ~= "cancelled" then failure(T(_("Couldn't create the collection:\n%1"), tostring(e))) end
+                                        return
+                                    end
+                                    webCall(catalog, _("Adding…"), "POST", "/collections/" .. made.id .. "/books", { bookIds = { book_id } }, function(res, e2)
+                                        if res == nil and e2 ~= nil then
+                                            if e2 ~= "cancelled" then failure(T(_("Made %1, but couldn't add the book:\n%2"), name, tostring(e2))) end
+                                            return
+                                        end
+                                        note(T(_("Added to %1"), name), _("Added"))
+                                    end)
+                                end)
+                            end },
+                        }},
+                    }
+                    UIManager:show(input)
+                    input:onShowKeyboard()
+                end,
+            }}
+            dlg = ButtonDialog:new{
+                title = T(_("Collections · %1"), tostring(detail.title or "")),
+                title_align = "center",
+                buttons = buttons,
+            }
+            UIManager:show(dlg)
+        end)
+    end)
+end
+
+-- The book sheet: our row under BookOrbit's own, and its tap.
+local function hookCollectionsRow()
+    local ok, DialogUI = pcall(require, "bookorbit_dialog_ui")
+    local ok_m, MenuUI = pcall(require, "bookorbit_menu_ui")
+    if not (ok and ok_m) or type(DialogUI) ~= "table" or type(MenuUI) ~= "table"
+            or type(DialogUI.open) ~= "function" or type(DialogUI.sheet) ~= "function" then
+        return false
+    end
+    if DialogUI._bookorbit_tweaks_collections then return true end
+    DialogUI._bookorbit_tweaks_collections = true
+    local orig_sheet = DialogUI.sheet
+    DialogUI.sheet = function(page, sw, sh, build, o, ...)
+        if type(page) == "table" and page.name == "bookorbit_book_peek" and type(build) == "function"
+                and cfg.collections_row ~= false then
+            local inner = build
+            build = function(w, ...)
+                local items = inner(w, ...)
+                if type(items) == "table" then
+                    local okr, group = pcall(function()
+                        return MenuUI.group(w, { MenuUI.row(MenuUI.rowsIn(w), {
+                            icon = "library", label = _("Add To Collection"),
+                            sub = _("Your BookOrbit collections"), chevron = true,
+                            action = { kind = "tk-collections" },
+                        }) })
+                    end)
+                    if okr and group then items[#items + 1] = group end
+                end
+                return items
+            end
+        end
+        return orig_sheet(page, sw, sh, build, o, ...)
+    end
+    local orig_open = DialogUI.open
+    DialogUI.open = function(opts, ...)
+        if type(opts) == "table" and opts.name == "bookorbit_book_peek" and type(opts.on_action) == "function" then
+            local on_action = opts.on_action
+            opts.on_action = function(page, action, ...)
+                if type(action) == "table" and action.kind == "tk-collections" then
+                    local catalog, detail = page.catalog, page.peek and page.peek.detail
+                    page:close()
+                    require("ui/uimanager"):tickAfterNext(function() showCollections(catalog, detail) end)
+                    return true
+                end
+                return on_action(page, action, ...)
+            end
+        end
+        return orig_open(opts, ...)
+    end
+    return true
+end
+
+-- Saved password and its key: never in Patch Backup & Restore's backups.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    if type(BK.addSecrets) == "function" then
+        pcall(BK.addSecrets, { files = { LOGIN_FILE, KEYRING_FILE } })
+    else
+        -- Patch Backup & Restore not loaded yet: its secrets are a set by name
+        BK.secrets = BK.secrets or { files = {}, folders = {}, keys = {} }
+        BK.secrets.files = BK.secrets.files or {}
+        BK.secrets.files[LOGIN_FILE] = true
+        BK.secrets.files[KEYRING_FILE] = true
+    end
+end
+
+
 -- Try immediately in case BookOrbit's modules have already been loaded.
 hookCatalogWidgets()
 hookBoardCover()
@@ -2527,6 +2985,8 @@ hookMenuPageRunAction()
 hookCatalogSwipeClose()
 hookSettingsFlash()
 hookResumePillColor()
+hookButtonsOnly()
+hookCollectionsRow()
 hookCatalogLibraryFilter()
 hookDispatcherOpen()
 
@@ -2558,6 +3018,8 @@ do
             hookCatalogSwipeClose()
             hookSettingsFlash()
             hookResumePillColor()
+            hookButtonsOnly()
+            hookCollectionsRow()
             hookCatalogLibraryFilter()
             hookDispatcherOpen()
             hookPluginServerAddress(plugin)
@@ -2797,6 +3259,7 @@ local function buildServerMenu()
     return items
 end
 
+
 local function buildMenu()
     return {
         {
@@ -2820,6 +3283,61 @@ local function buildMenu()
                 cfg.keep_open_sleep = not (cfg.keep_open_sleep == true)
                 saveConfig()
             end,
+        },
+        {
+            text = _("Open Book Only From Buttons"),
+            help_text = _("On the dashboard, only the Resume / Download pill and the round play button open the book. A tap anywhere else on the Continue Reading tile (cover, title, progress) does nothing. Off by default."),
+            checked_func = function() return cfg.buttons_only_open == true end,
+            callback = function()
+                cfg.buttons_only_open = not (cfg.buttons_only_open == true)
+                saveConfig()
+                -- the dashboard keeps its tap actions until it's rebuilt
+                local ok_ui, UIManager = pcall(require, "ui/uimanager")
+                if ok_ui then
+                    for _i, e in ipairs(UIManager._window_stack or {}) do
+                        local w = e.widget
+                        if type(w) == "table" and type(w.boardItemAction) == "function"
+                                and type(w.updateItems) == "function" then
+                            pcall(w.updateItems, w, nil, true)
+                        end
+                    end
+                end
+            end,
+        },
+        {
+            text = _("Add To Collection In Book Menu"),
+            help_text = _("Hold a book in a list, or tap ⋯ on a book's page: Add To Collection lists your BookOrbit collections (✓ = the book is in it). Tap one to add or remove the book, or make a new collection. It signs in like the web app, with your BookOrbit password."),
+            checked_func = function() return cfg.collections_row ~= false end,
+            callback = function()
+                cfg.collections_row = not (cfg.collections_row ~= false)
+                saveConfig()
+            end,
+        },
+        {
+            text = _("Forget Saved BookOrbit Password"),
+            help_text = _("The password Add To Collection saved on this device (encrypted). You'll be asked again next time."),
+            enabled_func = function()
+                local okl, st = pcall(loginStore)
+                return okl and type(st.data) == "table" and next(st.data) ~= nil
+            end,
+            callback = function()
+                local okl, st = pcall(loginStore)
+                if okl then
+                    for k in pairs(st.data) do st:delSetting(k) end
+                    st:flush()
+                end
+                for k in pairs(web_sessions) do web_sessions[k] = nil end
+                G_reader_settings:delSetting("bookorbit_tweaks_password_notice_seen")
+                note(_("Saved BookOrbit password removed from this device."), _("Password forgotten"))
+            end,
+        },
+        {
+            text = _("About The Saved Password"),
+            keep_menu_open = true,
+            callback = function()
+                require("ui/uimanager"):show(require("ui/widget/infomessage"):new{ text = SECURITY_TEXT })
+            end,
+            separator = true,
         },
         {
             text = _("Second Swipe Opens Tools Menu"),
