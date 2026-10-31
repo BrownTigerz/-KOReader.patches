@@ -38,8 +38,8 @@ Version: 1.1.10
                      3.0 with Tiny Critter (the critter code is built into
                      this file; voice and games need 3.0.2).
 
-Settings: long-press the Dashboard > Reading Log Tweaks, or Tools > Add-ons > Patches
-(with 2-tweaks-menu.lua). Everything is saved in Reading Log's own settings
+Settings: long-press the Dashboard > Reading Log Tweaks, or Tools > Add-ons >
+Stats & Progress (with 2-tweaks-menu.lua). Everything is saved in Reading Log's own settings
 file (keys starting tk_ and critter_).
 
 Install: copy 2-readinglog-tweaks.lua into koreader/patches/ (Kobo:
@@ -4016,7 +4016,7 @@ local function apply(A)
         end
     end
 
-    -- Tools > Add-ons > Patches (2-tweaks-menu.lua)
+    -- Tools > Add-ons > Stats & Progress (2-tweaks-menu.lua)
     local TM = package.loaded.tweaks_mods or {}
     package.loaded.tweaks_mods = TM
     TM.entries = TM.entries or {}
