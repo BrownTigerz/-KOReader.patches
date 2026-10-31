@@ -1,6 +1,6 @@
 --[[
 2-zz-tweaks-menu-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.0
+Version 1.1.1
 
 Watches the Add-ons menu patch (2-tweaks-menu.lua) from outside and writes
 tagged lines (shared log contract v1) to the shared diagnostics log:
@@ -26,7 +26,7 @@ What it checks:
 How to use (within 10 minutes of restarting):
   1. Put this file in koreader/patches/ next to 2-tweaks-menu.lua, restart.
   2. File browser: open the menu > Tools > Add-ons. Open a few add-ons.
-  3. Open "Choose what's in Add-ons". Tap an item, then tap it again to put
+  3. Open "Arrange Add-ons" ("Choose what's in Add-ons" before 1.1.0). Tap an item, then tap it again to put
      it back. Hold an item, then close the group picker (or pick the
      "(default)" group). Say no to the restart prompts.
   4. Open a book, open the menu, Tools > Add-ons again.
@@ -54,6 +54,8 @@ hook just passes straight through. The "zz" makes it load after
 2-tweaks-menu.lua.
 
 Changelog:
+  1.1.1  2026-10-30  Finds Add-ons 1.1.0's "Arrange Add-ons" entry as well
+                     as the older "Choose what's in Add-ons".
   1.1.0  2026-10-23  Shared perf core (the same block as the other
                      diagnostics): Add-ons timers that hold the screen
                      80 ms+, flashes it asks for, timers left waiting at
@@ -91,7 +93,7 @@ Changelog:
   1.0.0  2026-10-08  First release.
 ]]
 
-local PATCH_VERSION = "1.1.0"
+local PATCH_VERSION = "1.1.1"
 
 local WINDOW_S  = 10 * 60          -- logging window after KOReader starts
 local EXTEND_S  = 3 * 60           -- menu use keeps it open this much longer
@@ -408,13 +410,12 @@ end
 log("build timing split (Add-ons vs KOReader): %s", split and "yes" or "no, totals only")
 
 -- ---- Checking the built menu ------------------------------------------------------
-local CHOOSER_TEXT = _("Choose what's in Add-ons")
-
--- the main patch title-cased this in v1.0.4 ("Choose What's In Add-ons");
--- match either form so detection works before and after that update
+-- "Choose what's in Add-ons" (title-cased in v1.0.4) became "Arrange Add-ons"
+-- in v1.1.0; match any form so detection works before and after
+local CHOOSER_TEXTS = { [_("Choose what's in Add-ons"):lower()] = true, [_("Arrange Add-ons"):lower()] = true }
 local function isChooser(it)
     return type(it) == "table" and type(it.text) == "string"
-        and it.text:lower() == CHOOSER_TEXT:lower()
+        and CHOOSER_TEXTS[it.text:lower()] == true
 end
 
 local function itemName(it)
