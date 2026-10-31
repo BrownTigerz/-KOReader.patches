@@ -1,7 +1,10 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.19
+-- Version 1.11.20
 -- Changelog:
+--   1.11.20  Clean-up: the vendored Goodreads storage module (never
+--            required by anything), unused
+--            requires and two empty checks left from the tracer are gone.
 --   1.11.19  Sleep ends a sync that's still running: its 2-minute Wi-Fi
 --            safety net and 60 s BookOrbit-step timeout are stopped and
 --            the sync is wrapped up there and then (sleep turns Wi-Fi off
@@ -87,7 +90,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.19"
+local PATCH_VERSION = "1.11.20"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -2142,208 +2145,6 @@ return Logging
 
 end
 
-package.preload["shelfsync_grlogin.storage"] = function(...)
---[[--
-Persistent storage for the plugin.
-
-Each concern lives in its own file (mappings, sync state, queue, ...) so that
-a corrupt queue can never take the book mappings down with it. When KOReader's
-`LuaSettings` is available it is used directly; otherwise a self-contained
-serializer keeps the module usable from the unit test suite.
-
-@module koplugin.goodreads.storage
---]]
-
-local Constants = require("shelfsync_grlogin.constants")
-local Logging = require("shelfsync_grlogin.logging")
-
-local Storage = {}
-
-local base_dir_override = nil
-local ok_ls, LuaSettings = pcall(require, "luasettings")
-if not ok_ls then LuaSettings = nil end
-
--- Windows is only used for the offline test suite; KOReader devices are Linux.
-local IS_WINDOWS = os.getenv("OS") ~= nil
-
---------------------------------------------------------------------------------
--- Fallback serializer
---------------------------------------------------------------------------------
-
-local function serialize(value)
-    local t = type(value)
-    if t == "nil" then
-        return "nil"
-    elseif t == "number" or t == "boolean" then
-        return tostring(value)
-    elseif t == "string" then
-        return string.format("%q", value)
-    elseif t == "table" then
-        local parts = { "{" }
-        -- Emit array part first for readability, then remaining keys.
-        local array_len = #value
-        for i = 1, array_len do
-            parts[#parts + 1] = serialize(value[i]) .. ","
-        end
-        for k, v in pairs(value) do
-            local is_array_index = type(k) == "number" and k >= 1
-                and k <= array_len and k == math.floor(k)
-            if not is_array_index then
-                local key_repr
-                if type(k) == "string" and k:match("^[%a_][%w_]*$") then
-                    key_repr = k
-                else
-                    key_repr = "[" .. serialize(k) .. "]"
-                end
-                parts[#parts + 1] = key_repr .. "=" .. serialize(v) .. ","
-            end
-        end
-        parts[#parts + 1] = "}"
-        return table.concat(parts)
-    end
-    return "nil"
-end
-
---------------------------------------------------------------------------------
--- Backends
---------------------------------------------------------------------------------
-
-local Store = {}
-Store.__index = Store
-
-function Store:get(key, default)
-    local value = self.data[key]
-    if value == nil then return default end
-    return value
-end
-
-function Store:set(key, value)
-    self.data[key] = value
-    self.dirty = true
-end
-
-function Store:delete(key)
-    self.data[key] = nil
-    self.dirty = true
-end
-
-function Store:has(key)
-    return self.data[key] ~= nil
-end
-
-function Store:keys()
-    local keys = {}
-    for k in pairs(self.data) do keys[#keys + 1] = k end
-    return keys
-end
-
-function Store:flush()
-    if not self.dirty then return true end
-    local ok
-    if self.ls then
-        for k, v in pairs(self.data) do
-            self.ls:saveSetting(k, v)
-        end
-        ok = pcall(function() self.ls:flush() end)
-    else
-        ok = self:_writeFile()
-    end
-    if ok then self.dirty = false end
-    return ok
-end
-
-function Store:_writeFile()
-    local dir = self.dir
-    if IS_WINDOWS then
-        os.execute('mkdir "' .. dir:gsub("/", "\\") .. '" 2>nul')
-    else
-        os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
-    end
-    local tmp = self.path .. ".tmp"
-    local file = io.open(tmp, "w")
-    if not file then
-        Logging.warn("storage: cannot write", self.path)
-        return false
-    end
-    file:write("return ", serialize(self.data), "\n")
-    file:close()
-    os.remove(self.path)
-    local ok = os.rename(tmp, self.path)
-    if not ok then
-        -- Windows cannot rename over an existing file; remove first.
-        os.remove(self.path)
-        ok = os.rename(tmp, self.path)
-    end
-    return ok and true or false
-end
-
-local function fallback_store(path)
-    local data = {}
-    local file = io.open(path, "r")
-    if file then
-        local content = file:read("*a")
-        file:close()
-        local chunk = loadstring(content)
-        if chunk then
-            local ok, loaded = pcall(chunk)
-            if ok and type(loaded) == "table" then data = loaded end
-        end
-    end
-    local dir = path:match("^(.*)[/\\][^/\\]*$") or "."
-    return setmetatable({
-        data = data,
-        path = path,
-        dir = dir,
-        dirty = false,
-    }, Store)
-end
-
-local function luasettings_store(path)
-    local ls = LuaSettings:open(path)
-    local data = {}
-    -- LuaSettings stores a flat table; materialize it for a uniform interface.
-    if ls.data then
-        for k, v in pairs(ls.data) do data[k] = v end
-    end
-    local store = setmetatable({
-        data = data,
-        path = path,
-        dir = path:match("^(.*)[/\\][^/\\]*$") or ".",
-        ls = ls,
-        dirty = false,
-    }, Store)
-    return store
-end
-
---------------------------------------------------------------------------------
--- Public API
---------------------------------------------------------------------------------
-
-function Storage.getBaseDir()
-    if base_dir_override then return base_dir_override end
-    local ok, DataStorage = pcall(require, "datastorage")
-    if ok and DataStorage then
-        return DataStorage:getSettingsDir() .. "/goodreadskosync"
-    end
-    return "./.goodreads-test"
-end
-
-function Storage.open(name)
-    local path = Storage.getBaseDir() .. "/" .. name .. ".lua"
-    if LuaSettings and not base_dir_override then
-        return luasettings_store(path)
-    end
-    return fallback_store(path)
-end
-
--- Test helper: remove every storage file and reset the override.
-Storage.serialize = serialize
-Storage._fallback_store = fallback_store
-
-return Storage
-
-end
-
 package.preload["shelfsync_grlogin.crypto_util"] = function(...)
 --[[--
 Secret-at-rest helper (inspired by ShelfSync).
@@ -2554,15 +2355,7 @@ derived CSRF token and the legacy numeric user id. No password is stored here.
 @module koplugin.goodreads.auth.session
 --]]
 
-local Constants = require("shelfsync_grlogin.constants")
-local CryptoUtil = require("shelfsync_grlogin.crypto_util")
-local Storage = require("shelfsync_grlogin.storage")
-
 local Session = {}
-
-local function store()
-    return Storage.open(Constants.STORAGE.SESSION)
-end
 
 function Session.new()
     return {
@@ -2897,7 +2690,7 @@ function Http:request(method, url, opts)
     local current_method = method
     local current_body = opts.body
     local hops = 0
-    local last = { status = nil, body = nil, headers = {}, url = url }
+    local last
 
     while true do
         local headers = base_headers(self, current_method)
@@ -3011,7 +2804,6 @@ that needs a browser cannot be solved here; it is reported and stops the flow.
 --]]
 
 local Constants = require("shelfsync_grlogin.constants")
-local Logging = require("shelfsync_grlogin.logging")
 local Session = require("shelfsync_grlogin.auth.session")
 
 local AmazonWeb = {}
@@ -3247,8 +3039,6 @@ function AmazonWeb:start()
         follow = true,
         detect_auth = false,
     })
-    if resp.body then
-    end
 
     if resp.error == Constants.ERROR.SIGNIN_BLOCKED then
         return nil, Constants.ERROR.SIGNIN_BLOCKED
@@ -3266,8 +3056,6 @@ function AmazonWeb:start()
         return nil, Constants.ERROR.INVALID_RESPONSE
     end
     local form_resp = http:get(link, { follow = true, detect_auth = false })
-    if form_resp.body then
-    end
 
     if form_resp.error == Constants.ERROR.SIGNIN_BLOCKED then
         return nil, Constants.ERROR.SIGNIN_BLOCKED
