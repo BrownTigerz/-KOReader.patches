@@ -3,7 +3,7 @@
 KOReader user patch: TK's extras from "Reading Log for SimpleUI" on
 stevenzamora1's Reading Log 1.4+ (readinglog.koplugin), for Simple UI.
 
-Version: 1.1.12
+Version: 1.1.13
 
   Today Page Card    the card under the rings on the Today tab: Year Goal With
                      Covers, Year Goal, Book Club, Recently Finished or TBR
@@ -16,7 +16,7 @@ Version: 1.1.12
                      in Pages And Cards and as its own Simple UI module.
   Fine Tuning        Layout: In The Page or Full Screen (fills everything
                      between the status bar and the nav bar); Bottom Space
-                     (Full Screen: room for the page dots); Tab Bar Position.
+                     (Full Screen: room for the page dots); Move Tab Row.
                      Size and Height are Reading Log's own (Appearance).
   Continue Reading:  opens the book only from its Continue button (off by
   Buttons Only       default).
@@ -56,6 +56,17 @@ cards aren't touched. TK's simpleui_readinglog.koplugin isn't touched either
 Versioning: 1.0.x fixes, 1.x.0 new features, 2.0.0 settings changes.
 
 Changelog:
+  1.1.13 2026-10-31  Fine Tuning: Tab Bar Position is now Move Tab Row, with
+                     its own setting (Reading Log 2.0's Tab Bar Position in
+                     Appearance is separate, they used to share one). Down
+                     now really moves it: the tabs drop away from the cards
+                     toward the page dots (into the margin, and in Full
+                     Screen into the room Bottom Space adds), then the
+                     cards get shorter, so the gap grows by the whole
+                     amount. It only went down into the margin before: a
+                     few pixels, none with Margins at None. The moved
+                     layout shows Year in Review on the Yearly page in
+                     December like Reading Log 2.0.
   1.1.12 2026-10-30  Patch Backup & Restore 3.0: registers its settings, so
                      they are in Everything and in One Patch Or Plugin.
   1.1.11 2026-10-30  Compact Book Detail (needs SimpleUI Side Panel 1.0.26+):
@@ -132,7 +143,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "1.1.12"
+local PATCH_VERSION = "1.1.13"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -3221,7 +3232,11 @@ local function apply(A)
     end
 
     local CUR_CTX -- the Dashboard being drawn (headings don't get a ctx)
-    local tabsMoved, renderTK -- Tab Bar Position (below)
+    local tabsMoved, renderTK -- Move Tab Row (below)
+    -- Move Tab Row: its own setting (Reading Log 2.0's Tab Bar Position keeps
+    -- tabs_adjust). + down, - up, in pixels.
+    local function tabMove() return tonumber(A.get("tk_tabs_move", 0)) or 0 end
+    local _tab_grow = 0 -- Full Screen: pixels the dashboard reaches into the dots room
     local function curPage()
         local pages = A.dashPages()
         return pages[tonumber(A.state.dash_page) or 1] or pages[1]
@@ -3347,7 +3362,7 @@ local function apply(A)
     end
 
     -- ════════════════════════════════════════════════════════════════════════
-    -- Fine tuning: Layout (Full Screen), Bottom Space, Tab Bar Position
+    -- Fine tuning: Layout (Full Screen), Bottom Space, Move Tab Row
     -- ════════════════════════════════════════════════════════════════════════
 
     local function suiTry(name)
@@ -3398,8 +3413,8 @@ local function apply(A)
         return max(0, autoDots(sctx) + (tonumber(A.get("tk_dash_bottom_adjust", 0)) or 0))
     end
 
-    -- Reading Log 1.4's Dashboard, with Tab Bar Position added. Used only
-    -- while the tab bar is moved; at 0 Reading Log's own layout runs.
+    -- Reading Log's Dashboard, with Move Tab Row added. Used only while the
+    -- tab row is moved; at 0 Reading Log's own layout runs.
     local function textScale() return A.TEXT_SCALE or 1.25 end
     local pageLabel, pageRows = A.dashPageLabel, A.dashPageRows
     local function pageHeading(page)
@@ -3471,19 +3486,32 @@ local function apply(A)
         if w - 2 * m < 60 or h - 2 * m < 60 then m = 0 end
         local ox, oy = m, m
         w, h = w - 2 * m, h - 2 * m
+        -- Full Screen with the tab row moved down: the dashboard reaches
+        -- _tab_grow pixels further, into the room under it. Everything but
+        -- the tab row is laid out as if it didn't (h_lay).
+        local grow = min(max(0, _tab_grow or 0), floor(h * 0.3))
+        local h_lay = h - grow
 
         -- tab bar
-        local body_h = h
-        local head_from = h -- what the heading's size comes from (not the tab bar's position)
+        local body_h = h_lay
+        local head_from = h_lay -- what the heading's size comes from (not the tab bar's position)
         if #tabs > 1 then
-            local bar_h = A.clamp(floor(h * 0.056 + 0.5), 40, 110)
+            local bar_h = A.clamp(floor(h_lay * 0.056 + 0.5), 40, 110)
             local bar_w = min(w, max(floor(w * 0.72), #tabs * floor(bar_h * 2.3)))
-            local bx, by = ox + floor((w - bar_w) / 2), oy + h - bar_h
-            -- Tab Bar Position: up (-) or down (+) by that many pixels. Down only
-            -- into the margin below; up leaves the cards at least half the room.
-            local adj = tonumber(A.get("tabs_adjust", 0)) or 0
-            if adj ~= 0 then
-                by = A.clamp(by + floor(adj), oy + floor(h * 0.5), oy + h + m - bar_h)
+            local base_by = oy + h_lay - bar_h
+            local bx, by = ox + floor((w - bar_w) / 2), base_by
+            -- Move Tab Row. Down (+): the row drops, first into the margin and
+            -- (Full Screen) the room under the dashboard, then the cards get
+            -- shorter, so the space between the cards and the row grows by
+            -- the whole amount. Up (-): the cards make room (at least half).
+            local move = floor(tabMove())
+            local extra = 0
+            if move > 0 then
+                local down = min(move, m + grow)
+                by = base_by + down
+                extra = move - down
+            elseif move < 0 then
+                by = A.clamp(base_by + move, oy + floor(h_lay * 0.5), base_by)
             end
             local bw_ = max(2, floor(bar_h * 0.045 + 0.5))
             local CYT = A.cutTheme()
@@ -3543,13 +3571,32 @@ local function apply(A)
                 c:put(t_tab, cx, by + bar_h / 2, "c", "mid")
                 c:region("tab:" .. i, cx - cell / 2, by, cell, bar_h)
             end
-            head_from = h - bar_h - gap
-            body_h = min(head_from, by - oy - gap)
+            head_from = h_lay - bar_h - gap
+            if move > 0 then
+                body_h = max(floor(h_lay * 0.4), min(head_from, base_by - oy - gap) - extra)
+            else
+                body_h = min(head_from, by - oy - gap)
+            end
         end
 
         -- Short, wide cell (the hero area): there is not room for a whole page,
         -- so show as many of its rows as fit at a readable height.
         local rows = pageRows(page)
+        -- Reading Log 2.0: in Year in Review season its card leads the
+        -- Yearly page (when the page doesn't have it already)
+        if page.id == "yearly" and type(A.reviewSeason) == "function" and A.reviewSeason() and P.year_review then
+            local has = false
+            for _, r in ipairs(rows) do
+                for _, n in ipairs(r.cards or {}) do if n == "year_review" then has = true end end
+            end
+            if not has then
+                local lead = { { cards = { "year_review" }, k = 1 } }
+                for i, r in ipairs(rows) do
+                    if i < (A.DASH_MAX_ROWS or 6) then lead[#lead + 1] = r end
+                end
+                rows = lead
+            end
+        end
         local heading = pageHeading(page)
         local min_row = w * 0.17
         if body_h < #rows * min_row then
@@ -3624,7 +3671,7 @@ local function apply(A)
         return c
     end
 
-    tabsMoved = function() return (tonumber(A.get("tabs_adjust", 0)) or 0) ~= 0 end
+    tabsMoved = function() return tabMove() ~= 0 end
     local _seen_screens = setmetatable({}, { __mode = "k" })
     renderTK = function(ctx)
         local w = max(80, floor(tonumber(ctx.width) or 400))
@@ -3650,7 +3697,12 @@ local function apply(A)
         if not screen then return nil end
         local Screen = A.screen()
         local fw = Screen:getWidth()
-        local fh = max(200, contentHeight() - dotsRoom(sctx))
+        local room = dotsRoom(sctx)
+        -- Move Tab Row down: the tab row may use the room under the dashboard
+        -- (what Bottom Space adds over what the page dots need)
+        local grow = 0
+        if tabMove() > 0 then grow = min(tabMove(), max(0, room - autoDots(sctx))) end
+        local fh = max(200, contentHeight() - room + grow)
         -- Reading Log sizes the Dashboard from the screen's content height and
         -- its Height setting: for this one build, "100% of fh"
         local pfx = sctx.pfx or "simpleui_hs_"
@@ -3662,7 +3714,9 @@ local function apply(A)
             return old_get(k, d)
         end
         rawset(screen, "_layout_content_h", fh)
+        _tab_grow = grow
         local ok, box = pcall(orig_build, fw, sctx)
+        _tab_grow = 0
         A.get = old_get
         rawset(screen, "_layout_content_h", old_h)
         if not ok or type(box) ~= "table" then return nil end
@@ -3878,12 +3932,14 @@ local function apply(A)
             },
             {
                 text_func = function()
-                    return "Tab Bar Position: " .. (px(tonumber(A.get("tabs_adjust", 0)) or 0) or "Default")
+                    local v = tabMove()
+                    if v == 0 then return "Move Tab Row: Off" end
+                    return string.format("Move Tab Row: %d px %s", math.abs(v), v > 0 and "Down" or "Up")
                 end,
-                help_text = "Moves the Today / Monthly / Yearly tab bar up (-) or down (+) from where it normally sits. Only the tab bar moves: the heading at the top stays put and the cards make room. It can only go down into the dashboard's margin.",
+                help_text = "Moves the Today / Monthly / Yearly ... tab row.\n\nDown (+): away from the cards, toward the page dots. The cards stay where they are, so the space between them and the tabs grows. In Full Screen the tabs can go into the room under the dashboard (add room with Bottom Space); past that the cards get a little shorter.\n\nUp (-): closer to the top; the cards get shorter.\n\n0 turns it off. Reading Log's own Tab Bar Position (Appearance) is separate.",
                 keep_menu_open = true,
                 callback = function(tmi)
-                    spin("Tab Bar Position", "Pixels up (-) or down (+) from the default (0).", "tabs_adjust", -300, 100)(tmi)
+                    spin("Move Tab Row", "Pixels down (+) toward the page dots, or up (-). 0 = off.", "tk_tabs_move", -300, 300)(tmi)
                 end,
             },
         }
