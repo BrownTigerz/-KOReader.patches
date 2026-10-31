@@ -1,7 +1,10 @@
--- SimpleUI Side Panel v1.0.20
+-- SimpleUI Side Panel v1.0.21
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.21 Polish: dead code removed (a duplicate note helper, an unused
+--        BookOrbit check, unused locals); a failed BookOrbit book detail
+--        is now logged as a warning.
 -- 1.0.20 Clean-up: debugging trace lines removed from crash.log (BookOrbit
 --        fetches, detail opening, swipe hook). Only the version line stays.
 -- 1.0.19 Header fix: long view titles ("Book Club Anthology", "BookOrbit
@@ -32,7 +35,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.20"
+local VERSION = "1.0.21"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -93,8 +96,6 @@ local function showSimpleUIHome()
     end
 end
 
-local empty_noted = {}
-local panelNote
 -- ---- To Be Read side panel --------------------------------------------------------
 -- Swipe in from the right (or left) edge of SimpleUI home: a panel slides in
 -- with the To Be Read list, the KOReader collection Bookshelf's "Add to To Be
@@ -925,7 +926,7 @@ do
                 bo_refresh_task = nil
             end
             if handler == "onSuspend" and tbr_panel_open and tbr_panel_root then
-                local root, open = tbr_panel_root, tbr_panel_open
+                local root = tbr_panel_root
                 tbr_panel_open, tbr_panel_root = false, nil
                 pcall(UIManager.close, UIManager, root)
             end
@@ -1107,7 +1108,6 @@ local function fetchBoEntries(cache_key, api_params, force)
     end
     local on_device = onDeviceByBookId()
     local books, seen_id, page, page_size = {}, {}, 1, 100
-    local lfs = require("libs/libkoreader-lfs")
     for _ = 1, 1 do -- one request (up to 100 books): the panel shows a handful
         local q = {}
         for k, v in pairs(api_params or {}) do q[k] = v end
@@ -1159,7 +1159,7 @@ boAfterShow = function(hs, stale, view)
         bo_refresh_task = nil
         if not tbr_panel_open or tbr_panel_view ~= view or not tbr_panel_root then return end
         bo_refreshed_open = true
-        local ok, books = pcall(fetchBoEntries, stale.key, stale.params, true)
+        local ok = pcall(fetchBoEntries, stale.key, stale.params, true)
         if ok and tbr_panel_open and tbr_panel_view == view and tbr_panel_root then
             bo_stale = nil
             openTBRPanel(hs, view, true, tbr_panel_root)
@@ -1179,10 +1179,6 @@ boHistoryList = function(force)
     return fetchBoEntries("history", { sort = "recently_read" }, force == true) or {}
 end
 
--- For panelViews: a BO collection counts as non-empty if it has any books (on or off device)
-local function boCollHasBooks(id)
-    return #boQuick(boCollList, id) > 0
-end
 isBoPicked = function(id)
     id = tonumber(id) or id
     for _i, e in ipairs(cfg.bo_colls or {}) do
@@ -1265,15 +1261,14 @@ openBoBookDetail = function(book_id, title)
     end
     -- Prefer opening the catalog UI first so detail has a parent stack
     if not plugin.catalog_browser then
-        local opened
         if type(plugin.openBookOrbit) == "function" then
-            opened = pcall(plugin.openBookOrbit, plugin)
+            pcall(plugin.openBookOrbit, plugin)
         end
         if not plugin.catalog_browser and type(plugin.browseCatalog) == "function" then
-            opened = pcall(plugin.browseCatalog, plugin, false)
+            pcall(plugin.browseCatalog, plugin, false)
         end
         if not plugin.catalog_browser and type(plugin.openCatalogBrowser) == "function" then
-            opened = pcall(plugin.openCatalogBrowser, plugin)
+            pcall(plugin.openCatalogBrowser, plugin)
         end
     end
     local catalog = plugin.catalog_browser
@@ -1283,10 +1278,12 @@ openBoBookDetail = function(book_id, title)
     end
     if type(catalog.loadBookDetail) == "function" then
         local ok, err = pcall(catalog.loadBookDetail, catalog, book_id)
+        if not ok then logger.warn(TAG, "openBoBookDetail: loadBookDetail failed:", err) end
         return ok
     end
     if type(catalog.loadBooks) == "function" and title then
         local ok, err = pcall(catalog.loadBooks, catalog, { q = title, sort = "recently_added" }, title, true)
+        if not ok then logger.warn(TAG, "openBoBookDetail: loadBooks failed:", err) end
         return ok
     end
     logger.warn(TAG, "openBoBookDetail: no usable catalog method")
