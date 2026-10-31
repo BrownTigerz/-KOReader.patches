@@ -1,6 +1,6 @@
 --[[
     Track Reading Location
-    Version: 1.9.5
+    Version: 1.9.6
 
     Versioning: 1.0.x = fixes, 1.x.0 = new features, 2.0.0 = a change to how
     existing saved reading locations are stored (the per-book sidecar data).
@@ -77,6 +77,7 @@
 
     Changelog (from here forward - this patch's earlier history predates this
     numbering scheme and isn't repeated here):
+    1.9.6 - 2026-10-30 - Clean-up: one load line in crash.log instead of two.
     1.9.5 - 2026-10-27 - Wording pass: plainer fast-skim labels and offset
     help texts, and plainer header wording. No behaviour change.
     1.9.4 - 2026-10-11 - Title case for all user-facing menu/item/button
@@ -135,9 +136,7 @@ local Screen = Device.screen
 -- comment can't read a code constant) and needs updating by hand alongside
 -- this one; everything else - the menu's version row and both load logs -
 -- reads from here.
-local PATCH_VERSION = "1.9.5"
-
-logger.info("ReadingLocationTracker Patch: v" .. PATCH_VERSION .. " loading...")
+local PATCH_VERSION = "1.9.6"
 
 local SETTING_SHOW_BUTTON = "readingloc_show_floating_button"
 -- Independent display toggles for the floating button's content (all
