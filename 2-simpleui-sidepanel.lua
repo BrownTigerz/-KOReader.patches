@@ -1,7 +1,11 @@
--- SimpleUI Side Panel v1.0.21
+-- SimpleUI Side Panel v1.0.22
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.22 Add-ons menu: no second copy in Tools. The panel added its own
+--        Tools entry even when it was in Tools > Add-ons, so it never
+--        moved; now it does that only without the Add-ons menu (or when
+--        it's turned off there), like the other patches.
 -- 1.0.21 Polish: dead code removed (a duplicate note helper, an unused
 --        BookOrbit check, unused locals); a failed BookOrbit book detail
 --        is now logged as a warning.
@@ -35,7 +39,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.21"
+local VERSION = "1.0.22"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -1680,9 +1684,11 @@ local function hookMenu(menu_mod, order_mod)
     Menu._simpleui_sidepanel_hooked = true
     local orig = Menu.setUpdateItemTable
     Menu.setUpdateItemTable = function(self, ...)
-        -- Always register into Tools so the entry is findable whether or not
-        -- 2-tweaks-menu.lua is grouping items under Add-ons.
-        if type(self.menu_items) == "table" then
+        -- Our own Tools entry only without the Add-ons menu (2-tweaks-menu.lua),
+        -- or when it's turned off there. Checked at menu build time, so patch
+        -- file order doesn't matter.
+        local in_addons = TM.active and (type(TM.shows) ~= "function" or TM.shows("simpleui_sidepanel"))
+        if type(self.menu_items) == "table" and not in_addons then
             pcall(addToOrder, order_mod)
             self.menu_items.simpleui_sidepanel = lazyMenu()
         end
