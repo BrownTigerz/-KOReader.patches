@@ -2,14 +2,15 @@
 2-tweaks-menu.lua
 KOReader user patch: one "Add-ons" menu under Tools, for plugins and patches.
 
-Version: 1.1.0
+Version: 1.1.2
 
   Tools > Add-ons   your plugins and your patches' settings in one list,
                     grouped: each patch sits with the plugin it tweaks
                     (SimpleUI Tweaks under Home & Library, BookOrbit Tweaks
-                    under Sync & Network...), and the patch tools
-                    (Patch Backup & Restore, Check For Patch Updates,
-                    Debugging, Screenshot) under Maintenance.
+                    under Sync & Network...), Patch Backup & Restore next
+                    to Device Backup & Restore in System, and Check For
+                    Patch Updates, Debugging and Screenshot under
+                    Maintenance.
 
 Moved plugins work exactly the same, they're just shown here instead of their
 usual spot.
@@ -30,6 +31,10 @@ listed unticked instead, for you to choose.
   - Reset Layout: groups, names and order back to the defaults
   - Reset Everything To Default: also turns every item back on, as on a
     fresh install
+  - Put Tweaks Inside Their Plugin (on): SimpleUI Tweaks and SimpleUI Side
+    Panel inside Simple UI, BookOrbit Tweaks inside BookOrbit, Reading
+    Insights Tweaks inside Reading Insights, Reading Log Tweaks inside
+    Reading Log (COMBINE below)
   Changes apply after a restart.
 
 KOReader's menu order stays untouched: each menu build works on a copy, so
@@ -45,6 +50,22 @@ Versioning: 1.0.x fixes (e.g. a KOReader or plugin menu id rename),
             1.x.0 new features, 2.0.0 changes to how saved Add-ons choices work.
 
 Changelog:
+  1.1.2  2026-10-30  Fix: Simple UI, BookOrbit, Reading Insights and their
+                     tweaks also showed in Tools (and the tweaks as "NEW:
+                     ..." in the first tab), and a patch's own Tools copy
+                     stayed in Tools. KOReader puts back whatever no menu
+                     list places, so those now leave its list too.
+                     Reading Log Tweaks goes inside Reading Log; Patch
+                     Backup & Restore moves to System next to Device Backup
+                     & Restore; ReadMastery is off by default (stays in
+                     Tools until you tick it).
+  1.1.1  2026-10-30  Tweaks inside their plugin: Simple UI becomes one entry
+                     (Open Simple UI, SimpleUI Tweaks, SimpleUI Side Panel),
+                     BookOrbit Tweaks goes at the bottom of BookOrbit's menu,
+                     Reading Insights Tweaks inside Reading Insights. The
+                     plugins' own menus aren't changed. "Put Tweaks Inside
+                     Their Plugin" in Arrange Add-ons turns it off; moving a
+                     patch to another group takes it out.
   1.1.0  2026-10-30  Layout: patches sit with the plugin they tweak, and
                      Debugging, Check For Patch Updates, Patch Backup &
                      Restore and Screenshot get their own Maintenance group.
@@ -93,7 +114,7 @@ Changelog:
                      now land in Tools (or the first tab) instead.
 ]]
 
-local PATCH_VERSION = "1.1.0"
+local PATCH_VERSION = "1.1.2"
 
 -- ---- Settings ---------------------------------------------------------------------
 local MENU_TEXT    = "Add-ons"   -- name shown in Tools
@@ -126,9 +147,10 @@ local PLUGINS = {
         "go_to_furthest_reading_location", -- Track Reading Location (reader only)
     },
     { header = "Stats & Progress",
-        "readmastery",                  -- ReadMastery
+        "readmastery",                  -- ReadMastery (off by default, see DEFAULT_OFF)
         "reading_insights_popup",       -- Reading Insights
         "patch:ri_tweaks",              -- Reading Insights Tweaks
+        "readinglog",                   -- Reading Log
         "patch:readinglog_tweaks",      -- Reading Log Tweaks
         "bookcard",                     -- Book Card
     },
@@ -141,14 +163,32 @@ local PLUGINS = {
     { header = "System",
         "Storefront",                   -- Storefront
         "backup",                       -- Device Backup & Restore
+        "backup_patches",               -- Patch Backup & Restore
         "menu_disabler",                -- Menu Disabler (Menu customizer)
     },
     { header = "Maintenance",
-        "backup_patches",               -- Patch Backup & Restore
         "patch:check_patch_updates",    -- Check For Patch Updates
         "patch:debugging_menu",         -- Debugging
         "patch:screenshot_timer",       -- Screenshot in 10 s
     },
+}
+
+-- A plugin and the patches that tweak it, shown as one entry: the plugin's
+-- own menu with the patches' settings at the bottom (a plugin that's just a
+-- button gets an "Open ..." row first). Only while both are shown and the
+-- patch hasn't been moved to another group; "Put Tweaks Inside Their Plugin"
+-- in Arrange Add-ons turns it off.
+local COMBINE = {
+    simpleui               = { "patch:simpleui_mod", "patch:simpleui_sidepanel" },
+    bookorbit              = { "patch:bookorbit_tweaks" },
+    reading_insights_popup = { "patch:ri_tweaks" },
+    readinglog             = { "patch:readinglog_tweaks" },
+}
+
+-- Listed in a group above but left in their usual spot until you tick them
+-- in Arrange Add-ons (Reset Everything To Default puts them back out).
+local DEFAULT_OFF = {
+    readmastery = true,
 }
 
 -- Top-level menus that patches add without registering (ids KOReader would
@@ -226,6 +266,19 @@ end
 local SETTINGS_KEY = "addons_menu_excluded"
 local excluded = G_reader_settings and G_reader_settings:readSetting(SETTINGS_KEY) or {}
 
+-- excluded[key]: true = turned off, false = turned on (a DEFAULT_OFF item),
+-- nil = its default.
+local function isOff(key)
+    local v = excluded[key]
+    if v == nil then return DEFAULT_OFF[key] == true end
+    return v == true
+end
+local function setOff(key, off)
+    if off then excluded[key] = true
+    elseif DEFAULT_OFF[key] then excluded[key] = false
+    else excluded[key] = nil end
+end
+
 -- Group chosen in "Choose what's in Add-ons" (hold an item): [key] = group name.
 local GROUPS_KEY = "addons_menu_groups"
 local group_of = G_reader_settings and G_reader_settings:readSetting(GROUPS_KEY) or {}
@@ -259,7 +312,7 @@ local function stockIds(where)
 end
 
 function TM.shows(id)
-    return not excluded["patch:" .. tostring(id)]
+    return not isOff("patch:" .. tostring(id))
 end
 
 -- What the last menu build found, per menu ("filemanager" / "reader"), for
@@ -330,6 +383,32 @@ local function newGoIn()
     if layout.auto == nil then return NEW_GO_IN end
     return layout.auto == true
 end
+local function combineOn() return layout.combine ~= false end
+
+-- Which patches go inside which plugin right now: { [plugin key] = { cand, ... } },
+-- and { [patch key] = plugin cand }. Both have to be on and not broken, and
+-- the patch still in its default group.
+local function combinations(cands)
+    local hosts, inside = {}, {}
+    if not combineOn() then return hosts, inside end
+    local by_key = {}
+    for _i, c in ipairs(cands) do by_key[c.key] = c end
+    for host_key, kids in pairs(COMBINE) do
+        local h = by_key[host_key]
+        if h and not isOff(h.key) and not h.broken then
+            for _i, k in ipairs(kids) do
+                local c = by_key[k]
+                if c and not isOff(c.key) and not c.broken and group_of[c.key] == nil then
+                    hosts[h.key] = hosts[h.key] or {}
+                    table.insert(hosts[h.key], c)
+                    inside[c.key] = h
+                end
+            end
+        end
+    end
+    return hosts, inside
+end
+
 local function isCustom(id)
     for _i, g in ipairs(list("custom")) do if g == id then return true end end
     return false
@@ -712,10 +791,18 @@ chooserItems = function(where)
             keep_menu_open = true,
             callback = function() layout.auto = not newGoIn(); saveLayout(true) end,
         },
+        {
+            text = titlecase(_("put tweaks inside their plugin")),
+            help_text = _("SimpleUI Tweaks and SimpleUI Side Panel inside Simple UI, BookOrbit Tweaks inside BookOrbit, Reading Insights Tweaks inside Reading Insights, Reading Log Tweaks inside Reading Log. Moving one of them to another group takes it out again."),
+            checked_func = combineOn,
+            keep_menu_open = true,
+            callback = function() layout.combine = (not combineOn()) and nil or false; saveLayout() end,
+        },
         { text = titlecase(_("add group…")), keep_menu_open = true,
           callback = function(tm) addGroup(where, tm) end, separator = true },
     }
     local any = false
+    local _hosts, inside = combinations(cands)
     for _i, g in ipairs(arrange(cands)) do
         if #g.items > 0 or isCustom(g.id) then
             any = true
@@ -728,12 +815,13 @@ chooserItems = function(where)
             for _j, c in ipairs(g.items) do
                 local label = c.broken and (c.label .. "  • " .. _("Error"))
                     or (new_ids[c.key] and (c.label .. "  • " .. _("New")) or c.label)
+                if inside[c.key] then label = "   " .. label .. "  (" .. _("in") .. " " .. inside[c.key].label .. ")" end
                 out[#out + 1] = {
                     text = label,
-                    checked_func = function() return not excluded[c.key] end,
+                    checked_func = function() return not isOff(c.key) end,
                     keep_menu_open = true,
                     callback = function()
-                        excluded[c.key] = (not excluded[c.key]) or nil
+                        setOff(c.key, not isOff(c.key))
                         saveAndAsk(SETTINGS_KEY, excluded)
                     end,
                     hold_callback = function(tm) itemDialog(where, c, tm) end,
@@ -806,7 +894,7 @@ local function buildEntries(where)
             local order = tonumber(e.order) or 100
             local named = type(e.text) == "string"
             local label = named and e.text or id
-            if excluded["patch:" .. id] then
+            if isOff("patch:" .. id) then
                 -- turned off: listed in the chooser only, not built
                 list[#list + 1] = { id = id, order = order, text = label, off = true, group = e.group }
             else
@@ -996,21 +1084,82 @@ local function inject(where, items, order)
         G_reader_settings:saveSetting(NEW_KEY, new_ids)
     end
 
+    -- Entries that must leave the menu KOReader sorts: KOReader puts back
+    -- anything left in it that no list places (in Tools by its sorting
+    -- hint, else marked "NEW:" in the first tab).
+    local drop = {}
+
+    -- a plugin with its tweaks inside: a new entry wrapping the plugin's own
+    -- item (never changed), with the patches' items at the bottom. Skipped
+    -- for a plugin whose menu KOReader builds from its own order list.
+    local hosts, inside = combinations(cands)
+    for hkey, kids in pairs(hosts) do
+        local h
+        for _i, c in ipairs(cands) do if c.key == hkey then h = c break end end
+        local it = h and items[h.id]
+        if type(it) ~= "table" or type(order[h.id]) == "table"
+           or not (it.sub_item_table or it.sub_item_table_func or it.callback) then
+            hosts[hkey] = nil
+            for _i, k in ipairs(kids) do inside[k.key] = nil end
+        else
+            local kid_items = {}
+            for _i, k in ipairs(kids) do
+                kid_items[#kid_items + 1] = items[k.id]
+                drop[k.id] = true
+            end
+            drop[h.id] = true
+            local host_label = h.label
+            items[ENTRY_ID .. "c:" .. h.id] = {
+                text = it.text, text_func = it.text_func, help_text = it.help_text,
+                sub_item_table_func = function()
+                    local out, base = {}, it.sub_item_table
+                    if not base and type(it.sub_item_table_func) == "function" then
+                        local ok, t = pcall(it.sub_item_table_func)
+                        if ok and type(t) == "table" then base = t end
+                    end
+                    if base then
+                        for i, v in ipairs(base) do out[i] = v end
+                    elseif it.callback then
+                        out[1] = { text = titlecase(_("open")) .. " " .. host_label, callback = it.callback,
+                                   keep_menu_open = it.keep_menu_open }
+                    end
+                    if #out > 0 then
+                        -- a copy of the last row carries the separator
+                        local last = {}
+                        for k, v in pairs(out[#out]) do last[k] = v end
+                        last.separator = true
+                        out[#out] = last
+                    end
+                    for _i, k in ipairs(kid_items) do out[#out + 1] = k end
+                    return out
+                end,
+            }
+        end
+    end
+
     for _i, g in ipairs(arrange(cands)) do
         local ids = {}
         for _j, c in ipairs(g.items) do
             found[#found + 1] = c
-            if not excluded[c.key] and not c.broken then
+            if not isOff(c.key) and not c.broken then
                 moved[c.id] = true
-                ids[#ids + 1] = c.id
+                if hosts[c.key] then
+                    ids[#ids + 1] = ENTRY_ID .. "c:" .. c.id
+                elseif not inside[c.key] then
+                    ids[#ids + 1] = c.id
+                end
                 -- a patch that also adds its own copy to Tools (older
                 -- versions, or ones that always do): that copy goes too
                 local pid = c.key:match("^patch:(.+)$")
-                if pid and items[pid] ~= nil then moved[pid] = true end
+                if pid and items[pid] ~= nil then
+                    moved[pid] = true
+                    drop[pid] = true
+                end
             end
         end
         addRows(g.id, ids)
     end
+    for id in pairs(drop) do items[id] = nil end
 
     if #found == 0 then return nil end
     seen[where] = cands
