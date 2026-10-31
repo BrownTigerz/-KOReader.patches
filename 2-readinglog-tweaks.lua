@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.5.2
+Version: 2.7.0
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -62,6 +62,33 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.7.0  2026-10-31  Library Card Takes Turns With Collecting Dust (Books,
+                     on): the Library card swaps with BookOrbit books you
+                     haven't started, the ones added longest ago first, a
+                     different few each time. It changes when you come back
+                     (a book closed, waking, another tab), never while you
+                     look. Tap a cover for the compact window.
+  2.6.1  2026-10-31  A BookOrbit pick you downloaded counts as on the device
+                     at once: its own cover, and its window says Read /
+                     Continue Reading, with BookOrbit and Remove From Device
+                     (SimpleUI Side Panel 1.0.32). It stays the pick until
+                     you start it.
+  2.6.0  2026-10-31  Random Pick Includes BookOrbit (Books, on): books in
+                     your BookOrbit library that aren't on this device can
+                     be the Random pick, with their BookOrbit cover; a tap
+                     shows the compact window with Download (straight from
+                     BookOrbit) and BookOrbit. Needs SimpleUI Side Panel
+                     1.0.31 for covers and Download. The list refreshes in
+                     the background with Wi-Fi on, at most every 6 hours.
+  2.5.4  2026-10-31  Continue reading's cover counts as one of the card's
+                     buttons: a When Tapped action set for the card no
+                     longer takes it over (it opened the book instead of
+                     Compact Detail).
+  2.5.3  2026-10-31  Enter From The Side You Swipe From (Fine Tuning, on):
+                     swiping from another Simple UI page onto the Dashboard
+                     lands on its first tab when you swipe left and its last
+                     tab when you swipe right, so with Swipe Between Tabs
+                     the tabs and pages feel like one row.
   2.5.2  2026-10-31  Smart Cards only follow their rules: no swiping or dots
                      to flip them by hand, so a swipe on one changes the tab
                      (Swipe Between Tabs) or goes back to the home page's
@@ -234,7 +261,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.5.2"
+local PATCH_VERSION = "2.7.0"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -3078,6 +3105,7 @@ local function apply(A)
 
     local function swipeAway(why)
         if smartAway then smartAway() end
+        if A.state.rlt_dust_away then A.state.rlt_dust_away() end
         A.state.rlt_swipe_away = true
         local on = alternate() and swipeOn and swipeOn() and #swipeCards() >= 2
         if on then want_rebuild = true end
@@ -3868,6 +3896,7 @@ local function apply(A)
         return nil, RC
     end
 
+    local openDirectly -- below, with Book Tap Opens; the hold menu's Open uses it
     local function quickActions(fp, ctx)
         local ButtonDialog = require("ui/widget/buttondialog")
         local okB, BookList = pcall(require, "ui/widget/booklist")
@@ -3940,6 +3969,29 @@ local function apply(A)
         return true
     end
 
+    -- Enter From The Side You Swipe From (2.5.3, on): a swipe on another
+    -- Simple UI page that turns onto the Dashboard lands on its first tab
+    -- (swiping left, coming in from the right) or its last tab (swiping
+    -- right, coming in from the left), so the tabs read as one long strip.
+    local function enterSideOn() return A.get("rlt_enter_side", true) ~= false end
+    local function enterFromSide(win, ges)
+        if not enterSideOn() then return end
+        local sw = A.screen():getWidth()
+        if ges.pos.x < sw / 8 or ges.pos.x > sw - sw / 8 then return end -- the side panel's
+        for _, e in pairs(LIVE) do
+            if e.win == win and e.painted then return end -- on the Dashboard: not entering it
+        end
+        local first, last
+        for _, t in ipairs(A.state.dash_tabs or {}) do
+            if t.kind == "page" then first = first or t; last = t end
+        end
+        local t = ges.direction == "west" and first or last
+        if not t or tonumber(A.state.dash_page) == t.page then return end
+        A.state.dash_page = t.page
+        A.state.month_offset = 0
+        want_rebuild = true
+    end
+
     local function hookWindow(w)
         if type(w) ~= "table" or rawget(w, "_rlt_hooked") then return end
         w._rlt_hooked = true
@@ -3968,6 +4020,7 @@ local function apply(A)
                                 and (ges.direction == "west" or ges.direction == "east") then
                             local ok, took = pcall(onSwipe, self, ges)
                             if ok and took then return true end
+                            pcall(enterFromSide, self, ges)
                         end
                     elseif event.handler == "onResume" then
                         swipeAway("wake")
@@ -3998,6 +4051,7 @@ local function apply(A)
                 if was == true and vis == false then
                     goStartTab("page turned")
                     if smartAway then smartAway() end
+                    if A.state.rlt_dust_away then A.state.rlt_dust_away() end
                 end
                 if vis and want_rebuild then
                     want_rebuild = false
@@ -4050,7 +4104,7 @@ local function apply(A)
     -- Opening a book on purpose (Continue reading's Continue, a menu's Open):
     -- Book Tap Opens: Compact Detail leaves those alone.
     local direct_open = 0
-    local function openDirectly(fn)
+    openDirectly = function(fn)
         direct_open = direct_open + 1
         local ok, err = pcall(fn)
         direct_open = direct_open - 1
@@ -4304,6 +4358,13 @@ local function apply(A)
     -- Log's Own. Continue (the button) always opens.
     if type(P.continue) == "table" and type(P.continue.tap) == "function" and not P.continue._rlt_cover then
         P.continue._rlt_cover = true
+        -- the cover is one of the card's own buttons, like Continue: a "When
+        -- tapped" action set for the card must not take it over (2.5.4)
+        local inner_controls = P.continue.controls
+        P.continue.controls = function(region, ...)
+            if region == "cover_open" then return true end
+            return type(inner_controls) == "function" and inner_controls(region, ...) or false
+        end
         local inner_ctap = P.continue.tap
         P.continue.tap = function(env, region, ...)
             if region == "cover_open" then
@@ -4448,6 +4509,347 @@ local function apply(A)
                 return
             end
             return orig_open(ctx, fp, ...)
+        end
+    end
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- BookOrbit In Random Pick (2.6.0, on): books in your BookOrbit library
+    -- that aren't on this device can be the Random pick too, with their
+    -- BookOrbit cover. Tapping one shows the compact window with Download and
+    -- BookOrbit (Book Tap Opens: BookOrbit goes straight to its page). The
+    -- list is kept here and refreshed in the background with Wi-Fi on, at most
+    -- every 6 hours; nothing waits on the server.
+    -- ════════════════════════════════════════════════════════════════════════
+    local function boPicksOn() return A.get("rlt_bo_picks", true) ~= false end
+    local function boPseudo(fp) return type(fp) == "string" and tonumber(fp:match("^bookorbit:(%d+)$")) or nil end
+    local function boLib()
+        local c = A.get("rlt_bo_lib", nil)
+        return type(c) == "table" and type(c.books) == "table" and c or nil
+    end
+    local function boEntry(id)
+        for _, b in ipairs((boLib() or {}).books or {}) do if tonumber(b.id) == id then return b end end
+        return nil
+    end
+    local function boClient()
+        local st = G_reader_settings and G_reader_settings:readSetting("bookorbit")
+        if type(st) ~= "table" or not (st.server_url and st.username and st.userkey) then return nil end
+        local ok, Api = pcall(require, "bookorbit_api")
+        if not (ok and type(Api) == "table" and type(Api.new) == "function") then return nil end
+        return Api.new({ server_url = st.server_url, username = st.username, userkey = st.userkey, device_id = st.device_id })
+    end
+    local bo_lib_busy, bo_lib_try = false, 0
+    local function refreshBoLib()
+        if bo_lib_busy or not boPicksOn() then return end
+        local c = boLib()
+        if c and os.time() - (tonumber(c.at) or 0) < 6 * 3600 then return end
+        if os.time() - bo_lib_try < 1800 then return end
+        local okN, NM = pcall(require, "ui/network/manager")
+        if not (okN and NM:isConnected()) then return end
+        local client = boClient()
+        if not client then return end
+        bo_lib_busy, bo_lib_try = true, os.time()
+        require("ui/trapper"):wrap(function()
+            local ok_run, completed, result = pcall(client.runInSubprocess, client, function()
+                local out = {}
+                for page = 1, 3 do
+                    local body = client:catalogBooks({ page = page, size = 100, sort = "recently_added" })
+                    local items = type(body) == "table" and (body.items or body.books) or nil
+                    if type(items) ~= "table" or #items == 0 then break end
+                    for _, b in ipairs(items) do
+                        if type(b) == "table" and b.id then
+                            local cv = tostring(b.updatedAt or ""):gsub("%D", "")
+                            if #cv > 32 then cv = cv:sub(1, 16) .. cv:sub(-16) end
+                            out[#out + 1] = { id = b.id, title = b.title, authors = b.authors,
+                                series = b.seriesName, num = tonumber(b.seriesIndex),
+                                rs = b.readStatus, pct = b.progressPercentage, cv = cv ~= "" and cv or "0" }
+                        end
+                    end
+                    if #items < 100 then break end
+                end
+                return out
+            end)
+            bo_lib_busy = false
+            local books = ok_run and completed and type(result) == "table" and result.body or nil
+            if type(books) == "table" and #books > 0 then
+                A.set("rlt_bo_lib", { at = os.time(), books = books })
+                redrawAll()
+            end
+        end)
+    end
+    -- Where a BookOrbit book is on this device (BookOrbit's own map, or a
+    -- download from the Side Panel BookOrbit hasn't linked yet), or nil
+    local function boLocal(id)
+        local SP = package.loaded.simpleui_sidepanel
+        if type(SP) == "table" and type(SP.boLocalPath) == "function" then
+            local ok, p = pcall(SP.boLocalPath, id)
+            if ok and type(p) == "string" then return p end
+        end
+        local okS, SM = pcall(require, "bookorbit_state_manager")
+        if okS and type(SM) == "table" and type(SM.onDeviceMaps) == "function" then
+            local ok, maps = pcall(SM.onDeviceMaps)
+            local p = ok and type(maps) == "table" and type(maps.byBookId) == "table" and (maps.byBookId[id] or maps.byBookId[tostring(id)])
+            if type(p) == "string" and require("libs/libkoreader-lfs").attributes(p, "mode") == "file" then return p end
+        end
+        return nil
+    end
+    -- started on this device (it has a reading position)
+    local function boStarted(path)
+        local ok, pct = pcall(function()
+            local ds = require("docsettings"):open(path)
+            local v = ds:readSetting("percent_finished")
+            if ds.close then ds:close() end
+            return v
+        end)
+        return ok and (tonumber(pct) or 0) > 0
+    end
+    if type(D.pickCandidates) == "function" and not D._rlt_bo_picks then
+        D._rlt_bo_picks = true
+        local orig_pc = D.pickCandidates
+        D.pickCandidates = function(books, o, ...)
+            local out = orig_pc(books, o, ...)
+            if not boPicksOn() or type(out) ~= "table" then return out end
+            o = o or {}
+            -- a KOReader collection or genres chosen: those are about books on the device
+            if o.coll or (type(o.genres) == "table" and #o.genres > 0) then return out end
+            refreshBoLib()
+            local lib = boLib()
+            if not lib then return out end
+            local want_auth
+            if type(o.authors) == "table" and #o.authors > 0 then
+                want_auth = {}
+                for _, a in ipairs(o.authors) do want_auth[tostring(a):lower()] = true end
+            end
+            local have = {}
+            for _, b in ipairs(out) do have[tostring(b.title or ""):lower()] = true end
+            for _, b in ipairs(lib.books) do
+                local id = tonumber(b.id)
+                local unread = (b.rs == nil or b.rs == "unread" or b.rs == "want_to_read")
+                    and not ((tonumber(b.pct) or 0) > 0)
+                local auth_ok = not want_auth
+                if want_auth then
+                    for _, a in ipairs(type(b.authors) == "table" and b.authors or {}) do
+                        if want_auth[tostring(a):lower()] then auth_ok = true end
+                    end
+                end
+                -- downloaded already: still this pick until it's started (it
+                -- stays "bookorbit:<id>" so the pick doesn't jump to another)
+                local here = id and boLocal(id)
+                if id and unread and auth_ok and not (here and boStarted(here))
+                        and not have[tostring(b.title or ""):lower()] then
+                    out[#out + 1] = { fp = "bookorbit:" .. id, title = b.title or "", status = "unread",
+                        authors = type(b.authors) == "table" and b.authors or {},
+                        series = b.series, num = b.num, bo_id = id, cv = b.cv }
+                end
+            end
+            table.sort(out, function(x, y) return x.fp < y.fp end)
+            return out
+        end
+    end
+    -- their covers: BookOrbit's cached ones (fetched through the Side Panel
+    -- when they aren't there yet, then redrawn)
+    if type(D.cover) == "function" and not D._rlt_bo_cover then
+        D._rlt_bo_cover = true
+        local orig_cover = D.cover
+        local bo_covers, bo_cover_asked = {}, {}
+        D.cover = function(fp, w, h, align, sharp)
+            local id = boPseudo(fp)
+            if not id then return orig_cover(fp, w, h, align, sharp) end
+            if type(w) ~= "number" or type(h) ~= "number" or w < 2 or h < 2 then return nil end
+            w, h = floor(w), floor(h)
+            local key = id .. ":" .. w .. "x" .. h
+            if bo_covers[key] then return bo_covers[key] end
+            -- on the device: the book's own cover
+            local here = boLocal(id)
+            if here then return orig_cover(here, w, h, align, sharp) end
+            local SP = package.loaded.simpleui_sidepanel
+            local e = boEntry(id) or { id = id }
+            local path = type(SP) == "table" and type(SP.boCoverPath) == "function" and SP.boCoverPath(e) or nil
+            if not path then
+                if not bo_cover_asked[id] and type(SP) == "table" and type(SP.boFetchCovers) == "function" then
+                    bo_cover_asked[id] = true
+                    SP.boFetchCovers({ e }, function() redrawAll() end)
+                end
+                return nil
+            end
+            local ok, out = pcall(function()
+                local RI = require("ui/renderimage")
+                local src = RI:renderImageFile(path, false)
+                if not src then return nil end
+                local sw, sh = src:getWidth(), src:getHeight()
+                local k = max(w / sw, h / sh)
+                local scaled = RI:scaleBlitBuffer(src, max(w, floor(sw * k + 0.5)), max(h, floor(sh * k + 0.5)), false)
+                if scaled ~= src then src:free() end
+                return scaled
+            end)
+            if ok and out then
+                -- a handful at most (one pick, a few sizes)
+                local n = 0
+                for _k in pairs(bo_covers) do n = n + 1 end
+                if n > 6 then for k2, bb in pairs(bo_covers) do pcall(bb.free, bb); bo_covers[k2] = nil end end
+                bo_covers[key] = out
+                return out
+            end
+            return nil
+        end
+    end
+    -- a tap on one: the compact window (Download, BookOrbit), or its
+    -- BookOrbit page with Book Tap Opens: BookOrbit
+    local function showBoBook(id)
+        local b = boEntry(id) or { id = id }
+        local SP = package.loaded.simpleui_sidepanel
+        if bookTapMode() ~= "bookorbit" and type(SP) == "table" and type(SP.showCompactBookDetail) == "function" then
+            local home
+            for _i, e in ipairs(UIManager._window_stack or {}) do
+                if type(e.widget) == "table" and e.widget.name == "homescreen" then home = e.widget end
+            end
+            -- downloaded: the file's own window (Read / Continue Reading,
+            -- BookOrbit, Remove From Device)
+            local here = boLocal(id)
+            local percent, status
+            if here then
+                local okb, SH = pcall(require, "modules/module_books_shared")
+                if okb and type(SH) == "table" and type(SH.getBookData) == "function" then
+                    local okd, bd = pcall(SH.getBookData, here)
+                    if okd and type(bd) == "table" then percent, status = bd.percent, bd.status end
+                end
+            end
+            local ok = pcall(SP.showCompactBookDetail, home, {
+                title = b.title or "", authors = table.concat(type(b.authors) == "table" and b.authors or {}, ", "),
+                fp = here, entry = { id = id, title = b.title, cv = b.cv }, on_device = here ~= nil, is_bo = true,
+                percent = percent, status = status,
+                on_downloaded = function() redrawAll() end,
+            })
+            if ok then return end
+        end
+        UIManager:nextTick(function() openBoDetail(id) end)
+    end
+    for _, fname in ipairs({ "showDetails", "openBook" }) do
+        local inner = D[fname]
+        if type(inner) == "function" then
+            D[fname] = function(ctx, fp, ...)
+                local id = boPseudo(fp)
+                if id then return showBoBook(id) end
+                return inner(ctx, fp, ...)
+            end
+        end
+    end
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Library card: Collecting Dust (2.7.0, on)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- With BookOrbit there, the Library card takes turns with "Collecting
+    -- Dust": BookOrbit books you haven't started, the ones added longest ago
+    -- first, a different few each time. It changes when you come back (a book
+    -- closed, waking, another tab or home page shown), never while you look.
+    -- Tap a cover for its compact window (Download, BookOrbit).
+    if scaler and type(P.library) == "table" and type(P.library.build) == "function" and not P.library._rlt_dust then
+        P.library._rlt_dust = true
+        local orig_lbuild, orig_ltap = P.library.build, P.library.tap
+        local function dustOn() return boPicksOn() and A.get("rlt_lib_dust", true) ~= false end
+        local dust_cache = { at = nil, list = nil }
+        local function dustBooks()
+            local lib = boLib()
+            if not lib then return {} end
+            if dust_cache.at == lib.at and dust_cache.list then return dust_cache.list end
+            local out = {}
+            -- the list comes newest first: the far end is the dustiest
+            for i = #lib.books, 1, -1 do
+                local b = lib.books[i]
+                local id = tonumber(b.id)
+                local unread = (b.rs == nil or b.rs == "unread" or b.rs == "want_to_read")
+                    and not ((tonumber(b.pct) or 0) > 0)
+                if id and unread then
+                    local here = boLocal(id)
+                    if not (here and boStarted(here)) then out[#out + 1] = b end
+                end
+            end
+            dust_cache.at, dust_cache.list = lib.at, out
+            return out
+        end
+        -- left the Library card's page: the next showing takes its turn
+        local function dustAway()
+            A.state.rlt_dust_left = true
+            -- SimpleUI may show the home screen again without a rebuild
+            if A.state.rlt_dust_seen then want_rebuild = true end
+        end
+        A.state.rlt_dust_away = dustAway
+        local function dustTurn()
+            if A.state.rlt_dust_left then
+                A.state.rlt_dust_left = nil
+                A.state.rlt_dust_turn = (A.state.rlt_dust_turn or 0) + 1
+            end
+            return A.state.rlt_dust_turn or 0
+        end
+
+        local function buildDust(env, list, turn)
+            local w, h, tone = env.w, env.h, env.tone
+            local s = min(h / 300, w / 860)
+            local px, fpx = scaler(s, env.ts)
+            local c = card(env, s)
+            local pad = px(30)
+            local hy = px(20)
+            local t_label = c:label("Collecting dust", fpx(22), pad, hy, { bold = true, caps = true, color = tone.accent })
+            c:label("BookOrbit", fpx(22), w - pad, hy, { bold = true, color = tone.accent2, anchor = "r", max_w = w * 0.4 })
+            local t_cap = c:text(A.plural(#list, "book", "books") .. " you haven't started", fpx(22),
+                { bold = true, color = tone.muted, max_w = w - 2 * pad })
+            local top = hy + t_label.h + px(14)
+            local cap_y = h - px(20) - t_cap.h
+            local ch = cap_y - px(10) - top
+            local files = {}
+            if ch > 24 then
+                local gap = px(16)
+                local cw = round(ch / 1.5)
+                local fit = max(1, floor((w - 2 * pad + gap) / (cw + gap)))
+                local n = min(#list, fit, 8)
+                -- a different few each turn, from the dustiest 40
+                local pool = min(#list, 40)
+                local start = ((floor(turn / 2) * n) % pool)
+                local x0 = pad + floor((w - 2 * pad - (n * cw + (n - 1) * gap)) / 2)
+                for i = 1, n do
+                    local b = list[((start + i - 1) % pool) + 1]
+                    local fp = "bookorbit:" .. tostring(b.id)
+                    local x = x0 + (i - 1) * (cw + gap)
+                    c:cover(fp, x, top, cw, ch, { title = b.title, edge = tone.border or tone.bg })
+                    files[i] = fp
+                    c:region("dust:" .. i, x, top, cw, ch, px(4))
+                end
+            end
+            c:put(t_cap, w / 2, cap_y, "c")
+            if not env.sample then A.state.rlt_dust_files = files end
+            return c
+        end
+
+        P.library.build = function(env, ...)
+            A.state.rlt_dust_showing = false
+            if env.sample or not dustOn() then return orig_lbuild(env, ...) end
+            refreshBoLib()
+            local list = dustBooks()
+            A.state.rlt_dust_page = A.state.dash_page
+            if #list == 0 then return orig_lbuild(env, ...) end
+            A.state.rlt_dust_seen = true
+            local turn = dustTurn()
+            if turn % 2 == 0 then return orig_lbuild(env, ...) end
+            local ok, c = pcall(buildDust, env, list, turn)
+            if ok and c then
+                A.state.rlt_dust_showing = true
+                return c
+            end
+            warn("collecting dust:", tostring(c))
+            return orig_lbuild(env, ...)
+        end
+        P.library.tap = function(env, region, ...)
+            local i = A.state.rlt_dust_showing and region and tonumber(tostring(region):match("dust:(%d+)$"))
+            if i then
+                local fp = A.state.rlt_dust_files and A.state.rlt_dust_files[i]
+                if fp then D.showDetails(env.ctx, fp) end
+                return
+            end
+            if type(orig_ltap) == "function" then return orig_ltap(env, region, ...) end
+        end
+        local orig_lcontrols = P.library.controls
+        P.library.controls = function(region, ...)
+            if region and tostring(region):match("dust:%d+$") then return true end
+            return type(orig_lcontrols) == "function" and orig_lcontrols(region, ...) or false
         end
     end
 
@@ -4800,6 +5202,11 @@ local function apply(A)
     end
     local makeEnv = A.makeEnv
     local function buildPanel(name, env)
+        -- another tab after the Library card's: Collecting Dust takes its turn
+        if A.state.rlt_dust_page and A.state.dash_page ~= A.state.rlt_dust_page and A.state.rlt_dust_away then
+            A.state.rlt_dust_page = nil
+            A.state.rlt_dust_away()
+        end
         local ok, c = pcall(P[name].build, env)
         if ok and c then return c end
         A.log(name, "render failed:", c)
@@ -5302,6 +5709,13 @@ local function apply(A)
                 keep_menu_open = true,
                 callback = function() A.set("rlt_tab_swipe", (not tabSwipeOn()) or nil) end,
             },
+            {
+                text = "Enter From The Side You Swipe From",
+                help_text = "Swiping from another Simple UI page onto the Dashboard: swiping left lands on its first tab, swiping right on its last, so the tabs feel like one long row with Swipe Between Tabs. On by default; off keeps the tab you left (or Start On Tab).",
+                checked_func = function() return enterSideOn() end,
+                keep_menu_open = true,
+                callback = function() A.set("rlt_enter_side", enterSideOn() and false or nil) end,
+            },
         }
 
         local out = {
@@ -5491,6 +5905,23 @@ local function apply(A)
                     checked_func = coverHoldOn,
                     keep_menu_open = true,
                     callback = function() A.set("rlt_cover_hold", coverHoldOn() and false or nil) end,
+                }, {
+                    text = "Random Pick Includes BookOrbit",
+                    help_text = "Books in your BookOrbit library that aren't on this device can be the Random pick too (not when the pick is limited to a collection or genres), with their BookOrbit cover. Tap one for the compact window: Download it straight from BookOrbit, or open its BookOrbit page. The list refreshes in the background with Wi-Fi on, at most every 6 hours.",
+                    checked_func = function() return boPicksOn() end,
+                    keep_menu_open = true,
+                    callback = function() A.set("rlt_bo_picks", boPicksOn() and false or nil); redrawAll() end,
+                }, {
+                    text = "Library Card Takes Turns With Collecting Dust",
+                    help_text = "The Library card takes turns with Collecting Dust: BookOrbit books you haven't started, the ones added longest ago first, a different few each time. It changes when you come back (a book closed, waking, another tab), never while you look. Tap a cover for the compact window (Download, BookOrbit). Needs Random Pick Includes BookOrbit. On by default.",
+                    enabled_func = function() return boPicksOn() end,
+                    checked_func = function() return boPicksOn() and A.get("rlt_lib_dust", true) ~= false end,
+                    keep_menu_open = true,
+                    callback = function()
+                        A.set("rlt_lib_dust", A.get("rlt_lib_dust", true) ~= false and false or nil)
+                        A.state.rlt_dust_left = true
+                        redrawAll()
+                    end,
                 }, {
                     text_func = function()
                         return "Quote Of The Day: " .. (quoteSource() == "simpleui" and "SimpleUI's Quotes" or "Your Highlights")
