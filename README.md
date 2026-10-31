@@ -22,10 +22,10 @@ All patches work independently and together. If one fails to attach (for example
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.11 |
 | [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.27 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.12 |
-| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks | 1.0.0 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 1.1.13 |
+| [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.1.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.1.2 |
-| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.0.0 |
+| [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.1.2 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.20 |
@@ -34,14 +34,14 @@ All patches work independently and together. If one fails to attach (for example
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.6 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.0 |
-| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.3.2 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.5.0 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.14.10 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.0 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -71,7 +71,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Donny and Blu's own voice** (2.14.9, SimpleUI 3.0.2): Donny, Blu and Donny & Blu talk in their own voice like SimpleUI's critters (Suey, Hazel...): greetings, streaks, today's reading, books this year, the current book, your goal, Mondays, weekends. The lines are in `critter-phrases.lua` (its `voices` section, edit freely) and are used on the home screen and by Reading Log Tweaks. Critter Insights (2.14.10) get their own wording too (`insight_voices`): about half the time a milestone, record, quick win, comeback, pace or weekend insight is in their voice.
 - **Critter Mix** (2.14.2): Modules → **Critter Mix**, tick two or more critters (say Donny, Blu and Donny & Blu) and they take turns: the next one each time the critter picks something new to say (about every 20 minutes, a new part of the day, or a tap). Reading Log's critter takes turns too: a new remark or a tap there moves it along (Reading Log 1.10.0+). Fewer than two ticked: SimpleUI's own pick.
 - **More critter moods** (2.14.1): reading, proud, hungry, cozy, sipping, dreamy, festive, spooky (Donny and Blu have them, see Tiny Critters). A critter without one shows its base pose (reading as neutral, proud as cheer...) instead of plain neutral. Party is festive in December and spooky from October 25, when the critter has those pictures.
-- **Critter phrases** (`critter-phrases.lua`, optional): put it in `koreader/patches/` next to the patch (the name has no number, so KOReader doesn't run it as a patch). Critter Insights and Critter Pep Talk then take their lines from it: several times as many, a little sassier, never guilt-trippy. Edit it to make the critter your own; Reading Log's critter uses the same file. Missing or broken, the built-in lines are used (crash.log says which). It's on the patch updater (Check for Patch Updates → Extras) with its own version; updating replaces the whole file, so keep a copy if you've edited it. Don't call it `phrases.lua` or put it in `sui_critters/`: that's SimpleUI's own custom phrase file, in another format.
+- **Critter phrases** (`critter-phrases.lua`, optional): put it in `koreader/patches/` next to the patch (the name has no number, so KOReader doesn't run it as a patch). Critter Insights and Critter Pep Talk then take their lines from it: several times as many, a little sassier, never guilt-trippy. Edit it to make the critter your own; Reading Log's critter uses the same file, and Quick Shelf's (1.1.0: reading stats and menu remarks). Missing or broken, the built-in lines are used (crash.log says which). It's on the patch updater (Check for Patch Updates → Extras) with its own version; updating replaces the whole file, so keep a copy if you've edited it. Don't call it `phrases.lua` or put it in `sui_critters/`: that's SimpleUI's own custom phrase file, in another format.
 - **Tiny Critter text colour** (SimpleUI 3.0): Modules → **Critter Text Colour** — **Auto** (default) keeps the text standing out on the bubble: white on the dark bubble in night mode, black on the white one by day. **White** or **Black** always, as they look (night mode included). The module text colours (Text Colour / Night Text Colour, made for text on the page or wallpaper) no longer reach inside the bubble. The bubble's outline follows. Reading Log's critter follows too.
 - **Tiny Critter position** (SimpleUI 3.0): Modules → **Critter Position** — **Left**, **Right** or **Left or Right** (one of the two ends each time, never the middle) for the critter and its speech bubble, so the middle of the row (and your wallpaper behind it) stays clear. Works with or without Critter Wanders; the first choice keeps SimpleUI's Alignment (or wanders with Critter Wanders on).
 - **Tiny Critter side** (SimpleUI 3.0): Modules → **Critter Side** — **Left of Text** or **Right of Text** keeps the critter on that side of its speech bubble, whatever the bubble width and with or without Critter Wanders (the row can still wander). The third choice uses SimpleUI's own Side (random while wandering).
@@ -175,13 +175,14 @@ Patch Backup & Restore
 ├─ Everything                      patches, settings, icons, phrases, quotes
 │  ├─ Back up now
 │  ├─ Restore latest
-│  └─ History                      every backup: restore or delete
+│  └─ History                      restore all, or only patch files / settings /
+│                                   icons; contents; delete
 ├─ Undo a patch update             put back a file the updater replaced
 ├─ One patch or plugin             one entry per target you use
 │  └─ SimpleUI, Reading Log Tweaks, …  Back up now / Restore latest / History
 ├─ Delete all backups              every target's, safety backups too
 ├─ Icons
-│  ├─ Tidy icons
+│  ├─ Tidy icons                   one target, or Tidy All
 │  └─ Unused icons
 ├─ Logins in device backups        off by default
 └─ Check for Patch Updates         update patches on the device
@@ -189,6 +190,9 @@ Patch Backup & Restore
 
 - **Everything:** one zip (`koreader/backups/everything/`) with every file in `patches/` and `patches/debug/` (so `critter-phrases.lua` too), SimpleUI's `sui_quotes/` folder, and every patch's settings, settings files and icons. **Restore** puts it all back (patches you added since stay), after an "everything before restore" backup, then asks to restart. On a new device, the settings of patches that came back with the restore are applied on the next start, once they've loaded. Saved logins are never in it.
 - **Undo a patch update:** Check for Patch Updates keeps the copy it replaces (the last 3 of each file, in `koreader/backups/patch-updates/`). Put one back; the version you have then is kept too, so you can switch back.
+- **Selective restore** (Everything → History → a backup): Restore This Backup, or only Patch Files, only Settings, only Icons, or Settings & Icons. Each takes an "everything before restore" backup first, and checks it can be read back before changing anything.
+- **Auto-Backup After Updates** (off by default): a quiet Everything backup after a successful patch update or Tidy. While it's on, only the newest few Everything backups are kept (**Keep Last N**, default 5); safety backups are never deleted. Off: nothing is made or deleted on its own.
+- **Copy Latest Everything:** copies the newest Everything zip to a folder you pick (a USB or sync folder), for moving to another device.
 - **Back up now:** the target's settings, any settings files it keeps in `koreader/settings/`, and every icon its settings point to, in one zip at `koreader/backups/<target>/<target>_<date>.zip`.
 - **Restore:** puts settings and files back, unpacks icons into the target's icon folder and repoints settings there. Takes a "before restore" safety backup first (and stops if it can't), then asks to restart. "Restore latest" skips those automatic safety backups.
 - **Tidy icons:** copies every icon a target uses into its own flat folder (`koreader/icons/<target>/`; SimpleUI uses its own `sui_icons/`) and repoints settings there. Originals stay put. Takes a "before tidy" backup first.
@@ -412,12 +416,17 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 - Covers come from thumbnails SimpleUI or CoverBrowser already keeps. A book is never opened to pull its cover. A book with no saved thumbnail gets a title tile.
 - **Cost:** nothing until you swipe. The strip builds on the first swipe of a menu open and is reused after that. Covers are kept already sized between menu opens, up to 10. A swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweaks.
 - **Book Panel Tap** (Shortcuts toolbar → Book Panel Tap, off by default): **Opens BookOrbit "This Book"** makes a tap on the book panel open BookOrbit's This book sheet (sync status, Sync now, progress) instead of KOReader's book details. **Hold Opens Book Details** (on by default) keeps the details a long-press away. Without BookOrbit, a tap does what it always did.
+- **Critter Remarks** (Shortcuts toolbar → Critter Remarks, all off by default). It's the critter your home screen shows (SimpleUI Tweaks' Critter Mix when you've ticked two or more, else the one picked in SimpleUI), in its own voice about half the time when it has lines (Donny, Blu, Donny & Blu):
+  - **While Reading:** a speech bubble in the book panel's free strip under the title, author and page line, about where you are in this book: pages and time left (at your usual pace), the chapter ending, how fast you're going this sitting against your usual ("Wow, you're flying!" / "Slow going today."), long and late sessions, a quarter / halfway / home stretch, the finish, and sweet little remarks any time ("I like reading with you."). It picks what fits right now and never the same thing twice in a row. Sized to the strip, so it never covers the text. Tap the critter for another remark.
+  - **On Library Toolbar:** the critter in the empty stretch of the file browser menu's tab bar, before the last tab icon. It notices the tab and submenu you open (fonts, Wi-Fi, the sleep screen, your Add-ons and more) and has something to say about it; on the toolbar's home view, a remark for the time of day. Tap it for another remark.
+  - The lines are in `critter-phrases.lua` 1.1.0+ (`reading`, `reading_voices`, `menus`, `menu_voices`, `menu_words`; edit freely, it's on the updater). Without it a few built-in lines stand in. Pace remarks (fast / slow / time left) need KOReader's reading statistics on. Some lines use your name ("Bedtime, TK."): the one you gave SimpleUI's critter under **Your name** in its settings; without a name those lines are skipped.
+  - Without SimpleUI 3.0's critter it's the remark alone.
 
 ---
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.12
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 1.1.13
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
@@ -440,7 +449,7 @@ Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Ad
   - **Critter's Own Voice** (Simple UI 3.0.2): Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos and Hazel say about one remark in three their own way, on the pages their lines fit. Donny, Blu and Donny & Blu join in with SimpleUI Tweaks 2.14.9+ and `critter-phrases.lua`, and since 1.1.2 the page insights (comeback, a run of days, best day this month, milestone, goal pace, weekend reading) are in their voice about half the time.
   - **Games And Quotes** (Simple UI 3.0.2): in the talk window, Let's Play (rock, paper, scissors; heads or tails; guess the author) and Read Me A Quote. The critter's last word shows in the bubble.
   - **Critter Rewards:** drawn beside the critter here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.
-- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, Tab Bar Position.
+- **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, and **Move Tab Row** (1.1.13): down moves the Today / Monthly / ... tabs away from the cards toward the page dots (into the margin, and in Full Screen into the room Bottom Space adds; past that the cards get shorter), up moves them closer. Its own setting, separate from Reading Log 2.0's Tab Bar Position.
 
 Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
 
@@ -526,7 +535,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.14.10
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.0
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -566,6 +575,16 @@ Flashes only fire while BookOrbit is the window on top (no stray flash on the fi
 ### Night mode covers
 
 **Keep Covers Original In Night Mode** — catalog and dashboard covers keep their artwork instead of being inverted.
+
+### Add To Collection
+
+**Add To Collection In Book Menu** (on by default) — hold a book in a list, or tap ⋯ on a book's page: the sheet gets an **Add To Collection** row. It lists your BookOrbit collections with ✓ on the ones the book is already in; tap one to add or remove the book, or **New Collection…** to make one with the book in it.
+
+BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit username and password (asked the first time). It offers to save the password on the device, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
+
+### Open Book Only From Buttons
+
+**Open Book Only From Buttons** (off by default) — on the dashboard, only the Resume / Download pill and the round play button open the book. A tap anywhere else on the Continue Reading tile (cover, title, progress) does nothing.
 
 ### Action colours
 
