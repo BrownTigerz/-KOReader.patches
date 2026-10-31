@@ -36,6 +36,29 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.7  2026-10-31  Downloading on a book's page: the redraws when the
+                      button turns into progress and back only refresh the
+                      button's area; the whole page updates once, when the
+                      book is on the device.
+  2.15.6  2026-10-31  This book's Sync now: no redraws while it syncs (they
+                      were quick updates, but quick updates of a cover still
+                      blink on colour screens), just one at the end with the
+                      result.
+  2.15.5  2026-10-31  Fewer flashes again. This book's sheet skips redraws
+                      that show nothing new (BookOrbit redrew it three more
+                      times after Sync now, once per position check).
+                      Opening a book's page in BookOrbit (and downloading it
+                      there) no longer gets a Content Load flash; lists and
+                      sections still do.
+  2.15.4  2026-10-31  Far fewer flashes. Never more than one of ours every
+                      1.5 s (page turns with Flash Every aside). Content
+                      Load flashes only going somewhere new (a list, a
+                      section, a book's page), never redraws of the same
+                      page: download progress, sync, the ⋯ menu and sheets,
+                      ratings. The settings menu flashes when it closes, not
+                      also when it opens. This book's Sync now: quick
+                      updates while syncing, one full one at the end, and
+                      the chip says Synced just now straight away.
   2.15.3  2026-10-31  Add To Collection is also in a book page's ⋯ menu
                       (BookOrbit 2.0's page menu, above Refresh from
                       BookOrbit), not only the book sheet.
@@ -101,7 +124,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.3"
+local VERSION = "2.15.7"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -176,6 +199,17 @@ local function nowS()
         return time.to_s(time.now())
     end
     return os.time()
+end
+
+-- One clock for every flash this patch asks for (2.15.4): none within
+-- FLASH_GAP seconds of the last, so open + content + menu never stack up.
+local FLASH_GAP = 1.5
+local last_any_flash = 0
+local function flashAllowed()
+    local now = nowS()
+    if now - last_any_flash < FLASH_GAP then return false end
+    last_any_flash = now
+    return true
 end
 
 local function saveConfig()
@@ -730,7 +764,7 @@ local function forceOpenBookOrbit(reason)
                 end
             end
             raiseAnyBookOrbitWindow()
-            if cfg.flash_ghosting and cfg.flash_open then
+            if cfg.flash_ghosting and cfg.flash_open and flashAllowed() then
                 pcall(function() UIManager:setDirty("all", "flashui") end)
             else
                 pcall(function() UIManager:setDirty("all", "ui") end)
@@ -781,7 +815,7 @@ local function hookMenuSheetCloseFlash()
         local is_sheet = type(widget) == "table" and type(widget.name) == "string"
                 and widget.name:find("bookorbit_menu_sheet", 1, true)
         local res = original_close(self, widget, ...)
-        if is_sheet and cfg.flash_ghosting and cfg.flash_menu_sheet then
+        if is_sheet and cfg.flash_ghosting and cfg.flash_menu_sheet and flashAllowed() then
             pcall(function()
                 UIManager:setDirty("all", "flashui")
             end)
@@ -1277,12 +1311,8 @@ local function hookPluginOpen(plugin)
 
         plugin.openMenuSheet = function(self, ...)
             local res = original_sheet(self, ...)
-            if cfg.flash_ghosting and cfg.flash_menu_sheet then
-                local ok_ui, UIManager = pcall(require, "ui/uimanager")
-                if ok_ui then
-                    pcall(function() UIManager:setDirty("all", "flashui") end)
-                end
-            end
+            -- no flash opening the sheet (2.15.4): it paints over the page;
+            -- closing it is what leaves the ghost, and that one flashes
             -- Attach after the sheet is on the stack (openMenuSheet may show async).
             pcall(function()
                 local UIManager = require("ui/uimanager")
@@ -1377,7 +1407,13 @@ local function pageFingerprint(catalog)
     local ctx = catalog and catalog.current_context
     if type(ctx) == "table" then
         if ctx.kind == "books" then
-            return "books:" .. tostring(ctx.page) .. "/" .. tostring(ctx.page_count)
+            return "books:" .. tostring(ctx.title or ctx.label or "") .. ":" .. tostring(ctx.page) .. "/" .. tostring(ctx.page_count)
+        end
+        if ctx.detail ~= nil then
+            -- a book's page: the book and which page of it, not its sheets,
+            -- download progress or sync (those redraw the same page)
+            local d = ctx.detail
+            return "detail:" .. tostring(type(d) == "table" and d.id or d) .. ":" .. tostring(ctx.detail_page or 1)
         end
         if ctx.kind == "dashboard" then
             return "dashboard:" .. tostring(ctx.board_page or 1)
@@ -1466,11 +1502,16 @@ local function hookCatalogFlash()
             local ok_fp, res_fp = pcall(pageFingerprint, catalog)
             if ok_fp then fp = res_fp end
         end
-        if why == "content" and fp and fp == last_flashed_fp then
-            local now_c = nowS()
-            if (now_c - last_flashed_clock) < 3 then
-                return
-            end
+        -- a rebuild of the same view (download progress, sync, a sheet or
+        -- the ⋯ menu, a rating) never flashes: only going somewhere new does
+        if why == "content" and (fp == nil or fp == last_flashed_fp) then
+            return
+        end
+        -- a book's page isn't a content load (2.15.5): opening one, and the
+        -- redraws while it downloads, stay BookOrbit's own refreshes
+        if why == "content" and fp:sub(1, 7) == "detail:" then
+            last_flashed_fp = fp
+            return
         end
         -- No Tweaks flash while the catalog is not topmost: init-time content
         -- loads used to flash on the file browser, then KOReader's show flash
@@ -1499,6 +1540,11 @@ local function hookCatalogFlash()
         end
         local now = nowS()
         if why ~= "page-turn" and (now - last_flash_t) < FLASH_DEBOUNCE then
+            return
+        end
+        if why == "page-turn" then
+            last_any_flash = now -- a turn's flash is asked for (Flash Every): always
+        elseif not flashAllowed() then
             return
         end
         last_flash_t = now
@@ -1699,12 +1745,6 @@ local function hookCatalogSwipeClose()
             if type(self.onTopEdgeSwipe) == "function" then
                 local handled = self:onTopEdgeSwipe(ges_ev)
                 if handled then
-                    if cfg.flash_ghosting and cfg.flash_menu_sheet then
-                        local ok_ui, UIManager = pcall(require, "ui/uimanager")
-                        if ok_ui then
-                            pcall(function() UIManager:setDirty("all", "flashui") end)
-                        end
-                    end
                     return true
                 end
             end
@@ -1937,6 +1977,30 @@ local function hookSettingsFlash()
 
     local original_refresh = MenuPage.refresh
     MenuPage.refresh = function(self, mode, ...)
+        -- This book (toolbar book panel, or the gesture): Sync now redraws
+        -- the sheet three times (Syncing…, done, BookOrbit's position), each
+        -- a full e-ink update of the sheet that looks like a flash in night
+        -- mode. The in-between ones are quick updates; only the last one,
+        -- with everything settled, is a full one (2.15.4).
+        if mode == nil and self and self.name == "bookorbit_book_sheet" then
+            -- a redraw that shows nothing new (BookOrbit refreshes the sheet
+            -- again when its position arrives, twice) is skipped (2.15.5)
+            local d = type(self.book_data) == "table" and self.book_data or {}
+            local r = type(d.remote) == "table" and d.remote or {}
+            local sy = type(self.sync) == "table" and self.sync or {}
+            local sig = table.concat({ tostring(d.synced), tostring(d.local_pct), tostring(d.page), tostring(d.pages),
+                tostring(r.percentage), tostring(r.device), tostring(d.ahead), tostring(d.auto), tostring(d.matched),
+                tostring(d.highlights), tostring(d.bookmarks), tostring(d.online), tostring(sy.running),
+                tostring(sy.done), tostring(sy.err), tostring(self.fetch_done), tostring(self.prompt) }, "|")
+            if rawget(self, "_tw_sig") == sig then return end
+            -- while Sync now runs (and until BookOrbit's position is back) the
+            -- sheet isn't redrawn at all: one redraw at the end, with the
+            -- result (2.15.6; BookOrbit always calls back, even offline)
+            if type(self.sync) == "table" and (self.sync.running or (self.sync.done and not self.fetch_done)) then
+                return
+            end
+            self._tw_sig = sig
+        end
         local result = original_refresh(self, mode, ...)
         -- Second swipe (original tools menu) on settings / menu pages
         if cfg.second_swipe_tools then
@@ -1956,9 +2020,11 @@ local function hookSettingsFlash()
         ) then
             local ok_ui, UIManager = pcall(require, "ui/uimanager")
             if ok_ui and type(UIManager) == "table" then
-                pcall(function()
-                    UIManager:setDirty(self, "flashui")
-                end)
+                if flashAllowed() then
+                    pcall(function()
+                        UIManager:setDirty(self, "flashui")
+                    end)
+                end
             end
         end
         return result
@@ -2313,6 +2379,34 @@ local function hookMenuPageRunAction()
         return original(self, action)
     end
     return true
+end
+
+-- This book's Sync now: the sheet's "Synced …" chip comes from when the
+-- book last reached BookOrbit, which a manual sync wasn't always marking by
+-- the time the sheet redrew, so it kept the old state until reopened. A
+-- sync that finished without an error marks it now (2.15.4).
+local function hookBookSyncMark(plugin)
+    if type(plugin) ~= "table" or type(plugin.onBookOrbitSyncBook) ~= "function" or plugin._tw_sync_mark then return end
+    plugin._tw_sync_mark = true
+    local orig = plugin.onBookOrbitSyncBook
+    plugin.onBookOrbitSyncBook = function(self, opts, ...)
+        if type(opts) == "table" and type(opts.on_done) == "function" then
+            local done = opts.on_done
+            opts.on_done = function(err, ...)
+                if not err then
+                    pcall(function()
+                        local digest = self:getDocumentDigest()
+                        if digest then
+                            self.book_sync_marks = self.book_sync_marks or {}
+                            self.book_sync_marks[digest] = os.time()
+                        end
+                    end)
+                end
+                return done(err, ...)
+            end
+        end
+        return orig(self, opts, ...)
+    end
 end
 
 local function hookPluginServerAddress(plugin)
@@ -2954,6 +3048,31 @@ local function hookDetailMenuCollections()
         return
     end
     Catalog._bookorbit_tweaks_detail_coll = true
+    -- 2.15.7: a download from a book's page redraws the whole page three
+    -- times (the button turns into progress, back when done, then the page
+    -- once the book is linked). The first two only change the button: they
+    -- refresh just its area, so only the last one updates the whole screen.
+    if type(Catalog.detailShowDownloadProgress) == "function" and not Catalog._tw_dl_region then
+        Catalog._tw_dl_region = true
+        local orig_progress = Catalog.detailShowDownloadProgress
+        Catalog.detailShowDownloadProgress = function(self, detail, received, total, done, ...)
+            local ctx = self.current_context
+            local primary = self._detail_regions and self._detail_regions.primary
+            local d = primary and primary.dimen
+            local full_redraw = ctx and ctx.detail and detail and ctx.detail.id == detail.id
+                and (done or ctx.downloading == nil)
+            if full_redraw and d and d.x and d.w and d.w > 0 then
+                local okG, Geom = pcall(require, "ui/geometry")
+                if okG then
+                    local pad = 8
+                    self.custom_refresh_region = Geom:new{ x = d.x - pad, y = d.y - pad, w = d.w + 2 * pad, h = d.h + 2 * pad }
+                end
+            end
+            local res = orig_progress(self, detail, received, total, done, ...)
+            self.custom_refresh_region = nil -- never left for another redraw
+            return res
+        end
+    end
     local orig_items, orig_run = Catalog.detailMenuItems, Catalog.detailRun
     Catalog.detailMenuItems = function(self, d, detail, ...)
         local items = orig_items(self, d, detail, ...)
@@ -3095,6 +3214,7 @@ do
             hookCatalogLibraryFilter()
             hookDispatcherOpen()
             hookPluginServerAddress(plugin)
+            hookBookSyncMark(plugin)
         end
         userpatch.registerPatchPluginFunc("bookorbit", onPlugin)
         userpatch.registerPatchPluginFunc("BookOrbit", onPlugin)
