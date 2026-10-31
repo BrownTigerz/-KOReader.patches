@@ -1,7 +1,8 @@
 --[[
-2-backup-patches.lua                                     2.4.9 (2026-10-30)
-KOReader user patch: per-patch backups, icon cleanup, and better device
-backups with Device Backup & Restore (backup.koplugin).
+2-backup-patches.lua                                     3.0.0 (2026-10-30)
+KOReader user patch: back up everything your patches are (files, settings,
+icons) in one zip, undo a patch update, per-patch backups, icon cleanup, and
+better device backups with Device Backup & Restore (backup.koplugin).
 
 Tested with
   backup.koplugin   26.10.8 (stable); earlier 26.9.28.3, 26.9.29/30-beta
@@ -11,20 +12,34 @@ Recheck after a major update to any of these: this patch relies on how they
 store settings and logins, and on backup.koplugin's backup/restore code.
 
 Menu:  Tools → Patch Backup & Restore
-       With the Add-ons patch it's under Tools → Add-ons → Maintenance
-       instead.
+       With the Add-ons patch it's under Tools → Add-ons → System instead.
 
   Patch Backup & Restore
-  ├─ Shortcuts toolbar, SimpleUI, …   one entry per target you use
-  │  ├─ Back up now
-  │  ├─ Restore latest
-  │  └─ History                      every backup: restore or delete,
-  │                                   or delete all of this target's
+  ├─ Everything                      every patch file, every patch's settings
+  │  ├─ Back up now                  and icons, critter-phrases.lua and your
+  │  ├─ Restore latest               SimpleUI quotes, in one zip
+  │  └─ History
+  ├─ Undo a patch update             put back a file the updater replaced
+  ├─ One patch or plugin             one entry per target you use
+  │  └─ SimpleUI, Reading Log Tweaks, …  Back up now / Restore latest / History
   ├─ Delete all backups              every target's, safety backups too
   ├─ Icons
   │  ├─ Tidy icons
   │  └─ Unused icons
   └─ Logins in device backups        off by default
+
+Everything        One zip: koreader/backups/everything/everything_<date>.zip
+                  with every file in patches/ and patches/debug/, SimpleUI's
+                  sui_quotes/ folder, and every target's settings, settings
+                  files and icons. Restore puts all of it back (patches you
+                  added since stay), takes an "everything before restore"
+                  backup first, then asks to restart. On a new device, the
+                  settings of patches that came back with the restore are
+                  applied on the next start, once they've loaded. Saved
+                  logins are never in it.
+Undo a patch      Check for Patch Updates keeps the copy it replaces, the
+update            last 3 of each file, in koreader/backups/patch-updates/.
+                  Put one back; the one you have then is kept too.
 
 Back up now       The target's settings, any settings files it keeps in
                   koreader/settings/, and every icon its settings point to,
@@ -57,8 +72,11 @@ Device Backup & Restore (backup.koplugin, 26.9.29 or newer for icons)
                   device's own logins. On: everything goes in, so the new
                   device is signed in straight away - keep that file private.
 
-Built-in targets: Shortcuts toolbar, Track Reading Location, Add-ons menu,
-Reading Insights tweaks, ReadMastery Notify/Quests, ShelfSync tweaks
+Patches that register themselves: SimpleUI Tweaks, SimpleUI Side Panel,
+Reading Log Tweaks, BookOrbit Tweaks, Network Tweaks. Built-in targets (a patch that registers
+the same id wins): Shortcuts toolbar (with Quick Shelf and Icon Tweaks),
+SimpleUI Side Panel, Track Reading Location, Add-ons menu, Reading Insights
+tweaks, ReadMastery Notify/Quests, ShelfSync tweaks
 (settings only, never logins) and SimpleUI. Targets you don't use stay
 hidden.
 
@@ -68,6 +86,8 @@ For patch authors - add a target:
   BK.register{            -- or table.insert(BK.targets, {...}) if not loaded yet
       id = "mything", text = "My thing",
       setting_prefix = "mything",     -- optional: G_reader_settings keys
+      setting_prefixes = { "a_", "b_" }, -- optional: several prefixes
+      skip_keys = { "mything_cache" },   -- optional: keys left out (logins, caches)
       files = { "mything.lua" },      -- optional: files in koreader/settings/
       store = function(from_disk)     -- optional: settings kept in your own
           return data_table, flush_fn --   file (every key, or those
@@ -86,6 +106,24 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  3.0.0  2026-10-30
+    - Everything: one zip with every patch file (patches/ and patches/debug/),
+      critter-phrases.lua, SimpleUI's sui_quotes/ folder and every target's
+      settings, settings files and icons. Restore Everything puts it all
+      back after an "everything before restore" backup; on a new device,
+      patches that came back with it get their settings on the next start.
+    - Undo a patch update: the updater keeps the copy it replaces (last 3
+      per file); put any of them back, the current one is kept too.
+    - Patches register themselves: targets can have several prefixes
+      (setting_prefixes) and keys left out (skip_keys). New targets:
+      Reading Log Tweaks, BookOrbit Tweaks (server logins left out),
+      Network Tweaks and SimpleUI Side Panel (they register themselves;
+      the side panel is also built in, for its older versions). Built-in targets give way to a patch that
+      registers the same id.
+    - Menu: Everything, Undo A Patch Update and One Patch Or Plugin (the
+      per-target entries) up top; Icons stays its own submenu.
+  2.4.10 2026-10-30
+    - Wording only: with the Add-ons menu it's under Add-ons → System.
   2.4.9  2026-10-30
     - Patch updates also cover Quotes.lua: it's found in (and installed
       to) settings/simpleui/sui_quotes/, where SimpleUI reads it, instead
@@ -286,7 +324,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.9"
+local VERSION = "3.0.0"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -302,6 +340,10 @@ end
 
 local DATA = DataStorage:getDataDir()
 local SETTINGS_DIR = DataStorage:getSettingsDir()
+-- This patch's own folder (koreader/patches/, Kobo: .adds/koreader/patches/)
+local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
+PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
+local DEBUG_DIR = PATCH_DIR .. "/debug"
 local BACKUP_ROOT = DATA .. "/backups"
 local ICON_ROOT = DATA .. "/icons"
 local MANIFEST = "backup.lua"
@@ -322,6 +364,20 @@ function Backup.register(target)
         if t.id == target.id then Backup.targets[i] = target; return end
     end
     table.insert(Backup.targets, target)
+end
+
+-- Built-in targets: only when the patch hasn't registered itself (a patch
+-- that loads before this one queues its target in Backup.targets).
+local function registerDefault(target)
+    for _i, t in ipairs(Backup.targets) do
+        if t.id == target.id then return end
+    end
+    Backup.register(target)
+end
+
+-- targets queued before this patch loaded
+for _i, t in ipairs(Backup.targets) do
+    if type(t) == "table" and t.id then t.icon_dir = t.icon_dir or (ICON_ROOT .. "/" .. t.id) end
 end
 
 -- Secrets: never in a device backup unless "Logins in device backups" is on.
@@ -438,13 +494,25 @@ local function collectSettings(target, data)
     local out = {}
     data = data or targetStore(target)
     if type(data) ~= "table" then return out end
-    local prefix = target.setting_prefix
-    if type(prefix) ~= "string" or prefix == "" then
-        if not target.store then return out end
-        prefix = nil -- own store: every key belongs to it
+    local prefixes = {}
+    if type(target.setting_prefix) == "string" and target.setting_prefix ~= "" then
+        prefixes[1] = target.setting_prefix
     end
+    for _i, p in ipairs(type(target.setting_prefixes) == "table" and target.setting_prefixes or {}) do
+        if type(p) == "string" and p ~= "" then prefixes[#prefixes + 1] = p end
+    end
+    if #prefixes == 0 and not target.store then return out end
+    -- own store and no prefix: every key belongs to it
+    local skip = {}
+    for _i, k in ipairs(type(target.skip_keys) == "table" and target.skip_keys or {}) do skip[k] = true end
     for k, v in pairs(data) do
-        if type(k) == "string" and (not prefix or k:sub(1, #prefix) == prefix) then out[k] = v end
+        if type(k) == "string" and not skip[k] then
+            local mine = #prefixes == 0
+            for _i, p in ipairs(prefixes) do
+                if k:sub(1, #p) == p then mine = true break end
+            end
+            if mine then out[k] = v end
+        end
     end
     return out
 end
@@ -555,11 +623,10 @@ end
 -- Backup / restore
 -- --------------------------------------------------------------------------
 
-local function makeBackup(target, tag)
-    local ok_a, Archiver = pcall(require, "ffi/archiver")
-    if not ok_a then return nil, _("This KOReader version can't make zips.") end
-    local dump = require("dump")
-
+-- Writes one target's icons and settings files into an open zip under
+-- `prefix` and returns its part of the manifest plus the icon count, or
+-- nil + error (+ "empty" when there's nothing to save).
+local function packTarget(w, target, prefix)
     local settings = collectSettings(target)
     local files = existingFiles(target)
     if next(settings) == nil and #files == 0 then
@@ -583,14 +650,43 @@ local function makeBackup(target, tag)
         end
     end)
 
-    local manifest = {
+    -- Only the icons actually in the zip go in the manifest, so a restore
+    -- never expects an icon that isn't there.
+    local count, added = 0, {}
+    for name, orig in pairs(icons) do
+        local data = readFile(orig)
+        if data and w:addFileFromMemory(prefix .. "icons/" .. name, data) then
+            count = count + 1
+            added[name] = orig
+        end
+    end
+    for _i, name in ipairs(files) do
+        local data = readFile(SETTINGS_DIR .. "/" .. name)
+        if not (data and w:addFileFromMemory(prefix .. "files/" .. name, data)) then
+            return nil, w.err or _("Couldn't write the backup.")
+        end
+    end
+    return {
         target = target.id,
-        created = os.time(),
-        koreader = require("version"):getCurrentRevision(),
         settings = settings,
-        icons = icons, -- archive name -> original path
+        icons = added, -- archive name -> original path
         files = files, -- settings files, stored under files/
-    }
+        -- how to find these settings again on a device where the patch
+        -- isn't loaded yet (Restore Everything onto a new device)
+        setting_prefix = target.setting_prefix,
+        setting_prefixes = target.setting_prefixes,
+        own_store = target.store ~= nil,
+    }, count
+end
+
+local function makeBackup(target, tag)
+    if type(target.make) == "function" then return target.make(tag) end
+    local ok_a, Archiver = pcall(require, "ffi/archiver")
+    if not ok_a then return nil, _("This KOReader version can't make zips.") end
+    local dump = require("dump")
+    if next(collectSettings(target)) == nil and #existingFiles(target) == 0 then
+        return nil, _("Nothing to back up yet: no settings saved."), "empty"
+    end
 
     util.makePath(targetDir(target))
     local path = string.format("%s/%s_%s%s.zip", targetDir(target), target.id,
@@ -598,22 +694,15 @@ local function makeBackup(target, tag)
 
     local w = Archiver.Writer:new()
     if not w:open(path, "zip") then return nil, w.err or _("Couldn't create the zip.") end
-    -- Icons first: only the ones actually in the zip go in the manifest, so
-    -- a restore never expects an icon that isn't there.
-    local count, added = 0, {}
-    for name, orig in pairs(icons) do
-        local data = readFile(orig)
-        if data and w:addFileFromMemory("icons/" .. name, data) then
-            count = count + 1
-            added[name] = orig
-        end
+    local manifest, count, why = packTarget(w, target, "")
+    if not manifest then
+        w:close()
+        os.remove(path)
+        return nil, count, why
     end
-    manifest.icons = added
+    manifest.created = os.time()
+    manifest.koreader = require("version"):getCurrentRevision()
     local ok = true
-    for _i, name in ipairs(files) do
-        local data = readFile(SETTINGS_DIR .. "/" .. name)
-        if not (data and w:addFileFromMemory("files/" .. name, data)) then ok = false end
-    end
     local ok_d, manifest_src = pcall(dump, manifest)
     if not ok_d then
         logger.warn("backup_patches: could not serialise settings for", target.id, manifest_src)
@@ -630,7 +719,40 @@ local function makeBackup(target, tag)
     return path, count
 end
 
+-- Puts one target's icons, files and settings back from an open zip
+-- (entries under `prefix`). Returns the icon count.
+local function unpackTarget(r, target, manifest, prefix)
+    -- All icons go into one folder; remember old path -> new path.
+    local remap, count = {}, 0
+    if next(manifest.icons or {}) then util.makePath(target.icon_dir) end
+    for name, orig in pairs(manifest.icons or {}) do
+        local data = safeIconName(name) and r:extractToMemory(prefix .. "icons/" .. name)
+        local dest = target.icon_dir .. "/" .. name
+        if data and writeFile(dest, data) then
+            remap[orig] = dest
+            count = count + 1
+        end
+    end
+    -- Settings files go back into koreader/settings/.
+    for _i, name in ipairs(manifest.files or {}) do
+        if safeName(name) then
+            local data = r:extractToMemory(prefix .. "files/" .. name)
+            if data then writeFile(SETTINGS_DIR .. "/" .. name, data) end
+        end
+    end
+    local data, flush = targetStore(target)
+    if data and (target.store or target.setting_prefix or target.setting_prefixes) then
+        local settings = manifest.settings or {}
+        walkStrings({ settings }, function(v) return remap[v] end)
+        for k in pairs(collectSettings(target, data)) do data[k] = nil end
+        for k, v in pairs(settings) do data[k] = v end
+        flush()
+    end
+    return count
+end
+
 local function restoreBackup(target, zip_path)
+    if type(target.restore) == "function" then return target.restore(zip_path) end
     local ok_a, Archiver = pcall(require, "ffi/archiver")
     if not ok_a then return nil, _("This KOReader version can't open zips.") end
 
@@ -656,37 +778,207 @@ local function restoreBackup(target, zip_path)
         return nil, T(_("Couldn't make the safety backup, so nothing was changed.\n\n%1"), tostring(safe_err))
     end
 
-    -- All icons go into one folder; remember old path -> new path.
-    local remap, count = {}, 0
-    if next(manifest.icons or {}) then util.makePath(target.icon_dir) end
-    for name, orig in pairs(manifest.icons or {}) do
-        local data = safeIconName(name) and r:extractToMemory("icons/" .. name)
-        local dest = target.icon_dir .. "/" .. name
-        if data and writeFile(dest, data) then
-            remap[orig] = dest
-            count = count + 1
+    local count = unpackTarget(r, target, manifest, "")
+    r:close()
+    return true, count
+end
+
+
+-- --------------------------------------------------------------------------
+-- Everything: every patch file, every target's settings and icons, and the
+-- extra files patches use (critter-phrases.lua sits in patches/; SimpleUI's
+-- custom quotes folder), in one zip.
+-- --------------------------------------------------------------------------
+
+-- Extra folders outside patches/ to carry along, relative to koreader/settings/.
+local EXTRA_FOLDERS = { "simpleui/sui_quotes" }
+local PENDING_KEY = "backup_patches_pending_restore"
+
+-- { rel = path inside the zip, abs = path on this device }
+local function everythingFiles()
+    local out = {}
+    local function scan(dir, rel_base)
+        if lfs.attributes(dir, "mode") ~= "directory" then return end
+        for f in lfs.dir(dir) do
+            local abs = dir .. "/" .. f
+            if f ~= "." and f ~= ".." and not f:match("%.new$")
+               and lfs.attributes(abs, "mode") == "file" then
+                out[#out + 1] = { rel = rel_base .. "/" .. f, abs = abs }
+            end
         end
     end
+    scan(PATCH_DIR, "patches")
+    scan(DEBUG_DIR, "patches/debug")
+    for _i, folder in ipairs(EXTRA_FOLDERS) do scan(SETTINGS_DIR .. "/" .. folder, "settings/" .. folder) end
+    return out
+end
 
-    -- Settings files go back into koreader/settings/.
-    for _i, name in ipairs(manifest.files or {}) do
-        if safeName(name) then
-            local data = r:extractToMemory("files/" .. name)
-            if data then writeFile(SETTINGS_DIR .. "/" .. name, data) end
+-- Where a file from the zip goes on this device (nil for anything odd).
+local function everythingDest(rel)
+    local name = rel:match("^patches/debug/([^/]+)$")
+    if name then return safeName(name) and (DEBUG_DIR .. "/" .. name), PATCH_DIR .. "/" .. name end
+    name = rel:match("^patches/([^/]+)$")
+    if name then return safeName(name) and (PATCH_DIR .. "/" .. name), DEBUG_DIR .. "/" .. name end
+    for _i, folder in ipairs(EXTRA_FOLDERS) do
+        local esc = ("settings/" .. folder .. "/"):gsub("%p", "%%%0")
+        name = rel:match("^" .. esc .. "([^/]+)$")
+        if name and safeName(name) then return SETTINGS_DIR .. "/" .. folder .. "/" .. name end
+    end
+end
+
+local function findTarget(id)
+    for _i, t in ipairs(Backup.targets) do if t.id == id then return t end end
+end
+
+local EVERYTHING = { id = "everything", text = _("Everything") }
+
+local function makeEverything(tag)
+    local ok_a, Archiver = pcall(require, "ffi/archiver")
+    if not ok_a then return nil, _("This KOReader version can't make zips.") end
+    local dump = require("dump")
+    util.makePath(targetDir(EVERYTHING))
+    local path = string.format("%s/everything_%s%s.zip", targetDir(EVERYTHING),
+        os.date("%Y-%m-%d_%H%M%S"), tag and ("_" .. tag) or "")
+    local w = Archiver.Writer:new()
+    if not w:open(path, "zip") then return nil, w.err or _("Couldn't create the zip.") end
+    local manifest = {
+        target = EVERYTHING.id,
+        created = os.time(),
+        koreader = require("version"):getCurrentRevision(),
+        files_list = {},
+        targets = {},
+    }
+    local ok, n_files, n_targets = true, 0, 0
+    for _i, f in ipairs(everythingFiles()) do
+        local data = readFile(f.abs)
+        if data and w:addFileFromMemory(f.rel, data) then
+            manifest.files_list[#manifest.files_list + 1] = f.rel
+            n_files = n_files + 1
+        else
+            ok = false
+        end
+    end
+    for _i, t in ipairs(Backup.targets) do
+        local part, _, why = packTarget(w, t, "targets/" .. t.id .. "/")
+        if part then
+            manifest.targets[t.id] = part
+            n_targets = n_targets + 1
+        elseif why ~= "empty" then
+            ok = false
+        end
+    end
+    local ok_d, src = pcall(dump, manifest)
+    if not ok_d then
+        w:close()
+        os.remove(path)
+        return nil, _("Couldn't read these settings.")
+    end
+    if not w:addFileFromMemory(MANIFEST, "return " .. src) then ok = false end
+    w:close()
+    if not ok then
+        os.remove(path)
+        return nil, w.err or _("Couldn't write the backup.")
+    end
+    return path, T(_("Backed up everything · %1 files · %2 settings"), n_files, n_targets)
+end
+
+local function openManifest(zip_path)
+    local ok_a, Archiver = pcall(require, "ffi/archiver")
+    if not ok_a then return nil, _("This KOReader version can't open zips.") end
+    local r = Archiver.Reader:new()
+    if not r:open(zip_path) then return nil, r.err or _("Couldn't open the zip.") end
+    for _e in r:iterate() do end -- index entries
+    local src = r:extractToMemory(MANIFEST)
+    local chunk = src and loadstring(src)
+    if not chunk then r:close(); return nil, _("Not a valid backup (no manifest).") end
+    setfenv(chunk, {})
+    local ok_m, manifest = pcall(chunk)
+    if not ok_m or type(manifest) ~= "table" then r:close(); return nil, _("Not a valid backup (no manifest).") end
+    return r, manifest
+end
+
+-- Settings of patches that aren't loaded yet (they came back with this
+-- restore) are put back on the next start, once they've registered.
+local function applyPending()
+    local pending = G_reader_settings and G_reader_settings:readSetting(PENDING_KEY)
+    if type(pending) ~= "table" or type(pending.zip) ~= "string" then return end
+    G_reader_settings:delSetting(PENDING_KEY)
+    local r, manifest = openManifest(pending.zip)
+    if not r then return end
+    local done = 0
+    for _i, id in ipairs(pending.ids or {}) do
+        local t, part = findTarget(id), manifest.targets and manifest.targets[id]
+        if t and part then
+            local ok = pcall(unpackTarget, r, t, part, "targets/" .. id .. "/")
+            if ok then done = done + 1 end
         end
     end
     r:close()
-
-    local data, flush = targetStore(target)
-    if data and (target.store or target.setting_prefix) then
-        local settings = manifest.settings or {}
-        walkStrings({ settings }, function(v) return remap[v] end)
-        for k in pairs(collectSettings(target, data)) do data[k] = nil end
-        for k, v in pairs(settings) do data[k] = v end
-        flush()
+    if done > 0 then
+        logger.info("backup_patches: restored the settings of", done, "patches loaded after Restore Everything")
+        G_reader_settings:flush()
     end
-    return true, count
 end
+
+local function restoreEverything(zip_path)
+    local r, manifest = openManifest(zip_path)
+    if not r then return nil, manifest end
+    if manifest.target ~= EVERYTHING.id then
+        r:close()
+        return nil, _("This backup belongs to something else.")
+    end
+    -- Safety net: everything as it is now, first.
+    local safe, safe_err = makeEverything("before-restore")
+    if not safe then
+        r:close()
+        return nil, T(_("Couldn't make the safety backup, so nothing was changed.\n\n%1"), tostring(safe_err))
+    end
+    local n_files = 0
+    for _i, rel in ipairs(manifest.files_list or {}) do
+        local dest, other = everythingDest(rel)
+        local data = dest and r:extractToMemory(rel)
+        if data then
+            util.makePath(dirOf(dest))
+            if writeFile(dest, data) then
+                n_files = n_files + 1
+                -- a diagnostic is either on (patches/) or off (debug/), as in the backup
+                if other and lfs.attributes(other, "mode") == "file" then os.remove(other) end
+            end
+        end
+    end
+    local n_targets, later = 0, {}
+    for id, part in pairs(manifest.targets or {}) do
+        local t = findTarget(id)
+        if not t and not part.own_store and (part.setting_prefix or part.setting_prefixes or part.files) then
+            -- not installed (yet): its settings live in KOReader's own file
+            t = { id = id, setting_prefix = part.setting_prefix, setting_prefixes = part.setting_prefixes,
+                  files = part.files, icon_dir = ICON_ROOT .. "/" .. id }
+        end
+        if t then
+            local ok = pcall(unpackTarget, r, t, part, "targets/" .. id .. "/")
+            if ok then n_targets = n_targets + 1 end
+        else
+            later[#later + 1] = id
+        end
+    end
+    r:close()
+    if #later > 0 and G_reader_settings then
+        G_reader_settings:saveSetting(PENDING_KEY, { zip = zip_path, ids = later })
+    end
+    if G_reader_settings then G_reader_settings:flush() end
+    return true, T(_("Restored %1 files and %2 settings."), n_files, n_targets + #later)
+end
+
+-- every target plus Everything, for Delete All Backups
+function Backup.allTargets()
+    local all = { EVERYTHING }
+    for _i, t in ipairs(Backup.targets) do all[#all + 1] = t end
+    return all
+end
+
+EVERYTHING.make = makeEverything
+EVERYTHING.restore = restoreEverything
+Backup.backUpEverything = makeEverything
 
 -- --------------------------------------------------------------------------
 -- Icon cleanup
@@ -918,18 +1210,27 @@ local function confirmRestore(target, entry)
     local UIManager = require("ui/uimanager")
     local ConfirmBox = require("ui/widget/confirmbox")
     local InfoMessage = require("ui/widget/infomessage")
+    if target == EVERYTHING and bookOpen() then
+        styledNote(_("Close the book first, then restore everything from the file browser"),
+            _("Close the book first"), 4)
+        return
+    end
     if target.files and #target.files > 0 and bookOpen() then
         styledNote(T(_("Close the book first, then restore %1 from the file browser"), target.text),
             _("Close the book first"), 4)
         return
     end
     UIManager:show(ConfirmBox:new{
-        text = T(_("Restore %1 from %2?\n\nYour current setup is backed up first."),
+        text = target == EVERYTHING
+            and T(_("Restore everything from %1?\n\nYour patches, their settings and icons, critter-phrases.lua and your quotes go back to how they were. Patches you added since stay. Everything as it is now is backed up first."), prettyTime(entry.time))
+            or T(_("Restore %1 from %2?\n\nYour current setup is backed up first."),
             target.text, prettyTime(entry.time)),
         ok_text = _("Restore"),
         ok_callback = function()
             local ok, res = restoreBackup(target, entry.path)
-            if ok then
+            if ok and type(res) == "string" then
+                UIManager:askForRestart(res .. "\n\n" .. _("KOReader needs to restart."))
+            elseif ok then
                 local msg = res > 0
                     and T(_("Restored, with %1 icons in:\n%2\n\nKOReader needs to restart."), res, short(target.icon_dir))
                     or _("Restored.\n\nKOReader needs to restart.")
@@ -954,6 +1255,8 @@ local function targetMenu(target)
                 local path, res = makeBackup(target)
                 if not path then
                     UIManager:show(InfoMessage:new{ text = T(_("Backup failed:\n%1"), tostring(res)) })
+                elseif type(res) == "string" then
+                    styledNote(res, _("Backed up"))
                 elseif res > 0 then
                     styledNote(T(N_("Backed up %1 · %2 icon", "Backed up %1 · %2 icons", res), target.text, res), _("Backed up"))
                 else
@@ -1173,10 +1476,11 @@ end
 
 local MENU_TEXT = _("Patch Backup & Restore")
 local mainItems
+local keepOldCopy, installedVersion   -- updater section, below
 
 local MenuWidget = {}
 
--- The Add-ons patch (2-tweaks-menu.lua) moves this into Add-ons → Maintenance.
+-- The Add-ons patch (2-tweaks-menu.lua) moves this into Add-ons → System.
 function MenuWidget:addToMainMenu(menu_items)
     menu_items.backup_patches = {
         text = MENU_TEXT,
@@ -1185,7 +1489,7 @@ function MenuWidget:addToMainMenu(menu_items)
     }
 end
 
-mainItems = function()
+local function singleItems()
     local list = {}
     for _i, target in ipairs(Backup.targets) do
         if inUse(target) then list[#list + 1] = target end
@@ -1201,25 +1505,47 @@ mainItems = function()
     if #items == 0 then
         items[1] = { text = _("Nothing To Back Up Yet"), enabled = false }
     end
-    items[#items].separator = true
+    return items
+end
+
+mainItems = function()
+    local items = {
+        {
+            text = _("Everything"),
+            help_text = _("Every patch file, every patch's settings and icons, critter-phrases.lua and your SimpleUI quotes, in one zip. Restore puts it all back, on this device or a new one. Saved logins are never included."),
+            sub_item_table_func = function() return targetMenu(EVERYTHING) end,
+        },
+        {
+            text = _("Undo A Patch Update"),
+            help_text = _("Check For Patch Updates keeps the copy it replaces (the last 3 of each file). Put one back here."),
+            enabled_func = function() return Backup.hasUpdateCopies() end,
+            sub_item_table_func = function() return Backup.undoMenu() end,
+        },
+        {
+            text = _("One Patch Or Plugin"),
+            help_text = _("Back up or restore the settings of just one patch or plugin."),
+            sub_item_table_func = singleItems,
+            separator = true,
+        },
+    }
     table.insert(items, {
         text_func = function()
-            local n, bytes = backupTotals(Backup.targets)
+            local n, bytes = backupTotals(Backup.allTargets())
             if n == 0 then return _("Delete All Backups") end
             return T(_("Delete All Backups (%1 · %2)"), n, prettySize(bytes))
         end,
-        enabled_func = function() return (backupTotals(Backup.targets)) > 0 end,
+        enabled_func = function() return (backupTotals(Backup.allTargets())) > 0 end,
         callback = function(touchmenu)
             local UIManager = require("ui/uimanager")
             local ConfirmBox = require("ui/widget/confirmbox")
-            local n = backupTotals(Backup.targets)
+            local n = backupTotals(Backup.allTargets())
             UIManager:show(ConfirmBox:new{
                 text = n == 1
                     and _("Delete the 1 patch backup?\n\nDevice Backup & Restore backups aren't affected. This can't be undone.")
                     or T(_("Delete all %1 patch backups, for every target, safety backups included?\n\nDevice Backup & Restore backups aren't affected. This can't be undone."), n),
                 ok_text = _("Delete All"),
                 ok_callback = function()
-                    local gone = deleteAllBackups(Backup.targets)
+                    local gone = deleteAllBackups(Backup.allTargets())
                     -- Targets with nothing left drop off this menu: go up so
                     -- it's rebuilt next time.
                     if touchmenu then touchmenu:backToUpperMenu() end
@@ -1331,11 +1657,8 @@ local UPDATER_REPO = "BrownTigerz/-KOReader.patches"
 local UPDATER_BRANCH = "main"
 local UPDATER_MANIFEST = "patch-versions.lua"
 
--- This file's folder: that's where downloaded patches go. Diagnostics can
--- also live one level down (patches/debug/) when switched off.
-local PATCH_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.+)$")
-PATCH_DIR = (PATCH_DIR and PATCH_DIR:match("^(.*)/[^/]+$")) or (DATA .. "/patches")
-local DEBUG_DIR = PATCH_DIR .. "/debug"
+-- PATCH_DIR (this file's folder) is where downloaded patches go; diagnostics
+-- can also live one level down (DEBUG_DIR, patches/debug/) when switched off.
 
 -- Trace hook for the diagnostics patch: 2-zz-backup-patches-diagnostics.lua
 -- sets _G.__backup_updater_trace while it's watching, and every trace()
@@ -1414,7 +1737,7 @@ end
 -- The version a local patch file declares. Tries the usual declaration
 -- styles (local VERSION, DIAG_VERSION, "Version x.y.z" header); nil when
 -- the file declares nothing parseable.
-local function installedVersion(path)
+installedVersion = function(path)
     local f = io.open(path, "r")
     if not f then return nil end
     local function pick(src)
@@ -1569,6 +1892,123 @@ local function ensureWifi()
     return coroutine.yield()
 end
 
+
+-- --------------------------------------------------------------------------
+-- Undo A Patch Update: the updater keeps the copy it replaces, the last
+-- UPDATE_KEEP of each file, in koreader/backups/patch-updates/<file>/.
+-- --------------------------------------------------------------------------
+local UPDATE_ROOT = BACKUP_ROOT .. "/patch-updates"
+local UPDATE_KEEP = 3
+
+-- Newest first: { path, version, time, size }
+local function updateCopies(filename)
+    local dir = UPDATE_ROOT .. "/" .. filename
+    local out = {}
+    if lfs.attributes(dir, "mode") ~= "directory" then return out end
+    for f in lfs.dir(dir) do
+        local y, mo, d, h, mi, sec, ver = f:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)_(%d%d)(%d%d)(%d%d)_v(.-)%.copy$")
+        if y then
+            out[#out + 1] = { path = dir .. "/" .. f, name = f, version = ver,
+                time = os.time{ year = y, month = mo, day = d, hour = h, min = mi, sec = sec },
+                size = lfs.attributes(dir .. "/" .. f, "size") or 0 }
+        end
+    end
+    table.sort(out, function(a, b) return a.name > b.name end)
+    return out
+end
+
+-- Where the copies say the file lives (written next to them).
+local function copyDest(filename)
+    local chunk = loadfile(UPDATE_ROOT .. "/" .. filename .. "/where.lua")
+    if not chunk then return nil end
+    setfenv(chunk, {})
+    local ok, t = pcall(chunk)
+    return ok and type(t) == "table" and type(t.dest) == "string" and t.dest or nil
+end
+
+keepOldCopy = function(dest, version)
+    if lfs.attributes(dest, "mode") ~= "file" then return end
+    local filename = dest:match("[^/]+$")
+    local data = readFile(dest)
+    if not (filename and data) then return end
+    local dir = UPDATE_ROOT .. "/" .. filename
+    util.makePath(dir)
+    local v = tostring(version or installedVersion(dest) or "unknown"):gsub("[^%w%.%-]", "")
+    if writeFile(string.format("%s/%s_v%s.copy", dir, os.date("%Y-%m-%d_%H%M%S"), v), data) then
+        writeFile(dir .. "/where.lua", string.format("return { dest = %q }", dest))
+        local list = updateCopies(filename)
+        for i = UPDATE_KEEP + 1, #list do os.remove(list[i].path) end
+    end
+end
+
+Backup.keepOldCopy = keepOldCopy   -- for other patches' own updaters
+
+function Backup.hasUpdateCopies()
+    if lfs.attributes(UPDATE_ROOT, "mode") ~= "directory" then return false end
+    for f in lfs.dir(UPDATE_ROOT) do
+        if f ~= "." and f ~= ".." and #updateCopies(f) > 0 then return true end
+    end
+    return false
+end
+
+function Backup.undoMenu()
+    local UIManager = require("ui/uimanager")
+    local ConfirmBox = require("ui/widget/confirmbox")
+    local InfoMessage = require("ui/widget/infomessage")
+    local names = {}
+    if lfs.attributes(UPDATE_ROOT, "mode") == "directory" then
+        for f in lfs.dir(UPDATE_ROOT) do
+            if f ~= "." and f ~= ".." and #updateCopies(f) > 0 then names[#names + 1] = f end
+        end
+    end
+    table.sort(names)
+    local items = {}
+    for _i, filename in ipairs(names) do
+        items[#items + 1] = {
+            text_func = function()
+                local dest = copyDest(filename)
+                local now = dest and installedVersion(dest)
+                return now and T(_("%1 (now %2)"), filename, now) or filename
+            end,
+            sub_item_table_func = function()
+                local rows = {}
+                for _j, c in ipairs(updateCopies(filename)) do
+                    rows[#rows + 1] = {
+                        text = T(_("Put Back %1"), c.version) .. "  · " .. prettyTime(c.time),
+                        callback = function()
+                            local dest = copyDest(filename)
+                            if not dest then
+                                UIManager:show(InfoMessage:new{ text = _("Couldn't tell where this file goes.") })
+                                return
+                            end
+                            UIManager:show(ConfirmBox:new{
+                                text = T(_("Put back %1 version %2?\n\nThe version you have now is kept here too, so you can switch back."), filename, c.version),
+                                ok_text = _("Put Back"),
+                                ok_callback = function()
+                                    local data = readFile(c.path)
+                                    if not (data and loadstring(data)) then
+                                        UIManager:show(InfoMessage:new{ text = _("That copy can't be read.") })
+                                        return
+                                    end
+                                    keepOldCopy(dest)
+                                    if writeFile(dest, data) then
+                                        UIManager:askForRestart(T(_("%1 %2 is back.\n\nKOReader needs to restart."), filename, c.version))
+                                    else
+                                        UIManager:show(InfoMessage:new{ text = _("Couldn't save.") })
+                                    end
+                                end,
+                            })
+                        end,
+                    }
+                end
+                return rows
+            end,
+        }
+    end
+    if #items == 0 then items[1] = { text = _("No Replaced Copies Yet"), enabled = false } end
+    return items
+end
+
 -- Downloads and installs the given entries. The caller only passes
 -- update_available ones, so this is strictly forward-only: it never
 -- downgrades. A text note names each file as it downloads (no progress
@@ -1617,6 +2057,8 @@ local function updatePatches(targets)
                     local wok = f:write(body)
                     local cok = f:close()
                     local ondisk = lfs.attributes(tmp, "size")
+                    -- keep the copy being replaced, for Undo A Patch Update
+                    if wok and cok and ondisk == #body then keepOldCopy(t.dest, t.installed) end
                     if wok and cok and ondisk == #body and os.rename(tmp, t.dest) then
                         if t.stale then os.remove(t.stale) end
                         succeeded[#succeeded + 1] = T(_("%1 %2"), t.filename, t.available)
@@ -2267,47 +2709,58 @@ do
 end
 
 -- --------------------------------------------------------------------------
--- Built-in targets (patches that don't register themselves).
--- SimpleUI Mod registers itself. Targets you don't use stay hidden.
+-- Built-in targets, for plugins and for patches that don't register
+-- themselves (yet). A patch that registers the same id wins. SimpleUI
+-- Tweaks, SimpleUI Side Panel (1.0.27+), Reading Log Tweaks, BookOrbit
+-- Tweaks and Network Tweaks register themselves; the side panel's entry
+-- here covers its older versions. Targets you don't use stay hidden.
 -- --------------------------------------------------------------------------
 
-Backup.register{
+registerDefault{
     id = "shortcutstoolbar",
     text = _("Shortcuts Toolbar"),
     setting_prefix = "shortcutstoolbar", -- plugin settings + icon tweaks patch
 }
 
-Backup.register{
+registerDefault{
     id = "readingloc",
     text = _("Track Reading Location"),
     setting_prefix = "readingloc_",       -- button look and behaviour
 }
 
-Backup.register{
+registerDefault{
     id = "addons_menu",
     text = _("Add-Ons Menu"),
     setting_prefix = "addons_menu_",      -- what's in / out of Add-ons
 }
 
-Backup.register{
+registerDefault{
+    id = "simpleui_sidepanel",
+    text = _("SimpleUI Side Panel"),
+    setting_prefix = "simpleui_sidepanel",
+    -- BookOrbit lists it keeps for the panel: fetched again when needed
+    skip_keys = { "simpleui_sidepanel_bo_collections", "simpleui_sidepanel_bo_books" },
+}
+
+registerDefault{
     id = "readinginsights_tweaks",
     text = _("Reading Insights Tweaks"),
     setting_prefix = "ri_cover_calendar",
 }
 
-Backup.register{
+registerDefault{
     id = "readmastery_notify",
     text = _("ReadMastery Notify"),
     files = { "ReadMastery_notify.lua" },
 }
 
-Backup.register{
+registerDefault{
     id = "readmastery_quests",
     text = _("ReadMastery Quests"),
     files = { "ReadMastery_quests.lua" }, -- settings + quest progress
 }
 
-Backup.register{
+registerDefault{
     id = "shelfsync_tweaks",
     text = _("ShelfSync Tweaks"),
     -- Settings only. Saved logins and the key that encrypts them are left
@@ -2341,7 +2794,7 @@ Backup.addSecrets{
 -- its own file. Its icons are tidied into its own sui_icons/ folder, which
 -- SimpleUI's own backup carries too.
 local SUI_FILE = SETTINGS_DIR .. "/simpleui/sui_settings.lua"
-Backup.register{
+registerDefault{
     id = "simpleui_plugin",
     text = _("SimpleUI"),
     icon_dir = SETTINGS_DIR .. "/simpleui/sui_icons",
@@ -2361,5 +2814,12 @@ Backup.register{
         return s.data, function() s:flush() end
     end,
 }
+
+-- Settings of patches a Restore Everything brought back: once everything has
+-- loaded (one tick after start, nothing left waiting).
+if G_reader_settings and G_reader_settings:readSetting(PENDING_KEY) then
+    local ok_ui, UIManager = pcall(require, "ui/uimanager")
+    if ok_ui then UIManager:nextTick(function() pcall(applyPending) end) end
+end
 
 logger.dbg("backup_patches: v" .. VERSION .. " loaded,", #Backup.targets, "targets")
