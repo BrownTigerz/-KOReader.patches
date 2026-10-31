@@ -24,7 +24,9 @@ Purpose:
     them later (from Tweaks menu, Sign-in, or Settings → Account → Server).
   * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
-  * Option: change the Continue reading Resume pill colour (Tools > BookOrbit Tweaks > Resume Pill Colour).
+  * Option: Action Colours (Tools > BookOrbit Tweaks): separate colours for
+    Continue Reading (hero pill + download circle), Book Detail buttons, and
+    Dialogs / open-book sheets. Optional Pill Colour Trace for crash.log.
   * Option: keep BookOrbit open through sleep, so it comes back instantly
     instead of reloading after every wake (off by default).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
@@ -34,13 +36,38 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.14.10 2026-10-30  Fix: Book Detail and Dialog colours looked pale and grainy
+                      next to Continue Reading. A colour screen needs a
+                      dithered refresh to show colour, and only BookOrbit's
+                      dashboard gets one; each tinted button now asks for
+                      one over its own rectangle.
+                      Fix: picking White for Book Detail or Dialogs stuck only
+                      until the next start (the Continue Reading colour was
+                      copied over it again on every start; now only while
+                      they were never set). The colour menus show the
+                      colour's name instead of its hex code. Patch Backup &
+                      Restore 3.0: registers its settings (saved server
+                      logins and the library list stay out).
+  2.14.9  2026-10-30  Action colours split three ways: Continue Reading (hero
+                      pill + download circle), Book Detail (Start reading /
+                      Read again / Resume), and Dialogs (bottom sheets /
+                      open-book). Optional Pill Colour Trace logs matches to
+                      crash.log. Blue (Sky) added as an explicit palette name.
+  2.14.8  2026-10-30  Resume Pill Colour: stop tinting detail-page outline
+                      chips and other rounded white boxes (they were picking
+                      up the colour). Only the hero Resume/Download pill, the
+                      px(40) Download circle, and solid black primary buttons.
+  2.14.7  2026-10-30  Resume Pill Colour also tints the round Download button
+                      (circle before it becomes the Resume pill) and the solid
+                      action pills (Start reading, Read again, Resume on the
+                      book detail page), not only the white hero Resume pill.
   2.14.6  2026-10-30  Clean-up: debugging trace lines removed from crash.log
                       (hooks, page loops, menu routes, setting changes); a
                       failed BookOrbit open is now logged as a warning; dead
                       code removed.
 ]]
 
-local VERSION = "2.14.6"
+local VERSION = "2.14.10"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -68,7 +95,10 @@ local DEFAULTS = {
     loop_pages = false,
     second_swipe_tools = true, -- second south swipe on settings sheet -> tools menu
     reopen_at = "last",
-    resume_pill_color = "#FFFFFF",
+    resume_pill_color = "#FFFFFF",  -- Continue reading hero pill / download circle
+    detail_pill_color = "#FFFFFF",  -- Book detail Start reading / Read again / Resume
+    dialog_pill_color = "#FFFFFF",  -- Bottom sheets / open-book dialog primary pills
+    pill_color_trace = false,       -- log matches to crash.log (diagnose colour)
     after_close = "simpleui",
     library_filter_id = false,
     library_filter_name = "",
@@ -92,6 +122,14 @@ do
     end
     -- Menu option removed: always restore SimpleUI home when BookOrbit closes.
     cfg.after_close = "simpleui"
+    -- 2.14.9: split colours. Someone who only ever set resume_pill_color
+    -- gets it on detail/dialog too, until they pick those themselves. Only
+    -- while those were never saved, so a deliberate White sticks.
+    if type(cfg.resume_pill_color) == "string" and cfg.resume_pill_color:upper() ~= "#FFFFFF" then
+        local was = type(saved) == "table" and saved or {}
+        if was.detail_pill_color == nil then cfg.detail_pill_color = cfg.resume_pill_color end
+        if was.dialog_pill_color == nil then cfg.dialog_pill_color = cfg.resume_pill_color end
+    end
 end
 
 -- Real (wall) time in seconds. os.clock is CPU time, which barely moves while
@@ -1645,19 +1683,26 @@ local function hookCatalogSwipeClose()
     return true
 end
 
--- ---- Resume pill colour -----------------------------------------------------------
--- The hero Resume/Download pill is BoardUI.box({h = px(40), radius = px(20),
--- bg = INK.white}). No other board box uses exactly 40/20 with a white fill
--- (Shuffle is 38/19), so that shape is the discriminator. The play icon is
--- baked into an SVG at build time, so it stays black: the palette below is
--- light colours only, so black text/icon stay readable. Night mode needs no
--- special case: the hero night wrapper inverts the tile and the screen
--- inversion flips it back, so the chosen colour shows as chosen in both modes.
+-- ---- Action pill colours (hero / detail / dialogs) --------------------------------
+-- Three independent colours (each can be White = plugin default):
+--   resume_pill_color  Continue reading hero: white text pill + download circle
+--   detail_pill_color  Book detail solid primary (Start reading / Read again)
+--   dialog_pill_color  Bottom sheets / open-book dialog primary pills (MenuUI)
+-- Pill Colour Trace logs every match (and near-miss hero sizes) to crash.log.
 local PILL_COLORS = {
     { "White", "#FFFFFF" }, { "Silver", "#AAAAAA" }, { "Light grey", "#CCCCCC" },
-    { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" }, { "Gold", "#D4A017" },
-    { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
+    { "Blue", "#6FB7E9" }, { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" },
+    { "Gold", "#D4A017" }, { "Mint", "#A8E6CF" }, { "Lavender", "#D8B4FE" },
 }
+
+-- Shown name of a saved colour ("Blue"), or the hex itself if it's not one of ours.
+local function pillColorName(hex)
+    if type(hex) ~= "string" then return "White" end
+    for _i, c in ipairs(PILL_COLORS) do
+        if c[2]:upper() == hex:upper() then return c[1] end
+    end
+    return hex
+end
 
 local function pillColorValue(hex)
     if type(hex) ~= "string" then return nil end
@@ -1668,6 +1713,16 @@ local function pillColorValue(hex)
     if not ok_bb or type(Blitbuffer) ~= "table" then return nil end
     if r == g and g == b then return Blitbuffer.Color8(r) end
     return Blitbuffer.ColorRGB32(r, g, b, 0xFF)
+end
+
+local function hexActive(hex)
+    return type(hex) == "string" and hex:upper() ~= "#FFFFFF"
+end
+
+local function pillTrace(...)
+    if cfg.pill_color_trace then
+        logger.info(TAG, "pill-color", ...)
+    end
 end
 
 local function hookResumePillColor()
@@ -1682,30 +1737,130 @@ local function hookResumePillColor()
     end
     package.loaded["bookorbit_tweaks_pill_color"] = true
     local original_box = BoardUI.box
-    -- Never compare a Blitbuffer colour with == nil: its __eq calls
-    -- getColorRGB32 on the other side and crashes when that side is nil.
-    -- Most BoardUI.box calls have no bg at all, so that crash fired on the
-    -- first dashboard build after a non-white colour was picked.
-    local function isWhite(c)
-        if not c then return false end
+    local original_circle = BoardUI.circle
+    -- While a BookOrbit dialog/sheet is open, solid black pills use dialog colour.
+    local in_dialog = 0
+
+    local function rgbOf(c)
+        if not c then return nil end
         local ok, rgb = pcall(function() return c:getColorRGB32() end)
-        return ok and rgb and rgb.r == 255 and rgb.g == 255 and rgb.b == 255
+        if ok and rgb then return rgb.r, rgb.g, rgb.b end
+        return nil
     end
+    local function isWhite(c)
+        local r, g, b = rgbOf(c)
+        return r == 255 and g == 255 and b == 255
+    end
+    local function isBlack(c)
+        local r, g, b = rgbOf(c)
+        return r == 0 and g == 0 and b == 0
+    end
+    -- A colour screen (Kaleido) shows colour properly only through a
+    -- dithered refresh. BookOrbit gives its dashboard one, but a book's page
+    -- and the dialogs refresh without it, so the same colour came out pale
+    -- and grainy there. A tinted button asks for one over its own rectangle
+    -- once it's painted (a refresh only, nothing is painted again).
+    local function ditherAfterPaint(w)
+        if type(w) ~= "table" or type(w.paintTo) ~= "function" then return w end
+        local Screen = require("device").screen
+        if not (Screen and Screen.isColorEnabled and Screen:isColorEnabled()) then return w end
+        local orig_paint = w.paintTo
+        w.paintTo = function(self, bb, x, y)
+            orig_paint(self, bb, x, y)
+            local d = self.dimen
+            if bb == Screen.bb and d and d.x and d.w and d.w > 0 then
+                local region = require("ui/geometry"):new{ x = d.x, y = d.y, w = d.w, h = d.h }
+                require("ui/uimanager"):setDirty(nil, function() return "partial", region, true end)
+            end
+        end
+        return w
+    end
+
+    local function withBg(o, col)
+        local copy = {}
+        for k, v in pairs(o) do copy[k] = v end
+        copy.bg = col
+        return copy
+    end
+    local function isRoundedAction(o)
+        if type(o) ~= "table" or type(o.h) ~= "number" or type(o.radius) ~= "number" then
+            return false
+        end
+        local h = o.h
+        if h < BoardMetrics.px(34) or h > BoardMetrics.px(52) then return false end
+        local half = math.floor(h / 2)
+        return o.radius >= half - 1 and o.radius <= half + 1
+    end
+
     BoardUI.box = function(o, child)
-        if type(o) == "table" and type(cfg.resume_pill_color) == "string"
-                and cfg.resume_pill_color:upper() ~= "#FFFFFF"
-                and isWhite(o.bg) and o.h == BoardMetrics.px(40)
-                and o.radius == BoardMetrics.px(20) then
-            local col = pillColorValue(cfg.resume_pill_color)
-            if col then
-                local copy = {}
-                for k, v in pairs(o) do copy[k] = v end
-                copy.bg = col
-                return original_box(copy, child)
+        if type(o) == "table" then
+            local border = o.border or 0
+            local h, r = o.h, o.radius
+            local br, bg, bb = rgbOf(o.bg)
+            -- Hero Continue reading text pill (white, exact 40/20, no border)
+            if hexActive(cfg.resume_pill_color) and isWhite(o.bg) and border == 0
+                    and h == BoardMetrics.px(40) and r == BoardMetrics.px(20) then
+                local col = pillColorValue(cfg.resume_pill_color)
+                pillTrace("MATCH hero-pill", "cfg=" .. tostring(cfg.resume_pill_color),
+                    "h=" .. tostring(h), "r=" .. tostring(r), "bg=" .. tostring(br))
+                if col then return ditherAfterPaint(original_box(withBg(o, col), child)) end
+            -- Near-miss hero (trace only): white, no border, near 40 tall
+            elseif cfg.pill_color_trace and isWhite(o.bg) and border == 0
+                    and type(h) == "number" and h >= BoardMetrics.px(36) and h <= BoardMetrics.px(44) then
+                pillTrace("near-miss hero-pill?",
+                    "h=" .. tostring(h) .. " want " .. tostring(BoardMetrics.px(40)),
+                    "r=" .. tostring(r) .. " want " .. tostring(BoardMetrics.px(20)),
+                    "bgRGB=" .. tostring(br) .. "," .. tostring(bg) .. "," .. tostring(bb))
+            -- Solid primary: black, no border, rounded action height
+            elseif isBlack(o.bg) and border == 0 and isRoundedAction(o) then
+                local hex = (in_dialog > 0) and cfg.dialog_pill_color or cfg.detail_pill_color
+                if hexActive(hex) then
+                    local col = pillColorValue(hex)
+                    pillTrace("MATCH solid-primary",
+                        (in_dialog > 0) and "dialog" or "detail",
+                        "cfg=" .. tostring(hex),
+                        "h=" .. tostring(h), "r=" .. tostring(r))
+                    if col then return ditherAfterPaint(original_box(withBg(o, col), child)) end
+                end
             end
         end
         return original_box(o, child)
     end
+
+    if type(original_circle) == "function" then
+        BoardUI.circle = function(d, o, child)
+            if hexActive(cfg.resume_pill_color) and type(o) == "table" and type(d) == "number"
+                    and d == BoardMetrics.px(40)
+                    and isWhite(o.bg)
+                    and (o.border or 0) == 0 then
+                local col = pillColorValue(cfg.resume_pill_color)
+                pillTrace("MATCH hero-circle", "cfg=" .. tostring(cfg.resume_pill_color), "d=" .. tostring(d))
+                if col then return ditherAfterPaint(original_circle(d, withBg(o, col), child)) end
+            elseif cfg.pill_color_trace and type(o) == "table" and type(d) == "number"
+                    and d >= BoardMetrics.px(32) and d <= BoardMetrics.px(48) and isWhite(o.bg) then
+                pillTrace("near-miss hero-circle?",
+                    "d=" .. tostring(d) .. " want " .. tostring(BoardMetrics.px(40)),
+                    "border=" .. tostring(o.border))
+            end
+            return original_circle(d, o, child)
+        end
+    end
+
+    -- Track dialog/sheet builds so solid pills there use dialog_pill_color.
+    local ok_d, DialogUI = pcall(require, "bookorbit_dialog_ui")
+    if ok_d and type(DialogUI) == "table" and type(DialogUI.open) == "function"
+            and not DialogUI._bookorbit_tweaks_pill_flag then
+        DialogUI._bookorbit_tweaks_pill_flag = true
+        local orig_open = DialogUI.open
+        DialogUI.open = function(...)
+            in_dialog = in_dialog + 1
+            local ok, a, b, c = pcall(orig_open, ...)
+            in_dialog = math.max(0, in_dialog - 1)
+            if not ok then error(a, 0) end
+            return a, b, c
+        end
+    end
+
     return true
 end
 
@@ -2679,24 +2834,69 @@ local function buildMenu()
             sub_item_table_func = buildLibraryMenu,
         },
         {
-            text = _("Resume Pill Colour"),
+            text = _("Action Colours"),
             sub_item_table_func = function()
-                local items = {}
-                for _i, c in ipairs(PILL_COLORS) do
-                    local name, hex = c[1], c[2]
-                    items[#items + 1] = {
-                        text = name,
-                        checked_func = function()
-                            return type(cfg.resume_pill_color) == "string"
-                                and cfg.resume_pill_color:upper() == hex
+                local function colorMenu(title, key)
+                    local items = {
+                        {
+                            text = title,
+                            enabled = false,
+                        },
+                    }
+                    local seen = {}
+                    for _i, c in ipairs(PILL_COLORS) do
+                        local name, hex = c[1], c[2]
+                        if not seen[hex] then
+                            seen[hex] = true
+                            items[#items + 1] = {
+                                text = name,
+                                checked_func = function()
+                                    return type(cfg[key]) == "string" and cfg[key]:upper() == hex
+                                end,
+                                callback = function()
+                                    cfg[key] = hex
+                                    saveConfig()
+                                end,
+                            }
+                        end
+                    end
+                    return items
+                end
+                return {
+                    {
+                        text_func = function()
+                            return _("Continue Reading: ") .. pillColorName(cfg.resume_pill_color or "#FFFFFF")
                         end,
+                        sub_item_table_func = function()
+                            return colorMenu(_("Hero pill + download circle"), "resume_pill_color")
+                        end,
+                    },
+                    {
+                        text_func = function()
+                            return _("Book Detail: ") .. pillColorName(cfg.detail_pill_color or "#FFFFFF")
+                        end,
+                        sub_item_table_func = function()
+                            return colorMenu(_("Start reading / Read again / Resume"), "detail_pill_color")
+                        end,
+                    },
+                    {
+                        text_func = function()
+                            return _("Dialogs: ") .. pillColorName(cfg.dialog_pill_color or "#FFFFFF")
+                        end,
+                        sub_item_table_func = function()
+                            return colorMenu(_("Bottom sheets / open-book dialog"), "dialog_pill_color")
+                        end,
+                    },
+                    {
+                        text = _("Pill Colour Trace (crash.log)"),
+                        help_text = _("When on, every colour match and near-miss is written to crash.log so you can see why Continue Reading did or did not pick up Blue."),
+                        checked_func = function() return cfg.pill_color_trace == true end,
                         callback = function()
-                            cfg.resume_pill_color = hex
+                            cfg.pill_color_trace = not (cfg.pill_color_trace == true)
                             saveConfig()
                         end,
-                    }
-                end
-                return items
+                    },
+                }
             end,
         },
         {
@@ -2856,5 +3056,22 @@ end
 
 pcall(hookMenu, "apps/filemanager/filemanagermenu")
 pcall(hookMenu, "apps/reader/modules/readermenu")
+
+-- Patch Backup & Restore (2-backup-patches.lua): our settings as a backup
+-- target. Works in either patch load order.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    BK.targets = BK.targets or {}
+    local target = {
+        id = "bookorbit_tweaks",
+        text = _("BookOrbit Tweaks"),
+        setting_prefix = SETTINGS_KEY,
+        -- saved server logins stay out of backups; the library list is
+        -- fetched again
+        skip_keys = { SERVERS_KEY, LIBRARIES_CACHE_KEY },
+    }
+    if type(BK.register) == "function" then pcall(BK.register, target) else table.insert(BK.targets, target) end
+end
 
 logger.info(TAG, "========== v" .. VERSION .. " LOADED ==========")
