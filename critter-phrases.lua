@@ -47,6 +47,27 @@
 -- insight_voices[critter id][kind]: that critter's own wording of the
 --   insights above (same kinds and data d). Shown about half the time, the
 --   shared insight lines the rest (SimpleUI 3.0.2+, and Reading Log Tweaks).
+--
+-- 1.1.0, for Shortcuts Toolbar Quick Shelf's critter (While Reading, and
+-- On Library Toolbar for the menus):
+-- reading[situation]: lines about the open book. L(mood, text, sub) with
+--   {fields} filled in: {page} {total} {left} (pages left) {left_pg}
+--   ("12 pages") {pct} {ch_pg} (pages left in the chapter) {ch_time}
+--   {time_left} (book, at your pace) {pph} (pages an hour) {sess_pg}
+--   {sess_time} (this sitting, since the device woke) {read_time} (all
+--   your time in this book) {title} {chapter} {menu} {name} (the name
+--   you gave SimpleUI's critter; lines with it are skipped when there's
+--   none). Situations:
+--   finished finish_now finish_tonight chapter_last chapter_soon
+--   chapter_quick chapter_long fast slow steady marathon big_session
+--   just_opened late_night early start quarter halfway three_quarter
+--   home_stretch big_book short_book speedy unhurried invested
+--   pages_left time_left sweet (any time: just being cute). Pace lines need KOReader's statistics on.
+-- reading_voices[critter id][situation]: that critter's own lines, used
+--   about half the time when it has some for the situation.
+-- menus[key], menu_voices[critter id][key]: what the critter says about
+--   the menu you open. menu_words picks the key from the submenu's name;
+--   tab_* keys are the tabs themselves; "any" is the fallback.
 
 local function plural(n, one, many) return string.format(n == 1 and one or many, n) end
 local function q(s) return "\xE2\x80\x9C" .. tostring(s or "your book") .. "\xE2\x80\x9D" end
@@ -62,8 +83,58 @@ local function s(text) return function() return text end end
 local function readToday(f) return mins(math.floor((f.today_secs or 0) / 60)) end
 local function title(f) return q(f.book and f.book.title) end
 
+-- 1.1.0 helpers for the reading and menu lines
+local function pg(n) return plural(n or 0, "%d page", "%d pages") end
+local function dur(m)
+    m = math.floor((m or 0) + 0.5)
+    if m < 1 then return "under a minute" end
+    if m < 60 then return mins(m) end
+    local h, r = math.floor(m / 60), m % 60
+    local hs = plural(h, "%d hour", "%d hours")
+    if r < 5 then return hs end
+    return string.format("%s %d min", hs, r)
+end
+local FIELDS = {
+    page      = function(f) return tostring(f.page or "?") end,
+    total     = function(f) return tostring(f.total or "?") end,
+    left      = function(f) return tostring(f.left or "?") end,
+    left_pg   = function(f) return pg(f.left) end,
+    pct       = function(f) return tostring(f.pct or 0) .. "%" end,
+    ch_pg     = function(f) return pg(f.ch_left) end,
+    ch_time   = function(f) return dur(f.ch_mins) end,
+    time_left = function(f) return dur(f.book_mins) end,
+    pph       = function(f) return tostring(math.floor((f.pph or 0) + 0.5)) end,
+    sess_pg   = function(f) return pg(f.sess_pages) end,
+    sess_time = function(f) return dur(f.sess_mins) end,
+    read_time = function(f) return dur(f.read_mins) end,
+    title     = function(f) return q(f.title) end,
+    chapter   = function(f) return q(f.chapter or "this chapter") end,
+    menu      = function(f) return f.menu or "this menu" end,
+    name      = function(f) return f.user_name or "friend" end,
+}
+-- t("Only {left_pg} left!") -> a line function filling in the facts
+local function t(text)
+    return function(f)
+        f = f or {}
+        return (string.gsub(text, "{([%w_]+)}", function(k)
+            local fn = FIELDS[k]
+            return fn and fn(f) or ("{" .. k .. "}")
+        end))
+    end
+end
+-- A line with {name} is only used when you've told SimpleUI's critter your
+-- name (its settings: Your name); one with {menu} only when the menu has a
+-- name to show.
+local function L(mood, text, sub)
+    local all = text .. (sub or "")
+    local named = string.find(all, "{name}", 1, true) ~= nil
+    local menu = string.find(all, "{menu}", 1, true) ~= nil
+    return { mood = mood, text = t(text), sub = sub and t(sub) or nil,
+             needs_name = named or nil, needs_menu = menu or nil }
+end
+
 return {
-    VERSION = "1.0.0",
+    VERSION = "1.1.0",
     version = 1,
 
     insights = {
@@ -888,5 +959,801 @@ return {
             },
         },
     },
-}
 
+    -- ------------------------------------------------------------------
+    -- 1.1.0: While reading (Quick Shelf's critter). Lines use {fields}:
+    --   {page} {total} {left} {left_pg} {pct} {ch_pg} {ch_time}
+    --   {time_left} {pph} {sess_pg} {sess_time} {read_time} {title}
+    --   {chapter} {menu}  (see the top of this file)
+    -- ------------------------------------------------------------------
+    reading = {
+        finished = {
+            L("party", "The end! You did it.", "{total} pages. All yours."),
+            L("proud", "Finished. Take a bow.", "{read_time} well spent."),
+            L("surprised", "That's the last page!", "Now what? Another one?"),
+            L("love", "Done. Did it hold up?", "Sit with it a minute."),
+            L("cheer", "Book closed. Victory lap.", "I'll hold the snacks."),
+            L("party", "You finished it, {name}!", "{total} pages. Legend."),
+            L("love", "You finished! I'm so proud.", "Tiny critter, big hugs."),
+        },
+        finish_now = {
+            L("surprised", "Only {left_pg} left!", "Don't stop now."),
+            L("cheer", "{left_pg} to the end!", "The finish line's right there."),
+            L("curious", "{left_pg} left. Ready?", "Endings hit different."),
+            L("playful", "So close. {left_pg}.", "You could finish before tea."),
+            L("party", "Last {left_pg}. Drumroll...", "No pressure. Lots of pressure."),
+            L("cheer", "Come on, {name}! {left_pg} left.", "You've got this."),
+            L("love", "Almost there. I believe in you.", "{left_pg} left."),
+        },
+        finish_tonight = {
+            L("cheer", "You could finish this today.", "About {time_left} left."),
+            L("curious", "{time_left} to the end.", "Finish it tonight? Just saying."),
+            L("playful", "One sitting left. Maybe.", "{left_pg}, about {time_left}."),
+            L("proud", "Within reach: {time_left}.", "Then bragging rights."),
+        },
+        chapter_last = {
+            L("surprised", "Last page of the chapter!", "Stop here? Or one more..."),
+            L("playful", "Chapter's ending. Clean break.", "Or don't. I won't tell."),
+            L("sleepy", "A neat place to stop.", "End of the chapter, right here."),
+            L("curious", "Chapter done. Peek at the next?", "Just the first line. Sure."),
+            L("grumpy", "Perfect stopping point.", "Which you'll ignore."),
+            L("curious", "End of the chapter, {name}.", "Stop here? I dare you."),
+            L("cozy", "Chapter done. Cuddle break?", "Then the next one."),
+        },
+        chapter_soon = {
+            L("curious", "{ch_pg} left in this chapter.", "Finish it, then decide."),
+            L("cheer", "Chapter ends in {ch_pg}.", "Almost a clean break."),
+            L("playful", "{ch_pg} to the chapter end.", "Then 'just one more'. I know you."),
+            L("reading", "Nearly done with this chapter.", "{ch_pg} to go."),
+        },
+        chapter_quick = {
+            L("playful", "This chapter? {ch_time} left.", "That's nothing. Keep going."),
+            L("curious", "{ch_time} to the chapter end.", "Shorter than a coffee."),
+            L("cheer", "Quick one: {ch_time} left.", "{ch_pg} in this chapter."),
+        },
+        chapter_long = {
+            L("surprised", "Long chapter. {ch_time} left.", "{ch_pg}. Settle in."),
+            L("grumpy", "This chapter goes on a while.", "{ch_pg} more of it."),
+            L("sleepy", "{ch_time} to the chapter end.", "Bring a blanket."),
+        },
+        fast = {
+            L("surprised", "Wow, you're flying!", "{sess_pg} already this sitting."),
+            L("party", "Speed mode! {sess_pg} so far.", "Faster than your usual."),
+            L("playful", "Whoa. Are you skimming?", "{sess_pg} at warp speed."),
+            L("cheer", "Page-turner, huh?", "You're well above your pace."),
+            L("curious", "Gripping bit? You're racing.", "{sess_pg} in {sess_time}."),
+            L("proud", "Fastest you've read this.", "Don't let me slow you down."),
+            L("surprised", "Slow down, {name}!", "{sess_pg} already. Wow."),
+            L("love", "Look at you go!", "So proud of you."),
+        },
+        slow = {
+            L("sleepy", "Slow going today.", "That's okay. No rush."),
+            L("curious", "Taking your time on this bit?", "Dense pages, huh?"),
+            L("grumpy", "This is a slow one.", "{sess_pg} in {sess_time}."),
+            L("cozy", "Savouring it, I see.", "Slower than usual. Fine by me."),
+            L("playful", "Reading or daydreaming?", "I won't judge. Much."),
+            L("sleepy", "Getting sleepy?", "You're slower than usual."),
+            L("sleepy", "Tired, {name}?", "Slow pages tonight."),
+            L("love", "Take all the time you need.", "I'm right here."),
+        },
+        steady = {
+            L("reading", "Nice steady pace.", "{sess_pg} this sitting."),
+            L("happy", "Right in your groove.", "About {pph} pages an hour."),
+            L("cozy", "Steady reading. Love it.", "{sess_pg} in {sess_time}."),
+        },
+        marathon = {
+            L("surprised", "{sess_time} straight!", "Stretch? Water? Snack?"),
+            L("sleepy", "Long session. Blink, please.", "{sess_time} and counting."),
+            L("proud", "Marathon reader!", "{sess_pg} this sitting."),
+            L("grumpy", "You've been at it {sess_time}.", "Your eyes called. Break?"),
+            L("hungry", "{sess_time} in. Snack time?", "I'm asking for both of us."),
+            L("grumpy", "{name}. {sess_time}. Break.", "Your eyes will thank me."),
+            L("sipping", "{sess_time}! Water and a stretch?", "Look after yourself."),
+        },
+        big_session = {
+            L("party", "{sess_pg} this sitting!", "That's a real dent."),
+            L("surprised", "{sess_pg} already?", "Who are you today?"),
+            L("proud", "Huge session: {sess_pg}.", "The book is nervous."),
+        },
+        just_opened = {
+            L("happy", "Back at it! Page {page}.", "{left_pg} to go."),
+            L("curious", "Where were we? Page {page}.", "{pct} through."),
+            L("cozy", "Settling in?", "{title}, page {page}."),
+            L("reading", "Picking up at page {page}.", "{time_left} left, roughly."),
+            L("happy", "Welcome back, {name}!", "Page {page}, where you left it."),
+            L("love", "Yay, you're back!", "I missed you. Page {page}."),
+        },
+        late_night = {
+            L("sleepy", "It's late. One more page?", "Famous last words."),
+            L("grumpy", "Bedtime was a while ago.", "{left_pg} will still be here."),
+            L("dreamy", "Night reading is the best.", "Just don't regret it at 7."),
+            L("sleepy", "Eyes getting heavy?", "Bookmark it, I'll guard it."),
+            L("spooky", "Reading in the dark again.", "Spooky. Cozy. Bad idea."),
+            L("sleepy", "Bedtime, {name}.", "One more page. Then bed."),
+            L("grumpy", "{name}, it's late.", "The book will still be here."),
+            L("cozy", "Snuggle up. It's late.", "One more page, then dreams."),
+            L("love", "Sweet dreams soon?", "I'll keep your place safe."),
+        },
+        early = {
+            L("sipping", "Early pages. Respect.", "Coffee and a chapter."),
+            L("sleepy", "Reading before sunrise?", "Who hurt you. Kidding."),
+            L("happy", "Morning read. Great start.", "Page {page} already."),
+            L("love", "Good morning, sunshine.", "A few pages with breakfast?"),
+        },
+        start = {
+            L("curious", "Just getting started.", "{total} pages ahead."),
+            L("happy", "Fresh book energy!", "Page {page} of {total}."),
+            L("reading", "Early days in {title}.", "Hooked yet?"),
+            L("playful", "First impressions?", "Keep or drop. Your call."),
+        },
+        quarter = {
+            L("cheer", "A quarter in!", "{pct} done. Story's warming up."),
+            L("curious", "{pct} through. Liking it?", "This is where it hooks you."),
+        },
+        halfway = {
+            L("party", "Halfway! {pct} done.", "All downhill from here."),
+            L("surprised", "Half the book. Already!", "{left_pg} on the other side."),
+            L("proud", "Halfway mark.", "Things get good now."),
+            L("playful", "Middle of the book.", "Plot twist incoming. Maybe."),
+            L("party", "Halfway, {name}!", "Downhill from here."),
+            L("love", "Halfway! You're amazing.", "I made you a tiny medal."),
+        },
+        three_quarter = {
+            L("cheer", "Three quarters done!", "{left_pg} left."),
+            L("curious", "{pct} in. Endgame soon.", "Who do you think wins?"),
+        },
+        home_stretch = {
+            L("cheer", "Home stretch: {pct}.", "{left_pg} to the end."),
+            L("surprised", "Almost there!", "Only {time_left} left."),
+            L("playful", "Final act. No skipping.", "{left_pg} left."),
+        },
+        big_book = {
+            L("surprised", "{total} pages? Big book.", "You're on {page}. Brave."),
+            L("grumpy", "This book is a doorstop.", "{left_pg} to go."),
+            L("proud", "Tackling a chunky one.", "{pct} through {total} pages."),
+            L("playful", "Heavy book. Literally.", "Good thing it's an e-reader."),
+        },
+        short_book = {
+            L("happy", "Short and sweet.", "Only {total} pages."),
+            L("playful", "A quick one. Finish it today?", "{left_pg} left."),
+        },
+        speedy = {
+            L("surprised", "{pph} pages an hour!", "You're quick at this one."),
+            L("proud", "This book reads fast.", "About {pph} pages an hour."),
+        },
+        unhurried = {
+            L("sleepy", "A slow read, this one.", "About {pph} pages an hour."),
+            L("curious", "Chewy book, huh?", "Slow pages. Worth it?"),
+            L("cozy", "No rush with this book.", "{time_left} left at your pace."),
+        },
+        invested = {
+            L("proud", "{read_time} in this book.", "You're committed now."),
+            L("love", "You and {title}: {read_time}.", "That's a relationship."),
+            L("surprised", "{read_time} so far!", "It better have a good ending."),
+            L("love", "{read_time} in, {name}.", "You really like this one."),
+        },
+        pages_left = {
+            L("reading", "Page {page} of {total}.", "{left_pg} to go."),
+            L("happy", "{pct} through.", "{left_pg} left."),
+            L("curious", "{left_pg} to the end.", "We've got this."),
+            L("playful", "Page {page}. Not bad.", "Keep turning."),
+            L("reading", "Page {page}, {name}.", "{left_pg} to go."),
+        },
+        time_left = {
+            L("reading", "{time_left} left in this book.", "At your usual pace."),
+            L("curious", "Done in about {time_left}.", "Give or take a snack."),
+            L("cozy", "About {time_left} to go.", "Plenty of reading left."),
+            L("playful", "{time_left} until the end.", "Spread it out or binge it?"),
+            L("cozy", "{time_left} left, {name}.", "At your pace."),
+        },
+        sweet = {
+            L("love", "I like reading with you.", "Best part of my day."),
+            L("shy", "Can I sit here while you read?", "I'll be very quiet."),
+            L("cozy", "Blanket, book, you. Perfect.", "Don't move. Ever."),
+            L("love", "You look cute when you read.", "Just saying."),
+            L("happy", "Hi. Just checking on you.", "Okay, back to the book."),
+            L("shy", "Psst. You're doing great.", "That's all."),
+            L("dreamy", "What's happening in the story?", "Tell me the good parts."),
+            L("love", "Proud of you for reading.", "Even one page counts."),
+            L("sipping", "Did you drink some water?", "Hydrated readers are happy readers."),
+            L("cozy", "This is my happy place.", "Right here, with you."),
+            L("playful", "Boop. Hi. Okay, read.", "I just wanted a boop."),
+            L("love", "Sending you a tiny hug.", "From a tiny critter."),
+            L("love", "Hi {name}. Love you.", "Okay. Read now."),
+            L("shy", "Is it okay if I stay, {name}?", "I'll be quiet. Promise."),
+        },
+    },
+
+    reading_voices = {
+        donny = {
+            finish_now = {
+                L("hungry", "{left_pg} left! Then dinner.", "Ending first. Food second."),
+                L("cozy", "Last {left_pg}. I'll stay.", "I want to know too."),
+                L("proud", "Almost done! I helped.", "By sitting on you."),
+                L("hungry", "{left_pg} left, {name}. Then dinner.", "Ending first."),
+            },
+            finished = {
+                L("party", "Finished! Treat time?", "I think we both earned one."),
+                L("sleepy", "The end. Nap time.", "Best part of a book."),
+            },
+            chapter_last = {
+                L("sleepy", "End of chapter. Nap?", "I'm voting nap."),
+                L("hungry", "Chapter's done. Snack break?", "Asking for me."),
+            },
+            chapter_soon = {
+                L("cozy", "{ch_pg} more, then cuddles.", "That's the deal."),
+                L("sleepy", "Finish the chapter. I'll wait.", "Zzz... {ch_pg} left."),
+            },
+            fast = {
+                L("surprised", "So fast! I can't keep up.", "{sess_pg}, my head's spinning."),
+                L("playful", "Slow down! I'm reading too.", "Over your shoulder."),
+                L("hungry", "Racing to dinner?", "Good. Same."),
+            },
+            slow = {
+                L("sleepy", "Slow pages. Perfect napping.", "Take all night."),
+                L("cozy", "No hurry. I'm comfy.", "Don't move."),
+                L("dreamy", "Slow and cozy. Love it.", "{sess_pg} in {sess_time}."),
+            },
+            marathon = {
+                L("hungry", "{sess_time}! Food break?", "For me. Obviously."),
+                L("sleepy", "{sess_time} of reading.", "I've napped three times."),
+            },
+            late_night = {
+                L("sleepy", "Bedtime? I'm already there.", "Bring the book."),
+                L("cozy", "Late. Warm. One more page.", "Then lights out."),
+                L("dreamy", "Night reading with you.", "My favourite kind."),
+                L("sleepy", "Bed, {name}? I'm already in it.", "Bring the book."),
+            },
+            halfway = {
+                L("proud", "Halfway! I'll nap on it.", "In your honour."),
+                L("hungry", "Halfway. Halfway snack?", "That's a thing now."),
+            },
+            big_book = {
+                L("surprised", "{total} pages? Nap first.", "Then I'll help."),
+                L("cozy", "Big book. Long cuddles.", "Works for me."),
+            },
+            pages_left = {
+                L("reading", "Page {page}. I'm listening.", "{left_pg} more stories."),
+                L("cozy", "{left_pg} left. Lots of laps.", "My plan exactly."),
+            },
+            time_left = {
+                L("sleepy", "{time_left} left. Naps in between.", "That's how I'd do it."),
+                L("hungry", "{time_left} left. Snacks?", "Lots of snack breaks in that."),
+            },
+            just_opened = {
+                L("happy", "Back! Page {page}.", "I kept it warm."),
+                L("cozy", "You're back. Lap please.", "Then page {page}."),
+                L("cozy", "{name}! I kept your spot warm.", "Page {page}."),
+            },
+            invested = {
+                L("love", "{read_time} together on this.", "Best {read_time} ever."),
+            },
+            sweet = {
+                L("cozy", "Your lap is the best place.", "I'm staying forever."),
+                L("love", "Purrrr. That's all.", "Keep reading. Keep petting."),
+                L("sleepy", "I fell asleep on you again.", "Sorry. Not sorry."),
+                L("hungry", "I saved you a snack.", "I ate it. But I thought of you."),
+                L("love", "I love you, {name}.", "And fish. But mostly you."),
+            },
+        },
+        blu = {
+            finish_now = {
+                L("grumpy", "{left_pg}. Finish. Now.", "I'm not asking."),
+                L("playful", "{left_pg} left! Go go go!", "I'll yell the countdown."),
+                L("proud", "Almost there. I believed in you.", "Mostly."),
+            },
+            finished = {
+                L("proud", "Done. As I planned.", "You're welcome."),
+                L("grumpy", "Finished? Finally.", "Feed me to celebrate."),
+            },
+            chapter_last = {
+                L("grumpy", "Chapter's over. Pet me.", "That was the deal."),
+                L("playful", "Chapter end! My turn.", "Throw something."),
+            },
+            chapter_soon = {
+                L("grumpy", "{ch_pg}. Then me.", "Clock's ticking."),
+                L("curious", "{ch_pg} left. What happens?", "Tell me. Now."),
+            },
+            fast = {
+                L("surprised", "WHOA. Slow down, show-off.", "{sess_pg} already?!"),
+                L("proud", "Fast. Like me.", "Obviously I taught you."),
+                L("grumpy", "Are you even reading?", "{sess_pg} that fast? Suspicious."),
+            },
+            slow = {
+                L("grumpy", "Turn. The. Page.", "I've been waiting."),
+                L("playful", "Snail mode activated.", "{sess_pg} in {sess_time}. Wow."),
+                L("grumpy", "Slower than my dinner service.", "That's saying something."),
+                L("grumpy", "Turn the page, {name}.", "I've been waiting."),
+            },
+            marathon = {
+                L("grumpy", "{sess_time}! I've been ignored.", "For {sess_time}."),
+                L("proud", "{sess_time} straight. Impressive.", "Still, pet me."),
+            },
+            late_night = {
+                L("grumpy", "It's late. Lights OFF.", "I need my beauty sleep."),
+                L("playful", "Late night? Zoomies time!", "Just kidding. Read."),
+                L("spooky", "Late-night reading again?", "I'll watch the shadows."),
+                L("grumpy", "{name}. Lights. OFF.", "I need my beauty sleep."),
+            },
+            halfway = {
+                L("proud", "Halfway. Under my supervision.", "Keep it up."),
+                L("grumpy", "Only halfway?", "Pick up the pace."),
+            },
+            big_book = {
+                L("grumpy", "{total} pages?! Ridiculous.", "Fine. I'll supervise."),
+                L("surprised", "That's a huge book.", "Bigger than me. Rude."),
+            },
+            pages_left = {
+                L("grumpy", "{left_pg} left. Get going.", "Chop chop."),
+                L("curious", "Page {page}. What's happening?", "Explain everything."),
+            },
+            time_left = {
+                L("grumpy", "{time_left} left. Read faster.", "I have plans."),
+                L("proud", "{time_left} to go. Easy.", "For us."),
+            },
+            just_opened = {
+                L("grumpy", "Oh, NOW you're back.", "Page {page}. Hmph."),
+                L("playful", "Back! Page {page}. Go!", "I'm timing you."),
+                L("grumpy", "Oh, NOW you're back, {name}.", "Page {page}. Hmph."),
+            },
+            invested = {
+                L("grumpy", "{read_time} on this book.", "That's {read_time} not petting me."),
+            },
+            sweet = {
+                L("shy", "I don't love you. Okay, I do.", "Don't tell Donny."),
+                L("proud", "You may pet me now.", "It's an honour."),
+                L("love", "Fine. You're my favourite.", "This is a one-time statement."),
+                L("playful", "I sat on your book. Cute, right?", "You're welcome."),
+                L("shy", "{name}... thanks for the lap.", "Don't make it weird."),
+            },
+        },
+        ["donny-and-blu"] = {
+            finish_now = {
+                L("party", "{left_pg} left! We're chanting.", "Blu's loud. Donny's eating."),
+                L("cheer", "Both of us: finish it!", "{left_pg} to go."),
+            },
+            finished = {
+                L("party", "Done! Two-cat celebration.", "Treats for the team."),
+                L("happy", "The end! We both cried.", "Donny did. Blu won't say."),
+            },
+            chapter_last = {
+                L("playful", "Chapter's done. Lap war.", "Blu's winning."),
+                L("sleepy", "End of chapter. Nap pile?", "Donny's in. Blu says read."),
+            },
+            chapter_soon = {
+                L("curious", "{ch_pg} left. We're both curious.", "Blu more loudly."),
+            },
+            fast = {
+                L("surprised", "You're flying! We're dizzy.", "{sess_pg} this sitting."),
+                L("playful", "Donny can't keep up.", "Blu says go faster."),
+            },
+            slow = {
+                L("sleepy", "Slow going. Donny's asleep.", "Blu's tapping her paw."),
+                L("cozy", "Slow pages, warm cats.", "Nobody's complaining. Except Blu."),
+            },
+            marathon = {
+                L("hungry", "{sess_time}! Two cats starving.", "Theatrically."),
+                L("grumpy", "{sess_time} of reading.", "Blu filed a complaint."),
+            },
+            late_night = {
+                L("sleepy", "Late! Donny's out cold.", "Blu says lights off."),
+                L("cozy", "Late night, two cats, one book.", "One more page. Then bed."),
+            },
+            halfway = {
+                L("party", "Halfway! Paw-five.", "Donny missed. Blu didn't."),
+            },
+            big_book = {
+                L("surprised", "{total} pages! We'd need two laps.", "Good thing there's two of us."),
+            },
+            pages_left = {
+                L("reading", "Page {page}. Both listening.", "{left_pg} left."),
+                L("playful", "{left_pg} to go.", "Blu's counting. Donny's not."),
+            },
+            time_left = {
+                L("cozy", "{time_left} left. Plenty of lap time.", "We'll take turns."),
+            },
+            just_opened = {
+                L("happy", "You're back! Page {page}.", "We saved your spot. Both of us."),
+                L("happy", "{name}'s back! We both cheered.", "Page {page}."),
+            },
+            sweet = {
+                L("love", "Two cats love you.", "Officially."),
+                L("cozy", "Cat sandwich. You're the bread.", "Don't move."),
+                L("happy", "We made you a nest.", "It's your blanket. Now it's ours."),
+                L("love", "We love you, {name}!", "Donny said it first."),
+            },
+        },
+    },
+
+    -- ------------------------------------------------------------------
+    -- 1.1.0: The menus (Quick Shelf's critter in the menu tab bar).
+    -- menu_words: the first entry whose word is in the open submenu's
+    -- name (lower case; deepest submenu first) picks the lines, else the
+    -- tab's own lines (tab_navigation tab_typeset tab_settings tab_tools
+    -- tab_search tab_files tab_main), else "any". {menu} = submenu name.
+    -- ------------------------------------------------------------------
+    menu_words = {
+        { key = "addons",      words = { "add-ons", "addons" } },
+        { key = "toolbar",     words = { "shortcuts toolbar", "quick shelf", "icon tweaks", "critter remarks" } },
+        { key = "backup",      words = { "backup", "back up", "restore" } },
+        { key = "customize",   words = { "menu disabler", "menu customizer", "arrange" } },
+        { key = "debug",       words = { "debug", "diagnostic" } },
+        { key = "xray",        words = { "x-ray", "xray" } },
+        { key = "quests",      words = { "readmastery", "read mastery", "quest", "mastery" } },
+        { key = "location",    words = { "reading location", "furthest" } },
+        { key = "status",      words = { "footcream", "foot cream", "status bar", "footer" } },
+        { key = "goodreads",   words = { "shelfsync", "goodreads" } },
+        { key = "bookorbit",   words = { "bookorbit", "book orbit" } },
+        { key = "bookcard",    words = { "book card", "bookcard" } },
+        { key = "critter",     words = { "critter", "simpleui", "simple ui", "home screen", "homescreen", "side panel" } },
+        { key = "sleep",       words = { "sleep screen", "screensaver", "sleep", "suspend", "standby", "lock screen" } },
+        { key = "wifi",        words = { "wi-fi", "wifi", "network", "wireless", "connect" } },
+        { key = "sync",        words = { "sync", "bookorbit", "shelfsync", "calibre", "opds", "cloud", "kosync", "progress sync" } },
+        { key = "update",      words = { "update", "version", "nightly" } },
+        { key = "exit",        words = { "exit", "restart", "quit", "power off", "reboot" } },
+        { key = "battery",     words = { "battery", "power", "charging" } },
+        { key = "bookmarks",   words = { "bookmark", "highlight", "note", "annotation", "quote" } },
+        { key = "light",       words = { "frontlight", "front light", "warmth", "brightness", "night mode", "light" } },
+        { key = "stats",       words = { "statistic", "stats", "reading log", "insight", "progress", "streak" } },
+        { key = "toc",         words = { "table of contents", "contents", "go to", "skim", "chapter", "toc", "page scrubber", "glimpse" } },
+        { key = "fonts",       words = { "font", "typeset", "style tweak", "text", "bold", "embolden", "hyphen" } },
+        { key = "layout",      words = { "margin", "spacing", "layout", "page", "zoom", "column", "rotation", "orientation" } },
+        { key = "dictionary",  words = { "dictionar", "translat", "wikipedia", "lookup", "vocabulary" } },
+        { key = "collections", words = { "collection", "history", "favorite", "favourite", "shelf", "to be read", "library", "bookshelf", "storefront" } },
+        { key = "gestures",    words = { "gesture", "tap", "swipe", "taps", "multiswipe", "long-press", "corner" } },
+        { key = "keyboard",    words = { "keyboard", "input" } },
+        { key = "screenshot",  words = { "screenshot" } },
+        { key = "plugins",     words = { "plugin" } },
+        { key = "time",        words = { "time", "date", "clock" } },
+        { key = "language",    words = { "language" } },
+        { key = "navigation",  words = { "navigation", "back button", "page turn", "volume key", "turn pages" } },
+        { key = "device",      words = { "device", "usb", "mass storage", "cover event", "haptic", "power led" } },
+        { key = "document",    words = { "document", "metadata", "book status", "end of document" } },
+        { key = "screen",      words = { "screen", "dpi", "refresh", "flash", "fullscreen", "color", "colour", "dither" } },
+        { key = "files",       words = { "file", "folder", "storage", "cover" } },
+        { key = "help",        words = { "about", "help", "manual", "feedback" } },
+    },
+
+    menus = {
+        tab_navigation = {
+            L("curious", "Jumping around? Lost?", "I won't tell the author."),
+            L("playful", "Skipping ahead? Cheater.", "Okay, a little peek."),
+            L("reading", "Navigation. Where to?", "Not the last page. Please."),
+            L("happy", "Going somewhere in the book?", "I'll come too."),
+        },
+        tab_typeset = {
+            L("playful", "Font fiddling again?", "It looked fine. I promise."),
+            L("curious", "Making it pretty?", "The words stay the same."),
+            L("grumpy", "Reading or decorating?", "Pick one."),
+            L("playful", "Fonts again, {name}?", "It looked fine."),
+        },
+        tab_settings = {
+            L("curious", "Settings. Something bugging you?", "Careful with those toggles."),
+            L("love", "Making it just how you like it?", "You deserve cozy."),
+            L("grumpy", "Settings again.", "The book's getting lonely."),
+            L("shy", "Fixing something? Need a paw?", "I'm good at pressing buttons."),
+            L("curious", "So many settings!", "Which one's the cuddle button?"),
+            L("happy", "Settings! I like buttons.", "Press one for me."),
+        },
+        tab_tools = {
+            L("curious", "Tools? Building something?", "Don't break anything."),
+            L("playful", "Ooh, the toolbox.", "Hand me the shiny one."),
+            L("love", "Ooh, tools. You're so clever.", "I'll watch."),
+            L("curious", "Tools time? What are we making?", "Something good, I bet."),
+        },
+        tab_search = {
+            L("curious", "Looking for something?", "I hid it. Kidding."),
+            L("playful", "Search time. What'd you lose?", "Probably under the couch."),
+            L("reading", "Searching. Who said what?", "I knew it was them."),
+            L("love", "Looking for something?", "I'll help you find it."),
+        },
+        tab_files = {
+            L("curious", "Leaving already?", "Just browsing, right?"),
+            L("grumpy", "Cheating on this book?", "I saw that."),
+            L("playful", "Shopping for the next one?", "Finish this one first. Maybe."),
+            L("grumpy", "Leaving this book, {name}?", "I saw that."),
+        },
+        tab_main = {
+            L("curious", "The main menu. Fancy.", "What are we up to?"),
+            L("playful", "Big menu energy.", "Don't press anything weird."),
+            L("happy", "Hi! What are we doing?", "Can I help?"),
+            L("love", "The big menu! Hi!", "I'm here if you need me."),
+        },
+        critter = {
+            L("surprised", "Wait, that's my menu!", "Be nice. I'm watching."),
+            L("shy", "Changing me? Rude.", "Unless it's a new hat."),
+            L("proud", "My settings. My kingdom.", "Choose wisely."),
+            L("playful", "Customizing me? Flattered.", "Pick the cute options."),
+            L("shy", "Changing me, {name}?", "Be gentle."),
+            L("love", "Are you making me cuter?", "Impossible. But try."),
+        },
+        sleep = {
+            L("sleepy", "Sleep screen stuff? Yes.", "Naps are my area."),
+            L("dreamy", "Making bedtime prettier?", "I approve."),
+            L("sleepy", "Talking about sleep... yawn.", "Contagious."),
+            L("love", "Picking a pretty sleep screen?", "Put me on it. Please?"),
+        },
+        wifi = {
+            L("curious", "Going online?", "Don't buy more books. Okay, do."),
+            L("grumpy", "Wi-Fi drains the battery.", "Just saying."),
+            L("playful", "Connecting to the internet?", "Say hi from me."),
+            L("curious", "Going online, {name}?", "Don't buy more books. Okay, do."),
+        },
+        sync = {
+            L("curious", "Syncing? Good call.", "Your page is safe with me."),
+            L("proud", "Backing up your progress.", "Very responsible."),
+            L("playful", "Sync all the things!", "Then read all the things."),
+        },
+        update = {
+            L("surprised", "Updates? Ooh, shiny.", "Back up first. Please."),
+            L("curious", "New version? What's new?", "Hope it's more treats."),
+            L("grumpy", "Updating. Again.", "Fine. Back up first."),
+        },
+        battery = {
+            L("curious", "Battery check?", "Charge me too. Kidding."),
+            L("sleepy", "Low battery? Same.", "Nap for both of us."),
+        },
+        light = {
+            L("dreamy", "Adjusting the light?", "Warmer is cozier."),
+            L("sleepy", "Dimmer, please.", "Easier on the eyes."),
+            L("playful", "Light show!", "Don't blind me."),
+            L("cozy", "Warm light is cozy light.", "Perfect for snuggles."),
+        },
+        stats = {
+            L("proud", "Checking your stats?", "Numbers look good."),
+            L("curious", "Stats again? Show-off.", "Fine, I'm impressed."),
+            L("playful", "Admiring your numbers?", "Go make more of them."),
+            L("love", "Look how much you've read!", "I'm so proud of you."),
+        },
+        fonts = {
+            L("playful", "Font shopping again?", "It's still the same book."),
+            L("curious", "Bigger? Smaller? Bolder?", "You'll pick the first one."),
+            L("grumpy", "The font was fine.", "I liked the font."),
+            L("proud", "Typography critic now?", "Very fancy."),
+        },
+        layout = {
+            L("curious", "Margins? Spacing?", "Picky. I respect it."),
+            L("playful", "Moving the furniture?", "Leave room for me."),
+        },
+        dictionary = {
+            L("curious", "Big word, huh?", "I knew it. Probably."),
+            L("proud", "Learning new words!", "Use one on me."),
+            L("playful", "Look it up. I'll wait.", "Smartypants."),
+        },
+        bookmarks = {
+            L("curious", "Saving a good bit?", "Read it to me."),
+            L("love", "Highlights! Good lines?", "Mark the best ones."),
+            L("proud", "Bookmarking. Smart.", "Future you says thanks."),
+            L("love", "Saving a pretty line?", "Read it to me later."),
+        },
+        toc = {
+            L("curious", "Checking how long this chapter is?", "I won't tell."),
+            L("playful", "Peeking at chapter names?", "Spoilers lurk there."),
+            L("grumpy", "No skipping ahead.", "I'm watching."),
+        },
+        collections = {
+            L("curious", "Organizing the shelves?", "Put me on top."),
+            L("playful", "Collections! Very tidy.", "Unlike my toys."),
+            L("happy", "Planning what's next?", "Good. Keep the streak going."),
+            L("dreamy", "So many books to love.", "Which one next?"),
+        },
+        gestures = {
+            L("playful", "Rewiring the taps?", "Don't lose me in there."),
+            L("curious", "New gestures? Fancy.", "Swipe right on me."),
+            L("curious", "Taps and swipes? Teach me some.", "I only know 'boop'."),
+            L("playful", "Changing what taps do?", "Make one that pets me."),
+            L("shy", "New gestures? Be gentle.", "I'm ticklish."),
+        },
+        screenshot = {
+            L("proud", "Screenshot? Get my good side.", "Left. It's the left."),
+            L("shy", "Taking pictures?", "Wait, my fur."),
+        },
+        plugins = {
+            L("curious", "Plugins? Adding more stuff?", "We're running out of menu."),
+            L("playful", "Plugin shopping.", "Get one for snacks."),
+        },
+        time = {
+            L("curious", "Checking the time?", "Late, probably."),
+            L("sleepy", "Time? It's nap o'clock.", "It's always nap o'clock."),
+            L("love", "Time for one more chapter.", "Always."),
+        },
+        language = {
+            L("surprised", "Changing languages?", "Bonjour? Hola? Meow."),
+        },
+        files = {
+            L("curious", "File stuff. Very serious.", "Don't delete anything good."),
+            L("grumpy", "Careful with that delete.", "I've seen things."),
+        },
+        exit = {
+            L("sad", "Leaving? Already?", "Come back soon."),
+            L("grumpy", "Restarting? Don't you dare.", "Fine. Hurry back."),
+            L("sad", "Wait, don't go!", "We were having fun."),
+            L("sad", "Leaving, {name}?", "Come back soon."),
+            L("love", "Bye! Come back soon.", "I'll miss you."),
+        },
+        help = {
+            L("curious", "Reading the manual?", "Who are you?!"),
+            L("proud", "Asking for help. Mature.", "I'd have just guessed."),
+        },
+        any = {
+            L("curious", "Ooh, {menu}.", "What are we doing in here?"),
+            L("playful", "{menu}? Interesting choice.", "Carry on."),
+            L("reading", "Exploring {menu}.", "Don't get lost."),
+            L("curious", "What's in {menu}?", "Tell me if it's snacks."),
+            L("curious", "{menu}, {name}? Why?", "Just curious."),
+            L("happy", "Ooh, {menu}! I'll come too.", "Hold my paw."),
+            L("curious", "Ooh, where are we going?", "I'll follow you."),
+            L("playful", "Exploring? Take me with you.", "I'm small. I fit."),
+            L("happy", "New menu! What's in here?", "Something fun, I hope."),
+            L("shy", "I've never been in here.", "Is it safe?"),
+        },
+        addons = {
+            L("happy", "Ooh, the fun drawer!", "All your extras live here."),
+            L("curious", "So many goodies in here.", "Which one today?"),
+            L("playful", "The secret extras menu!", "I won't tell anyone."),
+            L("love", "Your special stuff. Cozy.", "Everything just how you like it."),
+        },
+        toolbar = {
+            L("surprised", "Hey, that's where I live!", "Be nice to my house."),
+            L("shy", "Rearranging my home?", "Leave me a cozy corner."),
+            L("happy", "My toolbar! Hi!", "I'm right up there."),
+        },
+        backup = {
+            L("proud", "Backing things up? Smart.", "Safe and sound."),
+            L("cozy", "Tucking everything in safe.", "Like a blanket for your stuff."),
+            L("curious", "Restoring something?", "I hope nothing got lost."),
+        },
+        customize = {
+            L("shy", "Hiding menus? Don't hide me.", "I'm small but important."),
+            L("playful", "Tidying up the menus?", "Very neat. Very you."),
+        },
+        debug = {
+            L("curious", "Something acting up?", "I'll hold the flashlight."),
+            L("shy", "Uh oh. Is it my fault?", "I didn't touch anything."),
+        },
+        xray = {
+            L("surprised", "X-Ray vision!", "Who's who in this book?"),
+            L("curious", "Forgot who someone is?", "Happens to the best of us."),
+        },
+        quests = {
+            L("party", "Quests! Got any for me?", "I'll be your sidekick."),
+            L("proud", "Leveling up your reading?", "Go get that badge."),
+        },
+        location = {
+            L("curious", "Lost your place?", "I'll help you find it."),
+            L("happy", "Back to where you were.", "I remember. Kind of."),
+        },
+        status = {
+            L("playful", "Fixing the bottom bar?", "Make it pretty."),
+            L("curious", "Footer stuff?", "So many little numbers."),
+        },
+        goodreads = {
+            L("proud", "Telling Goodreads about it?", "Show off a little."),
+            L("happy", "Syncing your shelves!", "Everyone will know how cool you are."),
+        },
+        bookorbit = {
+            L("surprised", "BookOrbit! Books in space!", "Can I come?"),
+            L("happy", "Checking your BookOrbit?", "Your books are safe up there."),
+        },
+        bookcard = {
+            L("love", "A little book card. Cute.", "Just like me."),
+        },
+        keyboard = {
+            L("curious", "Keyboard stuff?", "Type something nice."),
+            L("playful", "Typing? Write me a poem.", "Rhymes with 'critter'. Go."),
+        },
+        navigation = {
+            L("curious", "How the pages turn? Fancy.", "Forward is my favourite."),
+            L("playful", "Page-turning settings!", "Swipe, tap, wiggle?"),
+        },
+        device = {
+            L("curious", "Device settings? Very techy.", "I just live in here."),
+            L("shy", "Poking the e-reader's insides?", "That's my house. Careful."),
+            L("love", "Taking care of your Kobo?", "It takes care of your books."),
+        },
+        document = {
+            L("curious", "Document settings?", "Very official."),
+            L("playful", "Book paperwork. Fun.", "I'll stamp it."),
+        },
+        screen = {
+            L("curious", "Screen stuff? Make it pretty.", "Pretty like me."),
+            L("playful", "Fiddling with the screen?", "Don't make me blurry."),
+            L("happy", "A nicer screen? Yes, please.", "Crisp critter incoming."),
+        },
+    },
+
+    menu_voices = {
+        donny = {
+            tab_typeset = { L("sleepy", "Fonts again? I'll nap.", "Wake me when it's pretty.") },
+            tab_files = { L("sad", "Leaving our book?", "I was comfy in it.") },
+            tab_search = { L("hungry", "Searching for snacks?", "Check the kitchen.") },
+            sleep = { L("sleepy", "Sleep screen? My favourite.", "I'm the model, right?") },
+            critter = {
+                L("love", "That's my menu! Hi!", "Pick the hungry pose."),
+                L("shy", "Are you choosing me?", "Pick me. Please."),
+            },
+            wifi = { L("hungry", "Order food while you're online?", "Fish, please.") },
+            fonts = { L("sleepy", "Make it big. I'm sleepy.", "Easier to read upside down.") },
+            stats = { L("proud", "Look at all that reading.", "I napped through most of it.") },
+            exit = { L("sad", "Leaving? Take me too.", "I fit in the bag.") },
+            any = { L("curious", "{menu}? Is there food?", "No? Okay.") },
+            tab_settings = {
+                L("cozy", "Settings? I'll nap on your arm.", "Take your time."),
+            },
+            addons = {
+                L("cozy", "The fun drawer. Any treats?", "No? Still cozy."),
+            },
+            toolbar = {
+                L("sleepy", "My house! Shh, I'm napping.", "Rearrange quietly."),
+            },
+            xray = {
+                L("hungry", "X-Ray! Can it find snacks?", "Worth a try."),
+            },
+            backup = {
+                L("cozy", "Tucking it all in?", "Me next, please."),
+            },
+            gestures = {
+                L("sleepy", "New gestures? Add 'pet Donny'.", "Two-finger scritch."),
+            },
+            device = {
+                L("cozy", "Device settings. It's warm in here.", "Don't turn it off."),
+            },
+        },
+        blu = {
+            tab_typeset = { L("grumpy", "Stop fiddling. Read.", "The font is FINE.") },
+            tab_files = {
+                L("grumpy", "Leaving this book? Traitor.", "I'll remember this."),
+                L("grumpy", "Traitor, {name}.", "I'll remember this."),
+            },
+            tab_settings = {
+                L("grumpy", "Settings again?!", "You're stalling."),
+                L("shy", "Need help? Not that I care.", "Okay, I care."),
+            },
+            sleep = { L("proud", "Sleep screen? Put me on it.", "Obviously.") },
+            critter = {
+                L("proud", "My menu. Choose me.", "Correct answer: Blu."),
+                L("grumpy", "Thinking of switching critters?", "Try it. I dare you."),
+            },
+            wifi = { L("grumpy", "Wi-Fi? Battery hog.", "Off when you're done.") },
+            fonts = { L("grumpy", "The font was fine!", "Stop. Reading.") },
+            stats = { L("proud", "Numbers. All thanks to me.", "You're welcome.") },
+            exit = { L("grumpy", "Don't you DARE leave.", "Fine. Feed me first.") },
+            any = { L("curious", "{menu}? Explain. Now.", "I demand answers.") },
+            addons = {
+                L("proud", "The extras menu. I approve.", "Proceed."),
+            },
+            toolbar = {
+                L("grumpy", "Careful. That's MY house.", "Don't move my stuff."),
+            },
+            quests = {
+                L("proud", "Quests? I'm the boss level.", "Good luck."),
+            },
+            debug = {
+                L("grumpy", "Something broke? Not me.", "Probably Donny."),
+            },
+            gestures = {
+                L("grumpy", "No tickling gestures.", "I mean it."),
+            },
+            screen = {
+                L("proud", "Make the screen worthy of me.", "Sharp. Bright. Blu."),
+            },
+        },
+        ["donny-and-blu"] = {
+            tab_typeset = { L("playful", "Fonts? Donny likes big.", "Blu likes bold. Obviously.") },
+            tab_files = { L("sad", "Leaving the book?", "Donny's sad. Blu's furious.") },
+            critter = { L("happy", "Our menu! Pick both of us.", "We come as a set.") },
+            wifi = { L("curious", "Online? Order treats.", "Two of everything.") },
+            exit = { L("sad", "Leaving? Two sad cats.", "Come back soon.") },
+            any = {
+                L("curious", "{menu}? We're both curious.", "Blu louder."),
+                L("love", "{menu}? We'll come too!", "Two cats, one adventure."),
+            },
+            toolbar = {
+                L("happy", "That's our house!", "Donny's napping in it."),
+            },
+            addons = {
+                L("playful", "The fun drawer! We're in.", "Blu first, obviously."),
+            },
+        },
+    },
+}
