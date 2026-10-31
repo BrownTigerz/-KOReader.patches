@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.14
+Version 2.14.16
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.16 Fix: Open Book From Cover Only: the critter's tap-the-cover tip
+          stayed on the first one (SimpleUI holds a said line 20 minutes).
+          Another four wrong taps now swap in a new tip.
+  2.14.15 Fix: Open Book From Cover Only did nothing (any tap still opened
+          the book): its hook couldn't be found when Currently Reading
+          loaded, so it never went on.
   2.14.14 Currently Reading: Open Book From Cover Only (Modules, off by
           default). Only a tap on the cover opens the book; a tap on the
           title, author or anywhere else on the module does nothing. Four
@@ -375,7 +381,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.14"
+local VERSION = "2.14.16"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1930,6 +1936,7 @@ local function critterNews()
 end
 
 local patchCritterInsights
+
 do
 local KEY = "simpleui_tweaks_insights"
 local MIN_SECS = 60      -- a day with less than this is a day off
@@ -2389,7 +2396,7 @@ end
 
 -- The home screen's critter says text now, as a reaction (SimpleUI's
 -- reactions on, nothing else waiting). false when it couldn't.
-homeCritterSay = function(text)
+homeCritterSay = function(text, before)
             local hub = critterNews()
             local function liveRoot()
                 for root, ctx in pairs(NEWS_ROOTS) do
@@ -2409,6 +2416,7 @@ homeCritterSay = function(text)
             if R.peek() then return false end -- another reaction is waiting: leave it be
             local root, ctx, win = liveRoot()
             if not root then return false end
+            if type(before) == "function" then pcall(before, root) end
             R.record("tw_notice", { text = text })
             local ok, changed = pcall(root.critter_update, ctx)
             local still = R.peek()
@@ -2440,6 +2448,41 @@ local COVER_TIPS = {
     "Tap tap tap... on the cover!",
 }
 local cover_misses = { n = 0, at = 0, last_tip = 0 }
+local COVER_TIP_SET = {}
+for _i, t in ipairs(COVER_TIPS) do COVER_TIP_SET[t] = true end
+-- SimpleUI keeps a said line (a reaction) on show for 20 minutes, so a second
+-- tip would wait behind the first. Its table of shown lines, found once by
+-- walking the critter's update function.
+function CF.critterPicks(root)
+    if CF._picks then return CF._picks end
+    local seen = {}
+    local function walk(fn, depth)
+        if type(fn) ~= "function" or seen[fn] or depth > 4 then return nil end
+        seen[fn] = true
+        for i = 1, 60 do
+            local n, v = debug.getupvalue(fn, i)
+            if not n then break end
+            if n == "_picks" and type(v) == "table" then return v end
+            if type(v) == "function" then
+                local hit = walk(v, depth + 1)
+                if hit then return hit end
+            end
+        end
+    end
+    CF._picks = walk(root and root.critter_update, 0)
+    return CF._picks
+end
+-- A tip on show steps aside for the next one; anything else keeps its place.
+local function releaseTip(root)
+    local picks = CF.critterPicks(root)
+    if type(picks) ~= "table" then return end
+    for _pfx, pick in pairs(picks) do
+        if type(pick) == "table" and pick.sticky and type(pick.phrase) == "table"
+                and COVER_TIP_SET[pick.phrase.text] then
+            pick.at = 0
+        end
+    end
+end
 local function coverMiss()
     local now = os.time()
     if now - cover_misses.at > 6 then cover_misses.n = 0 end
@@ -2450,7 +2493,7 @@ local function coverMiss()
     local k
     repeat k = math.random(#COVER_TIPS) until k ~= cover_misses.last_tip or #COVER_TIPS < 2
     cover_misses.last_tip = k
-    pcall(homeCritterSay, COVER_TIPS[k])
+    pcall(homeCritterSay, COVER_TIPS[k], releaseTip)
 end
 local function onCover(tap, ges)
     local slot = type(tap._cover_slots) == "table" and tap._cover_slots[1]
@@ -2465,7 +2508,7 @@ local function onCover(tap, ges)
     local td = tap.dimen
     return td and td.x and cw > 0 and ges.pos.x - td.x < cw or false
 end
-local function patchCurrentlyCoverOnly(M)
+function CF.patchCurrentlyCoverOnly(M)
     if type(M.build) ~= "function" or wrapped[M.build] == "cover" then return end
     local orig = M.build
     M.build = function(w, ctx, ...)
@@ -2769,7 +2812,7 @@ local function patchModule(name, M)
         wrapped[M.makeInstance] = true
     end
     if file_id == "quote" then quietQuoteBuild(M) end
-    if file_id == "currently" then patchCurrentlySwipe(M); patchCurrentlyCoverOnly(M) end
+    if file_id == "currently" then patchCurrentlySwipe(M); CF.patchCurrentlyCoverOnly(M) end
     if file_id == "new_books" and orig then pcall(patchNewBooksModule, orig) end
     if file_id == "critter" and orig then
         pcall(patchCritterBubble, orig)
