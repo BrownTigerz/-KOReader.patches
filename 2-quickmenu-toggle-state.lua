@@ -1,6 +1,6 @@
 --[[
     Gesture QuickMenu toggle-state patch
-    Version: 1.0.4 (2026-10-18) - See CHANGELOG below.
+    Version: 1.0.5 (2026-10-30) - See CHANGELOG below.
 
     Versioning (for future updates to this file):
       1.0.x - fixes (e.g. adapting to a Dispatcher internal rename)
@@ -50,6 +50,8 @@
     ===================================================================
     CHANGELOG
     ===================================================================
+    1.0.5 (2026-10-30)
+      - Clean-up: one load line in crash.log instead of two.
     1.0.4 (2026-10-18)
       - Fixed _stripStateMark: the old "^[✓▢] " pattern was a Lua
         byte-class and never stripped the checkbox marks (✓/▢ are 3-byte
@@ -82,15 +84,13 @@
     1.0.0 (2026-10-10) - First release.
 --]]
 
-local PATCH_VERSION = "1.0.4"
+local PATCH_VERSION = "1.0.5"
 
 local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local function log(msg)
     logger.info("QuickMenuToggleState: " .. tostring(msg))
 end
-
-log("v" .. PATCH_VERSION .. " loading")
 
 local unpack = unpack or table.unpack
 local function pack(...)
