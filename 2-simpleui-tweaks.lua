@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.14.11
+Version 2.14.14
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,24 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.14 Currently Reading: Open Book From Cover Only (Modules, off by
+          default). Only a tap on the cover opens the book; a tap on the
+          title, author or anywhere else on the module does nothing. Four
+          wrong taps in a row (a few seconds apart at most) and the home
+          critter tells you to tap the cover, with a different cute line
+          each time.
+  2.14.13 Critters Say Notifications now also catches Network Tweaks' corner
+          notes (Minimal style) and BookOrbit's pills, not just KOReader's
+          own toasts; on your setup that's where nearly every notification
+          comes from, so before this the critter never got any. Warning,
+          loading and tap-to-act ones stay popups.
+  2.14.12 Critters Say Notifications (Critter menu, off by default; one
+         setting shared with Shortcuts Toolbar Quick Shelf and Reading Log
+         Tweaks): a notification that comes in while the home screen's
+         critter is on screen is said by the critter, as a reaction,
+         instead of the popup. When another reaction is waiting or on
+         show, or reactions are off, the popup shows as usual. Banners you
+         can tap, questions and failures always stay popups.
   2.14.11 Critter phrases: one load line with the file's version
          ("critter phrases v1.0.0 loaded") replaces the three count
          lines; critter-phrases.lua is now on the patch updater.
@@ -357,7 +375,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.11"
+local VERSION = "2.14.14"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -394,6 +412,7 @@ local DEFAULTS = {
     module_colors    = {},          -- per-module text: [module id] = { text, night }
     currently_swipe  = true,        -- Currently Reading: swipe between in-progress books
     currently_books  = 4,           --   how many (current book included), 2-6
+    currently_cover_only = false,   -- Currently Reading: only a tap on the cover opens the book
     critter_bubble   = 0,           -- Tiny Critter speech bubble width, dp at 100% scale (0 = SimpleUI's own, -1 = dynamic)
     critter_size     = "default",   -- Tiny Critter size: "default" (SimpleUI) / "fill" (bubble height) / "smaller"
     critter_row      = 100,         -- Tiny Critter row height, % of SimpleUI's
@@ -1813,6 +1832,103 @@ function CF.bank()
 end
 end
 
+-- ─── Critters Say Notifications (shared, off by default) ────────────────────
+-- The same block is in Shortcuts Toolbar Quick Shelf, SimpleUI Tweaks and
+-- Reading Log Tweaks; whichever loads first sets it up, the others join it.
+-- One setting for all three. A plain notification (a toast) that comes in
+-- while a critter is on screen is said by that critter instead of popping
+-- up: KOReader's toasts, Network Tweaks' corner notes and BookOrbit's
+-- pills. A critter that can't show it whole lets the popup through.
+-- Tappable banners, questions and failures always stay popups; never over
+-- the sleep screen.
+local function critterNews()
+    local hub = package.loaded.critter_news
+    if type(hub) == "table" and (tonumber(hub.v) or 0) >= 2 then return hub end
+    -- an older copy (v1) already set up: keep its spots, take over the catching
+    local old = type(hub) == "table" and hub or nil
+    hub = { v = 2, spots = old and old.spots or setmetatable({}, { __mode = "k" }) }
+    package.loaded.critter_news = hub
+    local KEY = "critter_notifications"
+    function hub.on()
+        return G_reader_settings ~= nil and G_reader_settings:isTrue(KEY)
+    end
+    function hub.set(on)
+        if on then G_reader_settings:saveSetting(KEY, true) else G_reader_settings:delSetting(KEY) end
+    end
+    -- spot = { visible = function() -> bool, say = function(text) -> bool }
+    function hub.add(key, spot) hub.spots[key] = spot end
+    -- the window a widget sits in, when that window is the top one (toasts aside)
+    function hub.onTop(widget)
+        local UIM = require("ui/uimanager")
+        if type(widget) ~= "table" or type(UIM.isSubwidgetShown) ~= "function" then return false end
+        local ok, matched, _d, win = pcall(UIM.isSubwidgetShown, UIM, widget)
+        if not (ok and matched and win) then return false end
+        local stack = UIM._window_stack
+        if type(stack) ~= "table" then return false end
+        for i = #stack, 1, -1 do
+            local w = stack[i].widget
+            if w and not w.toast and not w.invisible and w.name ~= "bookorbit_toast" then return w == win, win end
+        end
+        return false
+    end
+    if old then old.on = function() return false end end -- the v1 catcher steps aside
+    local okN, Notification = pcall(require, "ui/widget/notification")
+    local UIManager = require("ui/uimanager")
+    local okD, Device = pcall(require, "device")
+    local function isA(w, class)
+        local mt = getmetatable(w)
+        for _ = 1, 8 do
+            if mt == nil then return false end
+            if mt == class then return true end
+            mt = getmetatable(mt)
+        end
+        return false
+    end
+    -- What a plain notification says, or nil for anything else. Caught:
+    -- KOReader's toasts (Notification), Network Tweaks' Minimal corner notes
+    -- (any toast widget with text), BookOrbit's info pills. Never: banners
+    -- you can tap, ones that stay up, BookOrbit's loading/retry/warning pills.
+    function hub.toastText(w)
+        if type(w) ~= "table" or w.on_tap or w.timeout == false then return nil end
+        if w.name == "bookorbit_toast" then
+            if w.kind ~= "info" or w.glyph == "triangle-alert" or not w.timeout then return nil end
+            local v = type(w.variants) == "table" and w.variants[1]
+            if type(v) ~= "table" then return nil end
+            local parts = {}
+            for _, seg in ipairs(v) do
+                if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
+            end
+            local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
+            return t ~= "" and t or nil
+        end
+        if type(w.text) ~= "string" or w.text == "" then return nil end
+        if okN and isA(w, Notification) then return w.text end
+        if w.toast == true and w.timeout then return w.text end
+        return nil
+    end
+    local orig_show = UIManager.show
+    UIManager.show = function(um, w, ...)
+        if hub.on() and not (okD and Device.screen_saver_mode) then
+            local text = hub.toastText(w)
+            if text then
+                for _, spot in pairs(hub.spots) do
+                    local okV, vis = pcall(spot.visible)
+                    if okV and vis then
+                        local okS, said = pcall(spot.say, text)
+                        if okS and said then
+                            -- BookOrbit closes its pill on a timer: let that be a no-op
+                            if w.name == "bookorbit_toast" then w.closed = true end
+                            return
+                        end
+                    end
+                end
+            end
+        end
+        return orig_show(um, w, ...)
+    end
+    return hub
+end
+
 local patchCritterInsights
 do
 local KEY = "simpleui_tweaks_insights"
@@ -1821,7 +1937,8 @@ local BACK = 62          -- days of history read
 local ins_ctx            -- the critter's last fresh statistics
 local hist = { day = nil, days = {} }
 local PRIORITY = { tw_milestone = 5.8, tw_record = 5.5, tw_quickwin = 3.4, tw_momentum = 3.2,
-                   tw_pace = 2.8, tw_recovery = 2.2, tw_weekend = 1.5 }
+                   tw_pace = 2.8, tw_recovery = 2.2, tw_weekend = 1.5,
+                   tw_notice = 9 } -- Critters Say Notifications: said right away
 local REWARD = { tw_milestone = 4, tw_record = 3, tw_momentum = 2 }
 
 local function insightsOn() return cfg.critter_insights ~= false end
@@ -2088,6 +2205,10 @@ end
 local function q(s) return "\xE2\x80\x9C" .. tostring(s) .. "\xE2\x80\x9D" end
 local function plural(n, one, many) return string.format(n == 1 and one or many, n) end
 local LINES = {
+    -- Critters Say Notifications: the notification's own text
+    tw_notice = {
+        { mood = "curious", text = function(d) return d.text end },
+    },
     tw_milestone = {
         { mood = "party", text = function(d) return string.format("That's book %d this year!", d.days) end,
           sub = function() return "Your shelf is looking lighter." end,
@@ -2241,6 +2362,131 @@ local function install()
     end
 end
 
+-- Critters Say Notifications (2.14.12): the home screen's critter says a
+-- notification that comes in while it's on screen, through SimpleUI's own
+-- reactions (said at once, like a book finished). When another reaction is
+-- waiting or on show, or reactions are off, the popup shows instead.
+local NEWS_ROOTS = setmetatable({}, { __mode = "k" })
+local homeCritterSay
+local news_spot_added = false
+local function addNewsSpot()
+    if news_spot_added then return end
+    news_spot_added = true
+    local hub = critterNews()
+    local function liveRoot()
+        for root, ctx in pairs(NEWS_ROOTS) do
+            local top, win = hub.onTop(root)
+            if top and type(root.critter_update) == "function" and type(root.dimen) == "table" and root.dimen.x then
+                return root, ctx, win
+            end
+        end
+    end
+    hub.add(NEWS_ROOTS, {
+        visible = function() return liveRoot() ~= nil end,
+        say = function(text) return homeCritterSay(text) end,
+    })
+end
+
+-- The home screen's critter says text now, as a reaction (SimpleUI's
+-- reactions on, nothing else waiting). false when it couldn't.
+homeCritterSay = function(text)
+            local hub = critterNews()
+            local function liveRoot()
+                for root, ctx in pairs(NEWS_ROOTS) do
+                    local top, win = hub.onTop(root)
+                    if top and type(root.critter_update) == "function" and type(root.dimen) == "table" and root.dimen.x then
+                        return root, ctx, win
+                    end
+                end
+            end
+            local R = package.loaded["modules/critter/reactions"]
+            local CS = package.loaded["modules/critter/settings"]
+            if type(R) ~= "table" or type(R.record) ~= "function" or type(R.peek) ~= "function"
+                    or type(R.take) ~= "function" or type(R.PRIORITY) ~= "table" or not R.PRIORITY.tw_notice then
+                return false
+            end
+            if type(CS) == "table" and type(CS.reactionsOn) == "function" and not CS.reactionsOn() then return false end
+            if R.peek() then return false end -- another reaction is waiting: leave it be
+            local root, ctx, win = liveRoot()
+            if not root then return false end
+            R.record("tw_notice", { text = text })
+            local ok, changed = pcall(root.critter_update, ctx)
+            local still = R.peek()
+            if still and still.kind == "tw_notice" then
+                pcall(R.take) -- not said (one on show holds its place): the popup instead
+                return false
+            end
+            if ok and changed then
+                local d = root.dimen
+                require("ui/uimanager"):setDirty(win or "all", function() return "ui", d end)
+                return true
+            end
+            return false
+end
+
+-- Currently Reading: Open Book From Cover Only. A tap anywhere else on the
+-- module does nothing (the keyboard's select still opens). Four of those in
+-- a row and the critter gives a hint.
+local COVER_TIPS = {
+    "Tap the cover, dummy!",
+    "Psst... the cover opens it.",
+    "Not there, silly. The cover!",
+    "Boop the book cover.",
+    "So close! Try the cover.",
+    "The cover's the door.",
+    "You're poking words. Poke the cover!",
+    "Cover first, cuddles later.",
+    "Right there! The picture!",
+    "Tap tap tap... on the cover!",
+}
+local cover_misses = { n = 0, at = 0, last_tip = 0 }
+local function coverMiss()
+    local now = os.time()
+    if now - cover_misses.at > 6 then cover_misses.n = 0 end
+    cover_misses.at = now
+    cover_misses.n = cover_misses.n + 1
+    if cover_misses.n < 4 then return end
+    cover_misses.n = 0
+    local k
+    repeat k = math.random(#COVER_TIPS) until k ~= cover_misses.last_tip or #COVER_TIPS < 2
+    cover_misses.last_tip = k
+    pcall(homeCritterSay, COVER_TIPS[k])
+end
+local function onCover(tap, ges)
+    local slot = type(tap._cover_slots) == "table" and tap._cover_slots[1]
+    if not (slot and ges and ges.pos) then return true end
+    local d = type(slot.container) == "table" and slot.container.dimen
+    local cw = tonumber(slot.w) or 0
+    if d and d.x and d.w then
+        local x0, y0, h = d.x, d.y, d.h
+        return ges.pos.x >= x0 and ges.pos.x < x0 + math.min(cw > 0 and cw or d.w, d.w)
+            and ges.pos.y >= y0 and ges.pos.y < y0 + h
+    end
+    local td = tap.dimen
+    return td and td.x and cw > 0 and ges.pos.x - td.x < cw or false
+end
+local function patchCurrentlyCoverOnly(M)
+    if type(M.build) ~= "function" or wrapped[M.build] == "cover" then return end
+    local orig = M.build
+    M.build = function(w, ctx, ...)
+        local widget = orig(w, ctx, ...)
+        local tap = widget ~= nil and findTappable(widget, 0)
+        if tap and type(tap.onTapBook) == "function" and not rawget(tap, "_tw_cover_only") then
+            local open = tap.onTapBook
+            tap._tw_cover_only = true
+            tap.onTapBook = function(self, args, ges, ...)
+                if not cfg.currently_cover_only or onCover(self, ges) then
+                    return open(self, args, ges, ...)
+                end
+                coverMiss()
+                return true
+            end
+        end
+        return widget
+    end
+    wrapped[M.build] = "cover"
+end
+
 function patchCritterInsights(M)
     if type(M) ~= "table" or type(M.build) ~= "function" or ours[M.build] then return end
     install()
@@ -2248,6 +2494,10 @@ function patchCritterInsights(M)
     M.build = mine(function(w, ctx, ...)
         if type(ctx) == "table" then ins_ctx = { stats = ctx.stats, stale = ctx.stats_stale } end
         local root = orig(w, ctx, ...)
+        if type(root) == "table" and type(ctx) == "table" then
+            NEWS_ROOTS[root] = ctx
+            addNewsSpot()
+        end
         if type(root) == "table" and type(root.critter_update) == "function" then
             local update = root.critter_update
             root.critter_update = function(new_ctx, ...)
@@ -2519,7 +2769,7 @@ local function patchModule(name, M)
         wrapped[M.makeInstance] = true
     end
     if file_id == "quote" then quietQuoteBuild(M) end
-    if file_id == "currently" then patchCurrentlySwipe(M) end
+    if file_id == "currently" then patchCurrentlySwipe(M); patchCurrentlyCoverOnly(M) end
     if file_id == "new_books" and orig then pcall(patchNewBooksModule, orig) end
     if file_id == "critter" and orig then
         pcall(patchCritterBubble, orig)
@@ -3724,6 +3974,14 @@ local function buildMenu()
                           return items
                       end,
                       separator = true },
+                    { text = _("Currently Reading: Open Book From Cover Only"),
+                      help_text = _("Only a tap on the cover opens the book. A tap on the title, author or the rest of Currently Reading does nothing, so you don't open it by accident. Tap the wrong spot a few times and the critter will remind you."),
+                      checked_func = function() return cfg.currently_cover_only == true end,
+                      callback = function()
+                          cfg.currently_cover_only = not cfg.currently_cover_only
+                          saveConfig()
+                      end,
+                      separator = true },
                     { text = _("Also Recolour Grey Text"),
                       checked_func = function() return cfg.recolor_all end,
                       callback = function() set("recolor_all", not cfg.recolor_all, true) end,
@@ -3751,6 +4009,10 @@ local function buildMenu()
                       help_text = _("The Tiny Critter tells you about your reading: your best day this month, book milestones, getting back on a roll, the book you're on being minutes from the end, what this month needs for your yearly goal, a gentle nudge after a few quiet days, and whether you read more on weekends. Each comes once, at most 3 a day, only when your stats back it. In its chat, a book it offered today isn't offered again. Needs Reactions on in SimpleUI's critter settings."),
                       checked_func = function() return cfg.critter_insights ~= false end,
                       callback = function() setHome("critter_insights", cfg.critter_insights == false) end },
+                    { text = _("Critters Say Notifications"),
+                      help_text = _("When a notification (a short toast like \"Wi-Fi on\") comes in while the home screen's critter is on screen, the critter says it instead of the popup, as a reaction (it stays until the critter has something new to say, or you tap it). Otherwise, or when another reaction is waiting, the popup shows as usual. Questions, failures and banners you can tap always stay popups. Needs Reactions on in SimpleUI's critter settings. One setting for every critter (Shortcuts Toolbar Quick Shelf and Reading Log Tweaks share it). Off by default."),
+                      checked_func = function() return critterNews().on() end,
+                      callback = function() critterNews().set(not critterNews().on()) end },
                     { text = _("Critter Pep Talk"),
                       help_text = _("SimpleUI's \"minutes read today\" and \"pages turned today\" lines grow with your reading: a nudge after a minute or two, a groove at 15 minutes, a cheer at half an hour, a party past an hour. Within 10 minutes of your daily goal it counts you in. The line moves up a step next time the home screen draws as you read. With critter-phrases.lua in koreader/patches/, this and Critter Insights take their lines from it."),
                       checked_func = function() return cfg.critter_pep ~= false end,
