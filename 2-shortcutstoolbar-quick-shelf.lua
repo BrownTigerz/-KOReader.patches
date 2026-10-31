@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.5.0
+Version: 1.5.1
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -14,6 +14,9 @@ Optional: Critter Remarks (Shortcuts toolbar menu, all off by default).
                           book panel's free strip, about where you are in
                           this book: pages and time left, the chapter end,
                           your pace this sitting, milestones, late nights.
+  • On Quick Shelf      - the critter on the strip, talking about its books:
+                          Under Small Covers (always shows) or Beside Full
+                          Covers (in the room they leave, gone when full).
   • On Library Toolbar  - the critter in the empty stretch of the file
                           browser menu's tab bar: sassy about the tab or
                           submenu you open, or the time of day.
@@ -51,6 +54,11 @@ long-press away. Without BookOrbit, or not signed in, a tap does what it
 always did.
 
 Changelog
+  1.5.1  Critters Say Notifications now also catches Network Tweaks' corner
+         notes (Minimal style) and BookOrbit's pills, not just KOReader's own
+         toasts; on your setup that's where nearly every notification comes
+         from, so before this the critter never got any. Warning, loading and
+         tap-to-act ones stay popups.
   1.5.0  Smarter remarks. While Reading goes by what's happening in this
          book: pages and time left (at your usual pace), the chapter
          ending, this sitting's pace against your usual (wow fast / slow
@@ -66,7 +74,23 @@ Changelog
          your name, the one you gave SimpleUI's critter (Your name);
          without one they're skipped. Donny and Blu's extra poses show the
          base pose on other critters. With the Quick Shelf diagnostic
-         installed, each menu remark is logged.
+         installed, each menu remark is logged. On Quick Shelf (follows
+         While Reading until set): the critter on the strip, with a remark
+         about the books on the shelf (a different one each time, the one
+         nearly done, how many are going, an empty shelf). Under Small
+         Covers: covers the height of the book panel's title, author and
+         page lines, the critter always in the row under them. Beside Full
+         Covers: full covers, the critter in the room they leave, gone
+         once they fill the row.
+         Critters Say Notifications (Critter Remarks, off by default; one
+         setting shared with SimpleUI Tweaks and Reading Log Tweaks): a
+         notification that comes in while one of these critters is on
+         screen is said by it instead of the popup (the popup shows when
+         it doesn't fit). Tappable banners, questions and failures stay
+         popups.
+         In the library's tab bar, a remark shows whole: smaller text
+         (two rows if needed), else another remark that fits, instead
+         of being cut short.
   1.4.3  Critter Remarks show SimpleUI's Tiny Critter (the one you picked)
          with its speech bubble. While Reading: in the book panel's free
          strip, under the title / author / page line, right of the cover;
@@ -117,7 +141,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.5.0"
+local PATCH_VERSION = "1.5.1"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -144,6 +168,116 @@ local function setOpt(key, value)
     local s = G_reader_settings:readSetting(SETTINGS_KEY) or {}
     s[key] = value
     G_reader_settings:saveSetting(SETTINGS_KEY, s)
+end
+
+-- ─── Critters Say Notifications (shared, off by default) ────────────────────
+-- The same block is in Shortcuts Toolbar Quick Shelf, SimpleUI Tweaks and
+-- Reading Log Tweaks; whichever loads first sets it up, the others join it.
+-- One setting for all three. A plain notification (a toast) that comes in
+-- while a critter is on screen is said by that critter instead of popping
+-- up: KOReader's toasts, Network Tweaks' corner notes and BookOrbit's
+-- pills. A critter that can't show it whole lets the popup through.
+-- Tappable banners, questions and failures always stay popups; never over
+-- the sleep screen.
+local function critterNews()
+    local hub = package.loaded.critter_news
+    if type(hub) == "table" and (tonumber(hub.v) or 0) >= 2 then return hub end
+    -- an older copy (v1) already set up: keep its spots, take over the catching
+    local old = type(hub) == "table" and hub or nil
+    hub = { v = 2, spots = old and old.spots or setmetatable({}, { __mode = "k" }) }
+    package.loaded.critter_news = hub
+    local KEY = "critter_notifications"
+    function hub.on()
+        return G_reader_settings ~= nil and G_reader_settings:isTrue(KEY)
+    end
+    function hub.set(on)
+        if on then G_reader_settings:saveSetting(KEY, true) else G_reader_settings:delSetting(KEY) end
+    end
+    -- spot = { visible = function() -> bool, say = function(text) -> bool }
+    function hub.add(key, spot) hub.spots[key] = spot end
+    -- the window a widget sits in, when that window is the top one (toasts aside)
+    function hub.onTop(widget)
+        local UIM = require("ui/uimanager")
+        if type(widget) ~= "table" or type(UIM.isSubwidgetShown) ~= "function" then return false end
+        local ok, matched, _d, win = pcall(UIM.isSubwidgetShown, UIM, widget)
+        if not (ok and matched and win) then return false end
+        local stack = UIM._window_stack
+        if type(stack) ~= "table" then return false end
+        for i = #stack, 1, -1 do
+            local w = stack[i].widget
+            if w and not w.toast and not w.invisible and w.name ~= "bookorbit_toast" then return w == win, win end
+        end
+        return false
+    end
+    if old then old.on = function() return false end end -- the v1 catcher steps aside
+    local okN, Notification = pcall(require, "ui/widget/notification")
+    local UIManager = require("ui/uimanager")
+    local okD, Device = pcall(require, "device")
+    local function isA(w, class)
+        local mt = getmetatable(w)
+        for _ = 1, 8 do
+            if mt == nil then return false end
+            if mt == class then return true end
+            mt = getmetatable(mt)
+        end
+        return false
+    end
+    -- What a plain notification says, or nil for anything else. Caught:
+    -- KOReader's toasts (Notification), Network Tweaks' Minimal corner notes
+    -- (any toast widget with text), BookOrbit's info pills. Never: banners
+    -- you can tap, ones that stay up, BookOrbit's loading/retry/warning pills.
+    function hub.toastText(w)
+        if type(w) ~= "table" or w.on_tap or w.timeout == false then return nil end
+        if w.name == "bookorbit_toast" then
+            if w.kind ~= "info" or w.glyph == "triangle-alert" or not w.timeout then return nil end
+            local v = type(w.variants) == "table" and w.variants[1]
+            if type(v) ~= "table" then return nil end
+            local parts = {}
+            for _, seg in ipairs(v) do
+                if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
+            end
+            local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
+            return t ~= "" and t or nil
+        end
+        if type(w.text) ~= "string" or w.text == "" then return nil end
+        if okN and isA(w, Notification) then return w.text end
+        if w.toast == true and w.timeout then return w.text end
+        return nil
+    end
+    local orig_show = UIManager.show
+    UIManager.show = function(um, w, ...)
+        if hub.on() and not (okD and Device.screen_saver_mode) then
+            local text = hub.toastText(w)
+            if text then
+                for _, spot in pairs(hub.spots) do
+                    local okV, vis = pcall(spot.visible)
+                    if okV and vis then
+                        local okS, said = pcall(spot.say, text)
+                        if okS and said then
+                            -- BookOrbit closes its pill on a timer: let that be a no-op
+                            if w.name == "bookorbit_toast" then w.closed = true end
+                            return
+                        end
+                    end
+                end
+            end
+        end
+        return orig_show(um, w, ...)
+    end
+    return hub
+end
+
+-- Critter on the Quick Shelf strip: its own switch, following While Reading
+-- until it's set.
+local function shelfCritterOn()
+    local v = opt("critter_on_shelf", nil)
+    if v == nil then return opt("critter_on_panel", false) == true end
+    return v == true
+end
+-- "under": small covers, the critter always in the row under them;
+-- "beside": full covers, the critter in the room they leave (gone once full)
+local function shelfLayout()
+    return opt("shelf_critter_layout", "under") == "beside" and "beside" or "under"
 end
 
 local function setSource(id)
@@ -364,7 +498,9 @@ local function openBook(fp)
 end
 
 -- The strip page: same width and height as the book panel it replaces.
-local function buildStrip(w, h)
+-- split: with the critter on, the covers sit above this line (the book
+-- panel's title / author / page lines) and the critter gets the row under it.
+local function buildStrip(w, h, split)
     local CenterContainer = require("ui/widget/container/centercontainer")
     local HorizontalGroup = require("ui/widget/horizontalgroup")
     local HorizontalSpan = require("ui/widget/horizontalspan")
@@ -381,7 +517,16 @@ local function buildStrip(w, h)
     local list = (src == "tbr") and toBeRead() or inProgress()
     local face = Font:getFace("xx_smallinfofont")
 
+    local crit_on = shelfCritterOn()
     if #list == 0 then
+        if crit_on then
+            -- the critter says it instead
+            local empty = CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, VerticalSpan:new{ width = 0 } }
+            empty._qs_list, empty._qs_src = list, src
+            empty._qs_free = { x = Screen:scaleBySize(16), y = Screen:scaleBySize(8),
+                               w = w - Screen:scaleBySize(32), h = h - Screen:scaleBySize(8) }
+            return empty
+        end
         return CenterContainer:new{
             dimen = Geom:new{ w = w, h = h },
             TextWidget:new{
@@ -400,7 +545,10 @@ local function buildStrip(w, h)
     local label_gap = Screen:scaleBySize(3)
     local label_h = TextWidget:new{ text = "100%", face = face }:getSize().h
 
-    local cover_h = math.max(Screen:scaleBySize(40), h - top_pad - bot_pad - label_gap - label_h)
+    local small = crit_on and shelfLayout() == "under" and split
+        and split > top_pad + label_h + Screen:scaleBySize(40)
+    local cover_h = small and (split - top_pad - label_gap - label_h)
+        or math.max(Screen:scaleBySize(40), h - top_pad - bot_pad - label_gap - label_h)
     local cover_w = math.floor(cover_h * 2 / 3)
     local fit = math.floor((w - leading + gap) / (cover_w + gap))
     local count = math.max(1, math.min(#list, fit))
@@ -426,11 +574,25 @@ local function buildStrip(w, h)
         if i < count then row[#row + 1] = HorizontalSpan:new{ width = gap } end
     end
 
-    return VerticalGroup:new{
+    local strip = VerticalGroup:new{
         align = "left",
         VerticalSpan:new{ width = top_pad },
         row,
     }
+    strip._qs_list, strip._qs_src = list, src
+    -- the critter: the row under the small covers, the whole width; or
+    -- beside full covers, in the room they leave (none once they fill it)
+    if small then
+        strip._qs_free = { x = leading, y = split, w = w - leading - Screen:scaleBySize(8), h = h - split }
+    elseif crit_on then
+        local used = leading + count * cover_w + (count - 1) * gap
+        local fx = used + Screen:scaleBySize(10)
+        local fw = w - fx - Screen:scaleBySize(8)
+        if fw >= Screen:scaleBySize(140) then
+            strip._qs_free = { x = fx, y = top_pad, w = fw, h = cover_h + label_gap + label_h, beside = true }
+        end
+    end
+    return strip
 end
 
 -- --------------------------------------------------------------------------
@@ -778,6 +940,72 @@ local function readingRemark()
     return render(pickLine(pick[3], pick[4]), f)
 end
 
+-- The Quick Shelf strip: about the shelf you're looking at.
+local SHELF_SITUATIONS = {
+    { "one_progress",   5, function(f) return f.src ~= "tbr" and f.shelf_n == 1 end },
+    { "one_tbr",        5, function(f) return f.src == "tbr" and f.shelf_n == 1 end },
+    { "nearly",         3, function(f) return f.src ~= "tbr" and f.near ~= nil end },
+    { "many",           2, function(f) return f.shelf_n >= 6 end },
+    { "progress",       3, function(f) return f.src ~= "tbr" and f.shelf_n > 0 end },
+    { "tbr",            3, function(f) return f.src == "tbr" and f.shelf_n > 0 end },
+    { "empty_progress", 5, function(f) return f.src ~= "tbr" and f.shelf_n == 0 end },
+    { "empty_tbr",      5, function(f) return f.src == "tbr" and f.shelf_n == 0 end },
+    { "sweet",          1, function(f) return true end },
+}
+local _last_shelf_sit, _last_shelf_book
+local function shelfRemark(list, src)
+    local b, cid = phraseBank(), critterNow()
+    if type(b.shelf) ~= "table" then return nil end
+    list = type(list) == "table" and list or {}
+    local f = { shelf_n = #list, src = src, user_name = userName(), hour = tonumber(os.date("%H")) or 12 }
+    -- every book gets talked about: a different one each remark, and for
+    -- "nearly", the one closest to done (80%+)
+    local function pctOf(fp)
+        local info = bookInfo(fp)
+        if info and type(info.percent_finished) == "number" then
+            return math.floor(info.percent_finished * 100 + 0.5)
+        end
+    end
+    local near, near_pct
+    for i = 1, math.min(#list, 12) do
+        local p = pctOf(list[i])
+        if p and p >= 80 and p < 100 and (not near_pct or p > near_pct) then near, near_pct = list[i], p end
+    end
+    if near then f.near = { title = titleOf(near), pct = near_pct } end
+    if #list > 0 then
+        local fp = list[rnd(#list)]
+        if #list > 1 and fp == _last_shelf_book then fp = list[(rnd(#list - 1)) % #list + 1] end
+        _last_shelf_book = fp
+        f.next_title, f.next_pct = titleOf(fp), pctOf(fp)
+    end
+    local pool, total = {}, 0
+    for _, s in ipairs(SHELF_SITUATIONS) do
+        local ok, yes = pcall(s[3], f)
+        if ok and yes then
+            local shared, own = linesFor(b.shelf, b.shelf_voices, s[1], cid, f.user_name ~= nil)
+            if shared or own then
+                local w = (s[1] == _last_shelf_sit) and 0 or s[2]
+                pool[#pool + 1] = { s[1], w, shared, own }
+                total = total + w
+            end
+        end
+    end
+    if #pool == 0 then return nil end
+    if total == 0 then
+        for _, p in ipairs(pool) do p[2] = 1 end
+        total = #pool
+    end
+    local r = rnd() * total
+    local pick = pool[#pool]
+    for _, p in ipairs(pool) do
+        r = r - p[2]
+        if r <= 0 then pick = p break end
+    end
+    _last_shelf_sit = pick[1]
+    if pick[1] == "nearly" and f.near then f.next_title, f.next_pct = f.near.title, f.near.pct end
+    return render(pickLine(pick[3], pick[4]), f)
+end
+
 -- The open menu: tab, depth and the submenu names, deepest first.
 local TAB_KEYS = {
     ["appbar.navigation"] = "tab_navigation", ["appbar.typeset"] = "tab_typeset",
@@ -914,11 +1142,37 @@ local function detailFits(Bubble, o)
     return ok and res == true
 end
 
+-- Does the main line fit the bubble whole (2 rows at most, inside its
+-- height)? nil when it can't be measured (no SimpleUI text helpers).
+local function messageFits(Bubble, o)
+    local UI = sui("infra/sui_core")
+    if type(Bubble.metrics) ~= "function" or type(UI) ~= "table" or type(UI.makeTextBox) ~= "function" then
+        return nil
+    end
+    local ok, res = pcall(function()
+        local _b, _p, reach, frame = Bubble.metrics(o.scale, true, o.style, o.unit)
+        local tw = o.w - reach - frame
+        if tw <= 20 then return false end
+        local function hgt(text)
+            local box = UI.makeTextBox{ text = text, face = o.msg_face, bold = o.msg_bold, width = tw }
+            local hh = box:getSize().h
+            if box.free then box:free() end
+            return hh
+        end
+        local mh, ml = hgt(o.message), hgt("Xg")
+        return mh <= 2 * ml + 1 and mh + frame <= o.h
+    end)
+    if not ok then return nil end
+    return res == true
+end
+
 -- Donny and Blu's extra poses; another critter shows the one they're drawn from.
 local BASE_MOOD = { reading = "neutral", proud = "cheer", hungry = "curious", cozy = "sleepy",
     dreamy = "sleepy", sipping = "happy", festive = "happy", spooky = "surprised" }
 
-local function critterGroup(message, mood, max_w, h, detail)
+-- fit: a short spot (the menu's tab bar): the text gets smaller (down to
+-- about 70%) to show the line whole; returns nil, "nofit" if it still can't.
+local function critterGroup(message, mood, max_w, h, detail, fit)
     local HorizontalGroup = require("ui/widget/horizontalgroup")
     local HorizontalSpan = require("ui/widget/horizontalspan")
     local Sprite, Bubble, Assets = sui("modules/critter/sprite"), sui("modules/critter/bubble"), sui("modules/critter/assets")
@@ -953,6 +1207,18 @@ local function critterGroup(message, mood, max_w, h, detail)
                 msg_face = mf, msg_bold = mb, det_face = df, det_bold = db,
                 scale = scale, style = style, unit = unit,
             }
+            if fit and bw > 0 then
+                local fits = messageFits(Bubble, o)
+                if fits == false then
+                    for _, k in ipairs({ 0.85, 0.72 }) do
+                        o.scale = scale * k
+                        o.msg_face, o.msg_bold, o.det_face, o.det_bold = bubbleFaces(o.scale)
+                        fits = messageFits(Bubble, o)
+                        if fits ~= false then break end
+                    end
+                    if fits == false then return "nofit" end
+                end
+            end
             if detail and bw > 0 then
                 o.detail = detail
                 if not detailFits(Bubble, o) then o.detail = nil end
@@ -966,6 +1232,7 @@ local function critterGroup(message, mood, max_w, h, detail)
             g[#g + 1] = sprite
             return g
         end)
+        if ok and group == "nofit" then return nil, "nofit" end
         if ok and group then return group end
         if not ok then logger.warn("shortcutstoolbar quick shelf: critter failed:", group) end
     end
@@ -1065,7 +1332,18 @@ local function hookMenuBar()
                 rem, kind = remarkFor(ctx_sig, tabkey, names)
             end
             if not rem then return end
-            if not crit then crit = critterGroup(rem.text, rem.mood, right - left, h, rem.sub) end
+            if not crit then
+                -- a line that shows whole in the bar: smaller text, else another line
+                local why
+                for _ = 1, 6 do
+                    crit, why = critterGroup(rem.text, rem.mood, right - left, h, rem.sub, true)
+                    if crit or why ~= "nofit" then break end
+                    local r2 = remarkFor(ctx_sig, tabkey, names)
+                    if not r2 then break end
+                    rem = r2
+                end
+                if not crit then crit = critterGroup(rem.text, rem.mood, right - left, h, rem.sub) end
+            end
             if not crit then return end
             local cs = crit:getSize()
             local cx, cy = right - cs.w, icons[n].dimen.y + math.floor((h - cs.h) / 2)
@@ -1092,6 +1370,19 @@ local function hookMenuBar()
             drop()
             if bar_free then return bar_free(b, ...) end
         end
+        -- Critters Say Notifications: the library tab bar's critter
+        critterNews().add(bar, {
+            visible = function() return bar._qs_crit_geom ~= nil and bar._qs_stretch ~= nil and critterNews().onTop(bar) end,
+            say = function(text)
+                local st = bar._qs_stretch
+                local g = critterGroup(text, "curious", st.w, st.h, nil, true)
+                if not g then return false end
+                drop()
+                crit, rem, kind = g, { text = text, mood = "curious" }, "news"
+                UIManager:setDirty(bar.show_parent or menu.show_parent or menu, function() return "ui", st, true end)
+                return true
+            end,
+        })
     end
 end
 
@@ -1114,13 +1405,19 @@ local function makePager(panel, avail_w)
     }
     -- When on the book panel page, forward tap/hold so BookOrbit This Book works
     function pager:onTapPager(arg, ges)
-        if self.page ~= 1 then return false end
-        -- the critter: another remark
+        -- the critter (book panel or Quick Shelf): another remark
         local g, pos = self._qs_crit_geom, ges and ges.pos
         if g and pos and pos.x >= g.x and pos.x <= g.x + g.w and pos.y >= g.y and pos.y <= g.y + g.h then
-            self._qs_rem = readingRemark() or self._qs_rem
-            if self._qs_crit and self._qs_crit.free then pcall(self._qs_crit.free, self._qs_crit) end
-            self._qs_crit = nil
+            if self.page == 2 then
+                local strip = self.pages[2]
+                self._qs_rem2 = (type(strip) == "table" and shelfRemark(strip._qs_list, strip._qs_src)) or self._qs_rem2
+                if self._qs_crit2 and self._qs_crit2.free then pcall(self._qs_crit2.free, self._qs_crit2) end
+                self._qs_crit2 = nil
+            else
+                self._qs_rem = readingRemark() or self._qs_rem
+                if self._qs_crit and self._qs_crit.free then pcall(self._qs_crit.free, self._qs_crit) end
+                self._qs_crit = nil
+            end
             local win = windowOf(self)
             if win then
                 local d = self.dimen
@@ -1128,6 +1425,7 @@ local function makePager(panel, avail_w)
             end
             return true
         end
+        if self.page ~= 1 then return false end
         local p = self.pages[1]
         if type(p) == "table" then
             if opt("tap_bookorbit", false) and openThisBook() then return true end
@@ -1160,7 +1458,8 @@ local function makePager(panel, avail_w)
         if dir ~= "west" and dir ~= "east" then return false end
         local want = (self.page == 1) and 2 or 1
         if want == 2 and not self.pages[2] then
-            local ok, strip = pcall(buildStrip, w, h)
+            local ps = panelStrip(panel, w, h)
+            local ok, strip = pcall(buildStrip, w, h, ps and ps.y or math.floor(h * 0.55))
             if not ok then
                 logger.warn("shortcutstoolbar quick shelf:", strip)
                 return true
@@ -1202,11 +1501,34 @@ local function makePager(panel, avail_w)
                 local r = self._qs_rem
                 self._qs_crit = critterGroup(r.text, r.mood, st.w, st.h, r.sub)
             end
+            if st then self._qs_spot = { w = st.w, h = st.h } end
             if st and self._qs_crit then
                 local cs = self._qs_crit:getSize()
                 local cx, cy = x + st.x + st.w - cs.w, y + st.y + st.h - cs.h
                 self._qs_crit:paintTo(bb, cx, cy)
                 self._qs_crit_geom = { x = cx, y = cy, w = cs.w, h = cs.h }
+            end
+        elseif self.page == 2 and shelfCritterOn() then
+            -- the Quick Shelf: the critter in the room the covers leave
+            local strip = self.pages[2]
+            local fr = type(strip) == "table" and strip._qs_free
+            if fr then
+                local fh = math.min(fr.h, h - 2 * DOT_R - Screen:scaleBySize(4) - fr.y)
+                if not self._qs_crit2 and fh > Screen:scaleBySize(24) then
+                    self._qs_rem2 = self._qs_rem2 or shelfRemark(strip._qs_list, strip._qs_src)
+                    local r = self._qs_rem2
+                    if r then self._qs_crit2 = critterGroup(r.text, r.mood, fr.w, fh, r.sub) end
+                end
+                self._qs_spot = { w = fr.w, h = fh }
+                if self._qs_crit2 then
+                    local cs = self._qs_crit2:getSize()
+                    local cx = x + fr.x + fr.w - cs.w
+                    -- under the covers: at the bottom, like the book panel's;
+                    -- beside them: in the middle of the covers' height
+                    local cy = fr.beside and (y + fr.y + math.floor((fh - cs.h) / 2)) or (y + fr.y + fh - cs.h)
+                    self._qs_crit2:paintTo(bb, cx, cy)
+                    self._qs_crit_geom = { x = cx, y = cy, w = cs.w, h = cs.h }
+                end
             end
         end
         local cx = x + math.floor(w / 2)
@@ -1215,11 +1537,38 @@ local function makePager(panel, avail_w)
         paintDot(bb, cx + DOT_GAP / 2 + DOT_R, cy, self.page == 2)
     end
 
+    -- Critters Say Notifications: this critter, when it's on screen
+    critterNews().add(pager, {
+        visible = function()
+            return pager._qs_crit_geom ~= nil and pager._qs_spot ~= nil and critterNews().onTop(pager)
+        end,
+        say = function(text)
+            local sp = pager._qs_spot
+            local g = critterGroup(text, "curious", sp.w, sp.h, nil, true)
+            if not g then return false end
+            local news = { text = text, mood = "curious" }
+            if pager.page == 2 then
+                if pager._qs_crit2 and pager._qs_crit2.free then pcall(pager._qs_crit2.free, pager._qs_crit2) end
+                pager._qs_crit2, pager._qs_rem2 = g, news
+            else
+                if pager._qs_crit and pager._qs_crit.free then pcall(pager._qs_crit.free, pager._qs_crit) end
+                pager._qs_crit, pager._qs_rem = g, news
+            end
+            local win = windowOf(pager)
+            if win then
+                local d = pager.dimen
+                UIManager:setDirty(win, function() return "ui", d, true end)
+            end
+            return true
+        end,
+    })
+
     -- The strip's cover images are freed with the menu, like the panel.
     local base_free = pager.free
     pager.free = function(self, ...)
         if self._qs_crit and self._qs_crit.free then pcall(self._qs_crit.free, self._qs_crit) end
-        self._qs_crit = nil
+        if self._qs_crit2 and self._qs_crit2.free then pcall(self._qs_crit2.free, self._qs_crit2) end
+        self._qs_crit, self._qs_crit2 = nil, nil
         for i, p in ipairs(self.pages) do
             if p ~= self[1] and p.free then pcall(p.free, p) end
             self.pages[i] = nil
@@ -1432,6 +1781,44 @@ local function critterMenuItem()
                 help_text = _("When you pull the toolbar down while reading: SimpleUI's critter and a speech bubble about this book in the book panel, under its title, author and page line. It goes by what's happening: pages and time left, the chapter ending, your pace this sitting against your usual, long or late sessions, milestones. Your critter's own voice when it has lines for it (Donny, Blu). Pace remarks need KOReader's reading statistics on. Tap the critter for another remark. Off by default."),
                 checked_func = function() return opt("critter_on_panel", false) == true end,
                 callback = function() setOpt("critter_on_panel", not opt("critter_on_panel", false)) end,
+            },
+            {
+                text_func = function()
+                    if not shelfCritterOn() then return _("On Quick Shelf: Off") end
+                    return shelfLayout() == "beside" and _("On Quick Shelf: Beside Full Covers")
+                        or _("On Quick Shelf: Under Small Covers")
+                end,
+                help_text = _("When you swipe the book row over to the Quick Shelf, the critter talks about the books on the shelf: a different one each time, the one nearly done, how many are going, an empty shelf. Tap it for another remark. Follows While Reading until you choose."),
+                sub_item_table = {
+                    {
+                        text = _("Off"),
+                        help_text = _("Full covers, no critter."),
+                        radio = true,
+                        checked_func = function() return not shelfCritterOn() end,
+                        callback = function() setOpt("critter_on_shelf", false) end,
+                    },
+                    {
+                        text = _("Beside Full Covers"),
+                        help_text = _("Covers at full size; the critter sits in the room they leave on the right. With enough books to fill the row it doesn't show."),
+                        radio = true,
+                        checked_func = function() return shelfCritterOn() and shelfLayout() == "beside" end,
+                        callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", "beside") end,
+                    },
+                    {
+                        text = _("Under Small Covers"),
+                        help_text = _("Covers the height of the book panel's title, author and page lines; the critter always shows in the row under them, like on the book panel."),
+                        radio = true,
+                        checked_func = function() return shelfCritterOn() and shelfLayout() == "under" end,
+                        callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", nil) end,
+                    },
+                },
+            },
+            {
+                text = _("Critters Say Notifications"),
+                help_text = _("When a notification (a short toast like \"Wi-Fi on\") comes in while a critter is on screen, the critter says it in its bubble instead of the popup. Otherwise, or if it doesn't fit, the popup shows as usual. Questions, failures and banners you can tap always stay popups. One setting for every critter: this toolbar's, SimpleUI's home screen (with SimpleUI Tweaks) and Reading Log's (with Reading Log Tweaks). Off by default."),
+                checked_func = function() return critterNews().on() end,
+                callback = function() critterNews().set(not critterNews().on()) end,
+                separator = true,
             },
             {
                 text = _("On Library Toolbar"),
