@@ -3,7 +3,7 @@
 KOReader user patch: TK's extras from "Reading Log for SimpleUI" on
 stevenzamora1's Reading Log 1.4+ (readinglog.koplugin), for Simple UI.
 
-Version: 1.1.9
+Version: 1.1.10
 
   Today Page Card    the card under the rings on the Today tab: Year Goal With
                      Covers, Year Goal, Book Club, Recently Finished or TBR
@@ -56,6 +56,8 @@ cards aren't touched. TK's simpleui_readinglog.koplugin isn't touched either
 Versioning: 1.0.x fixes, 1.x.0 new features, 2.0.0 settings changes.
 
 Changelog:
+  1.1.10 2026-10-30  Polish: an unused local and a leftover line counter
+                     from the phrase bank log removed.
   1.1.9  2026-10-30  Clean-up: Flash To Clear Ghosting removed (Simple UI's
                      own Flash On Every Page Turn does the same). Menu
                      grouped: Today Page Card, Continue Reading: Buttons
@@ -122,7 +124,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "1.1.9"
+local PATCH_VERSION = "1.1.10"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -170,7 +172,7 @@ local function critterKit(...)
     local A = ...
     local D = A.D
 
-    local floor, max, min = math.floor, math.max, math.min
+    local floor, max = math.floor, math.max
 
     local C = {}
     A.critter = C
@@ -1354,7 +1356,6 @@ local function critterKit(...)
                 if ok and type(b) == "table" then
                     bank = { minutes = stepsOk(b.minutes) and b.minutes or nil, pages = stepsOk(b.pages) and b.pages or nil,
                              iv = type(b.insight_voices) == "table" and b.insight_voices or nil }
-                    local n = 0
                     for kind, m in pairs(BANK_MAP) do
                         local list = type(b.insights) == "table" and b.insights[kind]
                         if type(list) == "table" then
@@ -1370,7 +1371,6 @@ local function critterKit(...)
                                             if tap then return sv and (sv .. " " .. TAP) or TAP end
                                             return sv
                                         end })
-                                    n = n + 1
                                 end
                             end
                         end
