@@ -3,7 +3,7 @@
 KOReader user patch: TK's extras from "Reading Log for SimpleUI" on
 stevenzamora1's Reading Log 1.4+ (readinglog.koplugin), for Simple UI.
 
-Version: 1.1.4
+Version: 1.1.9
 
   Today Page Card    the card under the rings on the Today tab: Year Goal With
                      Covers, Year Goal, Book Club, Recently Finished or TBR
@@ -18,14 +18,16 @@ Version: 1.1.4
                      between the status bar and the nav bar); Bottom Space
                      (Full Screen: room for the page dots); Tab Bar Position.
                      Size and Height are Reading Log's own (Appearance).
-  Flash To Clear     switching tabs or months, and turning onto or off the
-  Ghosting           Dashboard's page, flashes the screen. Off by default:
-                     Reading Log's own quick updates run as Steven made them.
-                     Turning it on turns SimpleUI 3.0.2's Flash On Every
-                     Page Turn off, and the other way round.
-  Book Taps Open     a tap on a book's cover opens its page in BookOrbit when
-  BookOrbit          BookOrbit has the file (off by default; other books get
-                     the usual details). Shown only with BookOrbit installed.
+  Continue Reading:  opens the book only from its Continue button (off by
+  Buttons Only       default).
+  Book Club          Collections: one or more (KOReader's and BookOrbit's)
+                     together. Opens Picks: hold or tap the card to choose
+                     this month's books.
+  When You Come      Start On Tab (Last Viewed by default) and Start On First
+  Back               Page After Reading Or Sleep (off).
+  BookOrbit          BookOrbit Collections (with SimpleUI Side Panel 1.0.18+)
+                     and Book Taps Open BookOrbit (off). Shown only with
+                     BookOrbit installed.
   Critter Remarks    SimpleUI 3.0's Tiny Critter peeks into each Dashboard
                      page (the heading row; on Today, the banner's spare room)
                      with a remark about that page's numbers, and suggests
@@ -54,6 +56,34 @@ cards aren't touched. TK's simpleui_readinglog.koplugin isn't touched either
 Versioning: 1.0.x fixes, 1.x.0 new features, 2.0.0 settings changes.
 
 Changelog:
+  1.1.9  2026-10-30  Clean-up: Flash To Clear Ghosting removed (Simple UI's
+                     own Flash On Every Page Turn does the same). Menu
+                     grouped: Today Page Card, Continue Reading: Buttons
+                     Only, Book Club, When You Come Back, BookOrbit,
+                     Critter Remarks, Fine Tuning. Debugging trace lines
+                     removed; real failures still go to crash.log.
+  1.1.8  2026-10-30  Alternate: the Today card also moves on when the device
+                     goes to sleep and when a book is opened (not only on
+                     waking and on closing the book), so it can't be missed;
+                     Debugging lines say when it's armed and when it moves.
+  1.1.7  2026-10-30  Book Club Collections: tick one or more collections
+                     (KOReader's and BookOrbit's) and the Book Club card and
+                     its picks chooser use all their books together. None
+                     ticked: the card's own Collection, as before.
+  1.1.6  2026-10-30  BookOrbit Collections (on by default): BookOrbit's
+                     collections show next to KOReader's wherever Reading
+                     Log lists one (Book Club's Collection and picks, shelf
+                     cards), as "BookOrbit: <name>". Books come from the
+                     SimpleUI Side Panel's saved lists (1.0.18+), on-device
+                     books only; never waits on the server.
+  1.1.5  2026-10-30  Alternate (Today swipe card) and Start On Tab now show
+                     when you come back: SimpleUI often reshows the home
+                     screen without rebuilding it (after sleep, and after a
+                     book with Fast Book Closing), so the Dashboard is
+                     rebuilt once when that happens. Book Club Opens Picks:
+                     Off / On Hold / On Tap (1.1.4's tap only worked off the
+                     picks, which fill nearly the whole card); Hold keeps a
+                     tap on a pick opening that book.
   1.1.4  2026-10-30  Start On Tab (Last Viewed by default, or a tab: after
                      a book, after sleep, or turning back onto the page) and
                      Start On First Page After Reading Or Sleep (off), like
@@ -92,7 +122,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "1.1.4"
+local PATCH_VERSION = "1.1.9"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -100,14 +130,6 @@ local TAG = "[readinglog-tweaks]"
 local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
 local unpack = unpack or table.unpack
 
-
--- Debug lines go through the SimpleUI diagnostics patch when it is installed.
-local function diag(fmt, ...)
-    local Dg = package.loaded["simpleui_diagnostics"]
-    if type(Dg) == "table" and type(Dg.log) == "function" then
-        pcall(Dg.log, "readinglog-tweaks: " .. fmt, ...)
-    end
-end
 
 local function warn(...) logger.warn(TAG, ...) end
 
@@ -1353,14 +1375,11 @@ local function critterKit(...)
                             end
                         end
                     end
-                    A.log("critter: phrase bank", path, n, "lines, pep",
-                        bank.minutes and "yes" or "built-in")
                     return bank
                 end
                 A.log("critter: phrase bank failed", path, tostring(b))
             end
         end
-        A.log("critter: no phrase bank, built-in lines")
         return nil
     end
 
@@ -2272,6 +2291,7 @@ local function apply(A)
         return
     end
     A._rl_tweaks = PATCH_VERSION
+    if A.get("tk_flash_clean", nil) ~= nil then A.set("tk_flash_clean", nil) end   -- removed in 1.1.9
     local T = (type(A._) == "function") and A._ or function(s) return s end
     local round = A.round or function(n) return floor(n + 0.5) end
     local scaler = A.panelScaler
@@ -2279,55 +2299,6 @@ local function apply(A)
     local Geom = require("ui/geometry")
 
     local function redrawAll() pcall(H.redrawAll) end
-
-    -- Flash To Clear Ghosting (off by default, so Reading Log's own refresh runs):
-    -- switching tabs or months, and turning onto or off the Dashboard's page,
-    -- flashes so the old page doesn't linger.
-    -- SimpleUI 3.0.2's own "Flash On Every Page Turn" does the page-turn part
-    -- too: only one of the two is on at a time (turning one on turns the
-    -- other off).
-    local SUI_FLASH = "simpleui_hs_flash_all_pages"
-    local function suiStore()
-        local St = package.loaded["infra/sui_store"]
-        if St == nil then
-            local ok, r = pcall(require, "infra/sui_store")
-            St = ok and r or nil
-        end
-        return type(St) == "table" and type(St.isTrue) == "function" and St or nil
-    end
-    local function suiFlashOn()
-        local St = suiStore()
-        if not St then return false end
-        local ok, v = pcall(St.isTrue, St, SUI_FLASH)
-        return ok and v and true or false
-    end
-    local function flashClean()
-        if A.get("tk_flash_clean", false) ~= true then return false end
-        if suiFlashOn() then
-            -- SimpleUI's was turned on after this one: this one goes off
-            A.set("tk_flash_clean", nil)
-            diag("SimpleUI's Flash On Every Page Turn is on: Flash To Clear Ghosting turned off")
-            return false
-        end
-        return true
-    end
-    local function setFlashClean(on)
-        A.set("tk_flash_clean", on or nil)
-        if on and suiFlashOn() then
-            local St = suiStore()
-            if St and type(St.saveSetting) == "function" then pcall(St.saveSetting, St, SUI_FLASH, false) end
-            diag("Flash To Clear Ghosting on: SimpleUI's Flash On Every Page Turn turned off")
-        end
-    end
-    local orig_repaint = H.repaint
-    if type(orig_repaint) == "function" then
-        H.repaint = function(ctx, o)
-            if type(o) == "table" and o.turn and flashClean() then
-                o = { flash = true, reason = o.reason }
-            end
-            return orig_repaint(ctx, o)
-        end
-    end
 
     -- ════════════════════════════════════════════════════════════════════════
     -- Year Goal With Covers
@@ -2509,11 +2480,20 @@ local function apply(A)
 
     local function alternate() return A.get("tk_swipe_return", "stay") == "next" end
 
+    -- 1.1.5: SimpleUI often shows the home screen again without rebuilding it
+    -- (after sleep, and after a book with Fast Book Closing), so a card change
+    -- decided while away (Alternate, Start On Tab) never showed. When one is
+    -- waiting and the Dashboard is painted without having been rebuilt, it's
+    -- rebuilt once, right after.
+    local want_rebuild = false
+    local swipeOn   -- defined below, with the Today slot
+
     -- which card shows now (1..n); after a book or sleep, "Alternate" moves on once
     local function swipeIndex(n)
         local i = A.state.tk_swipe_i or tonumber(A.get("tk_swipe_i", 1)) or 1
         if A.state.tk_swipe_away then
             A.state.tk_swipe_away = nil
+            want_rebuild = false
             if alternate() then
                 i = i + 1
                 A.set("tk_swipe_i", ((i - 1) % n) + 1)
@@ -2524,7 +2504,11 @@ local function apply(A)
         return i
     end
 
-    local function swipeAway() A.state.tk_swipe_away = true end
+    local function swipeAway(why)
+        A.state.tk_swipe_away = true
+        local on = alternate() and swipeOn and swipeOn() and #swipeCards() >= 2
+        if on then want_rebuild = true end
+    end
 
     local function swipeCell(ctx)
         for _, r in ipairs((ctx and ctx._regions) or {}) do
@@ -2552,7 +2536,6 @@ local function apply(A)
         if k == (A.state.tk_swipe_i or 1) then return end
         A.state.tk_swipe_i = k
         A.set("tk_swipe_i", k)
-        diag("swipe -> %d of %d", k, n)
         repaintCell(ctx)
     end
 
@@ -2583,7 +2566,7 @@ local function apply(A)
             if ok and child then
                 c:sub(child, 0, 0, name .. "|")
             else
-                diag("swipe card %s failed: %s", tostring(name), tostring(child))
+                warn("swipe card", tostring(name), "failed:", tostring(child))
                 c:label(tostring(P[name].title or name) .. T(" could not be drawn"), max(12, floor(ch * 0.08)),
                     w / 2, ch / 2, { anchor = "c", valign = "mid", max_w = w - 20 })
             end
@@ -2619,7 +2602,7 @@ local function apply(A)
         if custom and A.runTapAction then return A.runTapAction(custom, ctx) end
         if not def.tap then return end
         local ok, err = pcall(def.tap, A.makeEnv(inner, ctx, 0, 0, { nested = true, slot = 1 }), sub)
-        if not ok then diag("tap %s in swipe failed: %s", inner, tostring(err)) end
+        if not ok then warn("tap", inner, "in swipe failed:", tostring(err)) end
         if def.keep and def.keep(sub) then pcall(H.repaint, ctx, {}) end
     end
 
@@ -2668,10 +2651,9 @@ local function apply(A)
         A.set("dash_rows_today", saved)
         if new ~= SWIPE then A.set("tk_today_card", new) end
         A.epoch = (A.epoch or 0) + 1
-        diag("Today slot -> %s", new)
     end
 
-    local function swipeOn() return todaySlot() == SWIPE end
+    swipeOn = function() return todaySlot() == SWIPE end
 
     -- ─── swipes: Simple UI turns pages on a swipe before the cards see it, so
     -- a left/right swipe that starts on the swipe card is caught at the window.
@@ -2703,7 +2685,6 @@ local function apply(A)
                 if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
                     local cell = swipeCell(e.ctx)
                     if cell and rx >= cell.x and rx < cell.x + cell.w and ry >= cell.y and ry < cell.y + cell.h then
-                        diag("swipe %s on the Today card", ges.direction)
                         flipSwipe(ges.direction == "west" and 1 or -1, e.ctx)
                         return true
                     end
@@ -2730,7 +2711,7 @@ local function apply(A)
                 if A.state.dash_page ~= t.page then
                     A.state.dash_page = t.page
                     A.state.month_offset = 0
-                    diag("back on the %s tab (%s)", id, why)
+                    want_rebuild = true
                 end
                 return
             end
@@ -2758,7 +2739,31 @@ local function apply(A)
             local ok, w = pcall(SE.getInstance, id)
             if ok and type(w) == "table" and (w._current_page or 1) ~= 1 then
                 if type(w._setPage) == "function" then pcall(w._setPage, w, 1) else w._current_page = 1 end
-                diag("home back to page 1 (%s)", why)
+            end
+        end
+    end
+
+    local clubHold   -- set with Book Club Opens Picks, below
+
+    -- A long-press on the Book Club card (on its own, or showing in the Today
+    -- swipe spot): its Dashboard ctx, else nil.
+    local function clubUnder(win, pos)
+        for box, e in pairs(LIVE) do
+            local d = box.dimen
+            if e.painted and e.win == win and d and d.x and d.w then
+                local rx, ry = pos.x - d.x, pos.y - d.y
+                if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
+                    for _, r in ipairs((e.ctx and e.ctx._regions) or {}) do
+                        if rx >= r.x and rx < r.x + r.w and ry >= r.y and ry < r.y + r.h then
+                            if r.id == "bookclub|" then return e.ctx end
+                            if r.id == SWIPE .. "|" then
+                                local list = swipeCards()
+                                local i = A.state.tk_swipe_i or 1
+                                if list[((i - 1) % math.max(1, #list)) + 1] == "bookclub" then return e.ctx end
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -2772,17 +2777,26 @@ local function apply(A)
                 if type(event) == "table" then
                     if event.handler == "onGesture" then
                         local ges = event.args and event.args[1]
+                        if type(ges) == "table" and ges.ges == "hold" and ges.pos and clubHold then
+                            local okc, cctx = pcall(clubUnder, self, ges.pos)
+                            if okc and cctx then
+                                local okh, opened = pcall(clubHold, cctx)
+                                if okh and opened then return true end
+                            end
+                        end
                         if type(ges) == "table" and ges.ges == "swipe" and ges.pos
                                 and (ges.direction == "west" or ges.direction == "east") then
                             local ok, took = pcall(onSwipe, self, ges)
                             if ok and took then return true end
                         end
                     elseif event.handler == "onResume" then
-                        swipeAway()
+                        swipeAway("wake")
                     elseif event.handler == "onSuspend" then
+                        swipeAway("sleep")
                         goStartTab("sleep")
                         pcall(resetHomePage, "sleep")
                     elseif event.handler == "onShowingReader" or event.handler == "onCloseWidget" then
+                        swipeAway("book opened")
                         goStartTab("book opened")
                         pcall(resetHomePage, "book opened")
                     end
@@ -2802,9 +2816,9 @@ local function apply(A)
                 for _, e in pairs(LIVE) do if e.win == self and e.painted then vis = true end end
                 local was = rawget(self, "_rl_vis")
                 if was == true and vis == false then goStartTab("page turned") end
-                if was ~= nil and was ~= vis and flashClean() then
-                    UIManager:setDirty(nil, "full")
-                    diag("page turned %s the Dashboard -> full refresh", vis and "onto" or "off")
+                if vis and want_rebuild then
+                    want_rebuild = false
+                    UIManager:nextTick(redrawAll)
                 end
                 self._rl_vis = vis
                 return unpack(res)
@@ -2836,7 +2850,7 @@ local function apply(A)
             ReaderUI._tk_rl_hooked = true
             local orig = ReaderUI.onClose
             ReaderUI.onClose = function(...)
-                swipeAway()
+                swipeAway("book closed")
                 return orig(...)
             end
         end
@@ -2861,14 +2875,129 @@ local function apply(A)
         end
     end
 
-    -- Book Club: Tap Opens Picks (1.1.4, off by default)
+    -- BookOrbit Collections (1.1.6, on by default)
     -- ════════════════════════════════════════════════════════════════════════
-    -- A tap on the Book Club card (anywhere but a pick, which still opens that
-    -- book) goes straight to Reading Log's own "this month's books" chooser,
-    -- the one in the card's settings. Found inside Reading Log's settings code,
+    -- BookOrbit's collections join KOReader's wherever Reading Log lists or
+    -- reads a collection: the Book Club card (its Collection setting and the
+    -- picks chooser), the shelf cards. Named "BookOrbit: <name>". The books
+    -- come from the SimpleUI Side Panel's saved BookOrbit lists (1.0.18+), so
+    -- nothing here waits on the server; only books on this device are listed.
+    -- A collection shows its books once its Side Panel view has been opened.
+
+    local BO_PREFIX = "BookOrbit: "
+    local function boCollsOn() return A.get("tk_bo_colls", true) ~= false end
+    local function boShare()
+        local t = package.loaded["simpleui_sidepanel_bo"]
+        return type(t) == "table" and type(t.collections) == "function" and t or nil
+    end
+    local function boCollId(name)
+        if type(name) ~= "string" or name:sub(1, #BO_PREFIX) ~= BO_PREFIX then return nil end
+        local share = boShare()
+        if not share then return nil end
+        local ok, list = pcall(share.collections)
+        if not ok or type(list) ~= "table" then return nil end
+        local want = name:sub(#BO_PREFIX + 1)
+        for _, e in ipairs(list) do if tostring(e.title) == want then return e.id end end
+        return nil
+    end
+    if type(D.collections) == "function" and type(D.collection) == "function" and not D._tk_bo_colls then
+        D._tk_bo_colls = true
+        local orig_colls, orig_coll = D.collections, D.collection
+        D.collections = function(...)
+            local names, fav = orig_colls(...)
+            if not boCollsOn() then return names, fav end
+            local share = boShare()
+            if share and type(names) == "table" then
+                local ok, list = pcall(share.collections)
+                if ok and type(list) == "table" and #list > 0 then
+                    local out = {}
+                    for _, n in ipairs(names) do out[#out + 1] = n end
+                    for _, e in ipairs(list) do out[#out + 1] = BO_PREFIX .. tostring(e.title) end
+                    return out, fav
+                end
+            end
+            return names, fav
+        end
+        D.collection = function(name, ...)
+            if boCollsOn() then
+                local id = boCollId(name)
+                if id ~= nil then
+                    local ok, books = pcall(boShare().books, id)
+                    local out = {}
+                    if ok and type(books) == "table" then
+                        for _, b in ipairs(books) do
+                            if type(b.path) == "string" then out[#out + 1] = b.path end
+                        end
+                    end
+                    return out
+                end
+            end
+            return orig_coll(name, ...)
+        end
+    end
+
+    -- Book Club from several collections (1.1.7)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Tick one or more collections (KOReader's and BookOrbit's) and the Book
+    -- Club card and its picks chooser use all their books together. None
+    -- ticked: the card's own Collection setting, as before.
+
+    local CLUB_MULTI = "\1tk_book_club"
+    local function clubColls()
+        local v = A.get("tk_club_colls", nil)
+        local out = {}
+        if type(v) == "table" then for _, n in ipairs(v) do if type(n) == "string" then out[#out + 1] = n end end end
+        return out
+    end
+    if type(P.bookclub) == "table" and type(P.bookclub.collection) == "function" and not P.bookclub._tk_multi then
+        P.bookclub._tk_multi = true
+        local orig_pick = P.bookclub.collection
+        P.bookclub.collection = function(env, ...)
+            if #clubColls() > 0 then return CLUB_MULTI end
+            return orig_pick(env, ...)
+        end
+        local inner_coll, inner_label = D.collection, D.collectionLabel
+        D.collection = function(name, ...)
+            if name == CLUB_MULTI then
+                local out, seen = {}, {}
+                for _, n in ipairs(clubColls()) do
+                    local ok, files = pcall(D.collection, n)
+                    if ok and type(files) == "table" then
+                        for _, fp in ipairs(files) do
+                            if not seen[fp] then seen[fp] = true; out[#out + 1] = fp end
+                        end
+                    end
+                end
+                return out
+            end
+            return inner_coll(name, ...)
+        end
+        if type(inner_label) == "function" then
+            D.collectionLabel = function(name, ...)
+                if name == CLUB_MULTI then
+                    local list = clubColls()
+                    return #list == 1 and inner_label(list[1]) or table.concat(list, " + ")
+                end
+                return inner_label(name, ...)
+            end
+        end
+    end
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Book Club Opens Picks (1.1.4; hold added in 1.1.5, off by default)
+    -- ════════════════════════════════════════════════════════════════════════
+    -- Long-press (or tap) the Book Club card to go straight to Reading Log's
+    -- own "this month's books" chooser, the one in the card's settings. With
+    -- Hold, a tap on a pick still opens that book. (1.1.4's tap only worked
+    -- off the picks, which fill nearly the whole card.) Found inside Reading Log's settings code,
     -- so a Reading Log update that moves it just turns this off.
 
-    local function clubOn() return A.get("tk_club_picks", false) == true end
+    -- "hold", "tap" or off (an old true counts as "tap")
+    local function clubMode()
+        local v = A.get("tk_club_picks", nil)
+        if v == true then return "tap" end
+        return (v == "hold" or v == "tap") and v or nil
+    end
     local club_picks_fn
     local function findClubPicks()
         if club_picks_fn ~= nil then return club_picks_fn or nil end
@@ -2899,15 +3028,14 @@ local function apply(A)
         end
         local f = rows and up(rows.bookclub, "clubPicks", 0)
         club_picks_fn = f or false
-        if not f then diag("book club picks chooser not found; Tap Opens Picks stays off") end
+        if not f then warn("book club picks chooser not found; Book Club Opens Picks stays off") end
         return f
     end
     if type(P.bookclub) == "table" and type(P.bookclub.tap) == "function" and not P.bookclub._tk_picks then
         P.bookclub._tk_picks = true
         local orig_btap = P.bookclub.tap
         P.bookclub.tap = function(env, region, ...)
-            local is_pick = type(region) == "string" and region:match("^pick:%d+$") ~= nil
-            if clubOn() and not is_pick then
+            if clubMode() == "tap" then
                 local f = findClubPicks()
                 if f and type(env) == "table" then
                     local ok, err = pcall(f, env.ctx, env, function() end)
@@ -2917,6 +3045,18 @@ local function apply(A)
             end
             return orig_btap(env, region, ...)
         end
+    end
+    -- Hold: called from the window's gesture watch with the Dashboard ctx
+    -- whose Book Club card is under the finger. True when the chooser opened.
+    clubHold = function(ctx)
+        if clubMode() ~= "hold" then return false end
+        local f = findClubPicks()
+        if not f or type(A.makeEnv) ~= "function" then return false end
+        local okE, env = pcall(A.makeEnv, "bookclub", ctx, 0, 0, { nested = true, slot = 1 })
+        if not okE or type(env) ~= "table" then return false end
+        local ok, err = pcall(f, ctx, env, function() end)
+        if not ok then warn("book club picks:", tostring(err)) end
+        return ok
     end
 
     -- ════════════════════════════════════════════════════════════════════════
@@ -2969,7 +3109,7 @@ local function apply(A)
         local cat = pl.catalog_browser
         if type(cat) ~= "table" or type(cat.loadBookDetail) ~= "function" then return false end
         local ok, err = pcall(cat.loadBookDetail, cat, id)
-        if not ok then diag("BookOrbit detail failed: %s", tostring(err)) end
+        if not ok then warn("BookOrbit detail failed:", tostring(err)) end
         return ok
     end
 
@@ -2987,7 +3127,6 @@ local function apply(A)
                     UIManager:nextTick(function()
                         local ok = openBoDetail(id)
                         if home then home._navbar_closing_intentionally = nil end
-                        diag("book tap -> BookOrbit book %s: %s", tostring(id), ok and "opened" or "failed, book details instead")
                         if not ok then orig_details(ctx, fp) end
                     end)
                     return
@@ -3107,12 +3246,13 @@ local function apply(A)
     local orig_render, orig_tap = Dash.render, Dash.on_tap
     if type(orig_render) == "function" then
         Dash.render = function(ctx)
+            want_rebuild = false   -- being rebuilt now: nothing waiting
             CUR_CTX = ctx
             local ok, c = pcall(function()
                 if tabsMoved and tabsMoved() and renderTK then
                     local ok2, c2 = pcall(renderTK, ctx)
                     if ok2 and c2 then return c2 end
-                    diag("moved tab bar layout failed, Reading Log's own used: %s", tostring(c2))
+                    warn("moved tab bar layout failed, Reading Log's own used:", tostring(c2))
                 end
                 return orig_render(ctx)
             end)
@@ -3127,7 +3267,7 @@ local function apply(A)
             if C and (r == "heading|critter" or r == "banner|critter") then
                 local ok, err = pcall(critterTap, ctx)
                 if ok then return end
-                diag("critter tap failed: %s", tostring(err))
+                warn("critter tap failed:", tostring(err))
             end
             return orig_tap(ctx)
         end
@@ -3679,14 +3819,6 @@ local function apply(A)
             { text = "Fine Tuning", sub_item_table = fine,
               help_text = "Size and Height are Reading Log's own: long-press the Dashboard > Appearance." },
             {
-                text = "Flash To Clear Ghosting",
-                help_text = "Flashes the screen when you switch tabs or months, or turn onto or off the Dashboard's page, so the old page doesn't linger. Off (default): Reading Log's own quicker updates. Only one of this and SimpleUI's Flash On Every Page Turn is on at a time: turning one on turns the other off.",
-                checked_func = flashClean,
-                keep_menu_open = true,
-                callback = function() setFlashClean(not flashClean()) end,
-                separator = true,
-            },
-            {
                 text_func = function()
                     local id = startTabId()
                     if id == "last" then return "Start On Tab: Last Viewed" end
@@ -3738,11 +3870,62 @@ local function apply(A)
                 separator = true,
             },
             {
-                text = "Book Club: Tap Opens Picks",
-                help_text = "A tap on the Book Club card goes straight to choosing this month's books (Reading Log's own chooser, the arrows step to other months). A tap on a pick still opens that book. Off (default): Reading Log's own tap.",
-                checked_func = clubOn,
+                text = "BookOrbit Collections",
+                help_text = "Your BookOrbit collections show next to KOReader's wherever Reading Log asks for a collection (the Book Club card's Collection and picks, the shelf cards), as \"BookOrbit: <name>\". Their books come from the SimpleUI Side Panel's saved BookOrbit lists (Side Panel 1.0.18+): open a collection's view in the Side Panel once to fill it. Only books on this device are listed. Nothing waits on the BookOrbit server.",
+                enabled_func = function() return boShare() ~= nil end,
+                checked_func = boCollsOn,
                 keep_menu_open = true,
-                callback = function() A.set("tk_club_picks", (not clubOn()) or nil) end,
+                callback = function() A.set("tk_bo_colls", (not boCollsOn()) and nil or false); redrawAll() end,
+            },
+            {
+                text_func = function()
+                    local n = #clubColls()
+                    return n == 0 and "Book Club Collections: Card's Own" or ("Book Club Collections: " .. n)
+                end,
+                help_text = "Tick one or more collections (KOReader's, and BookOrbit's with BookOrbit Collections on) and the Book Club card and its picks use all their books together. None ticked: the card's own Collection setting.",
+                sub_item_table_func = function()
+                    local items = {}
+                    local ok, names = pcall(D.collections)
+                    for _, n in ipairs(ok and names or {}) do
+                        items[#items + 1] = {
+                            text = (D.collectionLabel and D.collectionLabel(n)) or n,
+                            checked_func = function()
+                                for _, c in ipairs(clubColls()) do if c == n then return true end end
+                                return false
+                            end,
+                            keep_menu_open = true,
+                            callback = function()
+                                local list, found = {}, false
+                                for _, c in ipairs(clubColls()) do
+                                    if c == n then found = true else list[#list + 1] = c end
+                                end
+                                if not found then list[#list + 1] = n end
+                                A.set("tk_club_colls", #list > 0 and list or nil)
+                                redrawAll()
+                            end,
+                        }
+                    end
+                    if #items == 0 then items[1] = { text = "No collections yet", enabled = false } end
+                    return items
+                end,
+            },
+            {
+                text_func = function()
+                    local m = clubMode()
+                    return "Book Club Opens Picks: " .. (m == "hold" and "On Hold" or m == "tap" and "On Tap" or "Off")
+                end,
+                help_text = "Go straight to choosing this month's books (Reading Log's own chooser; the arrows step to other months). On Hold: long-press the Book Club card; a tap on a pick still opens that book. On Tap: any tap on the card. Off (default): Reading Log's own tap.",
+                sub_item_table = {
+                    { text = "Off", radio = true, keep_menu_open = true,
+                      checked_func = function() return clubMode() == nil end,
+                      callback = function() A.set("tk_club_picks", nil) end },
+                    { text = "On Hold", radio = true, keep_menu_open = true,
+                      checked_func = function() return clubMode() == "hold" end,
+                      callback = function() A.set("tk_club_picks", "hold") end },
+                    { text = "On Tap", radio = true, keep_menu_open = true,
+                      checked_func = function() return clubMode() == "tap" end,
+                      callback = function() A.set("tk_club_picks", "tap") end },
+                },
             },
             {
                 text = "Continue Reading: Buttons Only",
@@ -3764,13 +3947,29 @@ local function apply(A)
               enabled_func = function() return C ~= nil end, separator = true },
             { text = "About Reading Log Tweaks " .. PATCH_VERSION, enabled = false },
         }
-        -- Book Taps Open BookOrbit only shows with BookOrbit installed
-        if not boPlugin() then
-            for i, it in ipairs(out) do
-                if it.text == "Book Taps Open BookOrbit" then table.remove(out, i); break end
-            end
+        -- 1.1.9: grouped. The items above, in the order they're listed:
+        -- 1 Fine Tuning, 2 Start On Tab, 3 Start On First Page, 4 BookOrbit
+        -- Collections, 5 Book Club Collections, 6 Book Club Opens Picks,
+        -- 7 Continue Reading: Buttons Only, 8 Book Taps Open BookOrbit,
+        -- 9 Today Page Card, 10 Critter Remarks, 11 About.
+        local function plain(it) it.separator = nil; return it end
+        local grouped = {
+            { text = "Today Page Card", sub_item_table = out[9].sub_item_table },
+            plain(out[7]),
+            { text = "Book Club", sub_item_table = { plain(out[5]), plain(out[6]) } },
+            { text = "When You Come Back", sub_item_table = { plain(out[2]), plain(out[3]) }, separator = true },
+        }
+        -- BookOrbit's two only with BookOrbit installed
+        if boPlugin() then
+            grouped[#grouped + 1] = { text = "BookOrbit", sub_item_table = { plain(out[4]), plain(out[8]) }, separator = true }
+        else
+            grouped[#grouped].separator = true
         end
-        return out
+        grouped[#grouped + 1] = out[10]
+        grouped[#grouped + 1] = plain(out[1])
+        grouped[#grouped].separator = true
+        grouped[#grouped + 1] = out[11]
+        return grouped
     end
 
     -- the Dashboard's long-press menu
