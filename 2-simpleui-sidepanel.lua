@@ -1,7 +1,12 @@
--- SimpleUI Side Panel v1.0.32
+-- SimpleUI Side Panel v1.0.33
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.33 The list of books downloaded from here stays small: an entry
+--        goes once BookOrbit has linked the file, or the file was deleted
+--        (from the file browser too).
+--        A cover removed from BookOrbit's cache (Reading Log Tweaks' Clean
+--        Up Cache, or BookOrbit's own pruning) is fetched again when shown.
 -- 1.0.32 A book downloaded from here counts as on the device straight
 --        away (even before BookOrbit links it), here and in Reading Log.
 --        The compact window's Open says Read, Continue Reading or Read
@@ -80,7 +85,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.32"
+local VERSION = "1.0.33"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -1424,13 +1429,21 @@ liveBookPath = function(book_id, cached_path)
     if book_id == nil then return nil end
     local on_device = onDeviceByBookId(false)
     local fp = on_device[book_id] or on_device[tostring(book_id)] or on_device[tonumber(book_id)]
-    if type(fp) == "string" and fp ~= "" and lfs.attributes(fp, "mode") == "file" then
-        return fp
-    end
-    -- 1.0.32: downloaded from here (even before BookOrbit has linked it)
+    local linked = type(fp) == "string" and fp ~= "" and lfs.attributes(fp, "mode") == "file"
+    -- 1.0.32: downloaded from here (even before BookOrbit has linked it).
+    -- 1.0.33: an entry goes once BookOrbit knows the file, or the file was
+    -- deleted, so the list only holds what's waiting to be linked.
     local mine = G_reader_settings and G_reader_settings:readSetting("simpleui_sidepanel_bo_local")
-    fp = type(mine) == "table" and mine[tostring(book_id)] or nil
-    if type(fp) == "string" and lfs.attributes(fp, "mode") == "file" then return fp end
+    local own = type(mine) == "table" and mine[tostring(book_id)] or nil
+    if own ~= nil then
+        local here = type(own) == "string" and lfs.attributes(own, "mode") == "file"
+        if linked or not here then
+            mine[tostring(book_id)] = nil
+            G_reader_settings:saveSetting("simpleui_sidepanel_bo_local", mine)
+        end
+        if not linked and here then return own end
+    end
+    if linked then return fp end
     return nil
 end
 
@@ -1635,7 +1648,18 @@ do
         if type(item) ~= "table" or item.id == nil then return nil end
         if not index or os.time() - (index_at or 0) > 600 then buildIndex(); index_at = os.time() end
         local hit = index[tostring(item.id)]
+        -- 1.0.33: gone since (Clean Up Cache, BookOrbit's own pruning):
+        -- forgotten, so it's fetched again
+        if hit and require("libs/libkoreader-lfs").attributes(hit.path, "mode") ~= "file" then
+            index[tostring(item.id)] = nil
+            tried[tonumber(item.id)] = nil
+            return nil
+        end
         return hit and hit.path or nil
+    end
+    -- forget what's known about the cover files (after a clean up)
+    function BoThumbs.forget()
+        index, tried = nil, {}
     end
     function BoThumbs.want(item)
         local id = tonumber(item and item.id)
@@ -2386,6 +2410,8 @@ package.loaded.simpleui_sidepanel = {
     boDownload = function(entry, on_done) if BoThumbs.download then BoThumbs.download(entry, on_done) end end,
     -- 1.0.32: where a BookOrbit book is on this device, or nil
     boLocalPath = function(id) return liveBookPath(id, nil) end,
+    -- 1.0.33: forget the cover files known (after Clean Up Cache)
+    boCoverForget = function() if BoThumbs.forget then BoThumbs.forget() end end,
 }
 
 -- Patch Backup & Restore (2-backup-patches.lua): our settings as a backup
