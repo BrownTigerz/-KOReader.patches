@@ -1,7 +1,17 @@
--- SimpleUI Side Panel v1.0.17
+-- SimpleUI Side Panel v1.0.20
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.20 Clean-up: debugging trace lines removed from crash.log (BookOrbit
+--        fetches, detail opening, swipe hook). Only the version line stays.
+-- 1.0.19 Header fix: long view titles ("Book Club Anthology", "BookOrbit
+--        Newly Added") were still cut after a word or two. The two-line box
+--        was sized from a plain text line, which is shorter than a text-box
+--        line, so it only held one. It's now sized by the text box itself.
+-- 1.0.18 Shares its saved BookOrbit lists with Reading Log Tweaks (1.1.6+),
+--        so BookOrbit collections can be picked there (the Book Club card
+--        and any card with a collection). Saved lists only: Reading Log
+--        never waits on the BookOrbit server.
 -- 1.0.17 Header: the whole view title shows ("Book Club Anthology",
 --        "BookOrbit Newly Added"): a title that nearly fits steps down to
 --        20 to stay on one line; a longer one wraps onto two lines at full
@@ -22,7 +32,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.17"
+local VERSION = "1.0.20"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -499,12 +509,18 @@ local function openTBRPanel(hs, view, switching, reuse)
         tw:free()
     end
     if not title_widget then
-        local face2 = head_face
-        local line_h = TextWidget:new{ text = "Ag", face = face2, bold = true }:getSize().h
-        title_widget = TextBoxWidget:new{
-            text = title_text, face = face2, bold = true, width = title_avail,
-            height = line_h * 2, height_adjust = true, height_overflow_show_ellipsis = true,
-        }
+        -- 1.0.19: measured by the text box itself. Its lines are taller than a
+        -- plain text line, so "two plain lines" only held one and the title was
+        -- still cut after a word or two.
+        title_widget = TextBoxWidget:new{ text = title_text, face = head_face, bold = true, width = title_avail }
+        local lh = tonumber(title_widget.line_height_px)
+        if lh and lh > 0 and title_widget:getSize().h > lh * 2 + 1 then
+            title_widget:free()
+            title_widget = TextBoxWidget:new{
+                text = title_text, face = head_face, bold = true, width = title_avail,
+                height = lh * 2, height_overflow_show_ellipsis = true,
+            }
+        end
     end
     -- Header icon (top-right): context-aware.
     -- In TBR/New views: SimpleUI's history.svg → tap goes to History.
@@ -588,7 +604,6 @@ local function openTBRPanel(hs, view, switching, reuse)
     local function openBoDetail(entry)
         local title = (entry and entry.title) or _("Book")
         local id = entry and entry.id
-        logger.info(TAG, "openBoDetail: closing panel then opening id=", tostring(id), title)
         close()  -- dismiss side panel before BookOrbit UI
         if hs then hs._navbar_closing_intentionally = true end
         -- nextTick so the panel close/paint finishes before BookOrbit opens
@@ -1082,7 +1097,6 @@ local function fetchBoEntries(cache_key, api_params, force)
     end
     local client, err = boApiClient()
     if not client then
-        logger.info(TAG, "fetchBoEntries", cache_key, "no client — cache fallback:", tostring(err))
         if type(entry) == "table" and type(entry.books) == "table" then
             return refreshCachedBooks(entry.books), err
         end
@@ -1091,8 +1105,6 @@ local function fetchBoEntries(cache_key, api_params, force)
     if not force and not wifi and type(entry) == "table" and type(entry.books) == "table" then
         return refreshCachedBooks(entry.books)
     end
-    logger.info(TAG, "fetchBoEntries refresh", cache_key, "force=", tostring(force),
-        "wifi=", tostring(wifi), "age=", tostring(age))
     local on_device = onDeviceByBookId()
     local books, seen_id, page, page_size = {}, {}, 1, 100
     local lfs = require("libs/libkoreader-lfs")
@@ -1148,7 +1160,6 @@ boAfterShow = function(hs, stale, view)
         if not tbr_panel_open or tbr_panel_view ~= view or not tbr_panel_root then return end
         bo_refreshed_open = true
         local ok, books = pcall(fetchBoEntries, stale.key, stale.params, true)
-        logger.info(TAG, "BookOrbit list refreshed after show:", stale.key, ok and #(books or {}) or tostring(books))
         if ok and tbr_panel_open and tbr_panel_view == view and tbr_panel_root then
             bo_stale = nil
             openTBRPanel(hs, view, true, tbr_panel_root)
@@ -1189,6 +1200,34 @@ boLabel = function(id)
     end
     return tostring(id)
 end
+-- 1.0.18: the saved BookOrbit lists, for Reading Log Tweaks. Never the
+-- server: collections = what was last fetched for this panel's settings,
+-- books(id) = that collection's last saved list ({ id, title, authors, path },
+-- path only for books on this device; {} when it was never opened here).
+package.loaded["simpleui_sidepanel_bo"] = {
+    collections = function()
+        local out = {}
+        for _i, e in ipairs(loadBoCache(BO_COLLS_CACHE_KEY)) do
+            if type(e) == "table" and e.id then out[#out + 1] = { id = e.id, title = e.title or tostring(e.id) } end
+        end
+        for _i, e in ipairs(cfg.bo_colls or {}) do   -- picked ones, even before a fetch
+            if type(e) == "table" and e.id then
+                local seen = false
+                for _j, o in ipairs(out) do if tostring(o.id) == tostring(e.id) then seen = true break end end
+                if not seen then out[#out + 1] = { id = e.id, title = e.title or tostring(e.id) } end
+            end
+        end
+        return out
+    end,
+    books = function(id)
+        local out = {}
+        for _i, b in ipairs(boQuick(boCollList, id)) do
+            if type(b) == "table" then out[#out + 1] = b end
+        end
+        return out
+    end,
+}
+
 boPlugin = function()
     local FM = package.loaded["apps/filemanager/filemanager"]
     local fm = type(FM) == "table" and FM.instance
@@ -1219,29 +1258,22 @@ end
 
 -- Open BookOrbit on a single book's detail page (download / formats live there)
 openBoBookDetail = function(book_id, title)
-    logger.info(TAG, "openBoBookDetail start id=", tostring(book_id), "title=", tostring(title))
     local plugin = boPlugin()
     if not plugin then
         logger.warn(TAG, "openBoBookDetail: no BookOrbit plugin instance")
         return false
     end
-    logger.info(TAG, "openBoBookDetail: plugin ok, catalog_browser=",
-        type(plugin.catalog_browser), "browseCatalog=", type(plugin.browseCatalog),
-        "openBookOrbit=", type(plugin.openBookOrbit))
     -- Prefer opening the catalog UI first so detail has a parent stack
     if not plugin.catalog_browser then
         local opened
         if type(plugin.openBookOrbit) == "function" then
             opened = pcall(plugin.openBookOrbit, plugin)
-            logger.info(TAG, "openBoBookDetail: openBookOrbit ->", tostring(opened))
         end
         if not plugin.catalog_browser and type(plugin.browseCatalog) == "function" then
             opened = pcall(plugin.browseCatalog, plugin, false)
-            logger.info(TAG, "openBoBookDetail: browseCatalog ->", tostring(opened))
         end
         if not plugin.catalog_browser and type(plugin.openCatalogBrowser) == "function" then
             opened = pcall(plugin.openCatalogBrowser, plugin)
-            logger.info(TAG, "openBoBookDetail: openCatalogBrowser ->", tostring(opened))
         end
     end
     local catalog = plugin.catalog_browser
@@ -1249,16 +1281,12 @@ openBoBookDetail = function(book_id, title)
         logger.warn(TAG, "openBoBookDetail: still no catalog_browser after open")
         return false
     end
-    logger.info(TAG, "openBoBookDetail: catalog methods loadBookDetail=",
-        type(catalog.loadBookDetail), "loadBooks=", type(catalog.loadBooks))
     if type(catalog.loadBookDetail) == "function" then
         local ok, err = pcall(catalog.loadBookDetail, catalog, book_id)
-        logger.info(TAG, "openBoBookDetail: loadBookDetail ok=", tostring(ok), "err=", tostring(err))
         return ok
     end
     if type(catalog.loadBooks) == "function" and title then
         local ok, err = pcall(catalog.loadBooks, catalog, { q = title, sort = "recently_added" }, title, true)
-        logger.info(TAG, "openBoBookDetail: fallback loadBooks ok=", tostring(ok), "err=", tostring(err))
         return ok
     end
     logger.warn(TAG, "openBoBookDetail: no usable catalog method")
@@ -1303,7 +1331,6 @@ local function onHomeShow(hs)
         if type(args) == "table" and args.pos and tryOpenFromGes(self, args) then return true end
         return orig(self, args, ges, ...)
     end
-    logger.info(TAG, "edge swipe hooked via", method)
 end
 
 -- Hook UIManager.show for future home opens; also attach if home is already up
