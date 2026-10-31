@@ -36,6 +36,19 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.3  2026-10-31  Add To Collection is also in a book page's ⋯ menu
+                      (BookOrbit 2.0's page menu, above Refresh from
+                      BookOrbit), not only the book sheet.
+  2.15.2  2026-10-31  Add To Collection's sign-in box has a Save Password
+                      tick (remembers your last choice, on to start) instead
+                      of asking afterwards. Only a sign-in BookOrbit accepted
+                      is saved; a wrong password never is.
+  2.15.1  2026-10-31  Add To Collection's sign-in box no longer fills in your
+                      KOReader sync username: that's a separate BookOrbit
+                      account, often with a different name, so the right
+                      password failed. It's empty the first time and says to
+                      use your BookOrbit website login, then remembers the
+                      website username. A refused sign-in says the same.
   2.15.0  2026-10-30  Add To Collection: BookOrbit's book sheet (hold a book
                       in a list, or ⋯ on a book's page) gets a row listing
                       your BookOrbit collections, ✓ on the ones the book is
@@ -88,7 +101,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.0"
+local VERSION = "2.15.3"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -2612,7 +2625,7 @@ Add To Collection needs your BookOrbit password.
 • If you save it: it's encrypted (AES-256) in koreader/settings/bookorbit_tweaks_login.lua, with the key in a separate file, bookorbit_tweaks_keyring.lua. That stops someone casually browsing your files. It does not stop someone with full access to the e-reader, because the key is on the same device.
 • Backups: neither file goes into Patch Backup & Restore's backups or device backups.
 • Remove it anytime: BookOrbit Tweaks > Forget Saved BookOrbit Password.
-If you'd rather not keep it, choose Not Now when asked: you'll be asked again after 10 minutes or a restart.]])
+If you'd rather not keep it, untick Save Password in the sign-in box: you'll be asked again after 10 minutes or a restart. Only a sign-in BookOrbit accepts is ever saved.]])
 local KEYRING_FILE = "bookorbit_tweaks_keyring.lua"
 
 local Crypto = {}
@@ -2717,9 +2730,20 @@ end
 -- server url -> { token, until }: the web session, in memory only
 local web_sessions = {}
 
+-- the website username last signed in with (kept with a saved password,
+-- else for this session), to fill in next time
+local typed_users = {}
+local function last_web_user(server)
+    local saved = loginStore():readSetting(server)
+    if type(saved) == "table" and type(saved.username) == "string" then return saved.username end
+    return typed_users[server]
+end
+
 local function forgetLogin(server)
     web_sessions[server] = nil
     local s = loginStore()
+    local saved = s:readSetting(server)
+    if type(saved) == "table" and type(saved.username) == "string" then typed_users[server] = saved.username end
     s:delSetting(server)
     s:flush()
 end
@@ -2735,37 +2759,33 @@ local function webSignIn(catalog, done, ask)
     if not ask and cached and cached.token and os.time() < cached["until"] then return done(cached.token) end
 
     local UIManager = require("ui/uimanager")
-    local function login(username, password, offer_save)
+    -- typed: from the sign-in box (else the saved password); save: its
+    -- Save Password tick. Only a sign-in the server accepted gets saved.
+    local function login(username, password, typed, save)
         local body, err = catalog:fetch(_("Signing in to BookOrbit…"), function()
             return client:requestBlocking("POST", "/auth/login",
                 { username = username, password = password, clientKind = "native", deviceLabel = "KOReader" })
         end)
         if not (type(body) == "table" and type(body.accessToken) == "string") then
             if err == "cancelled" then return end
-            if not offer_save then forgetLogin(server) end -- a saved password that no longer works
-            failure(err == 401 and _("BookOrbit didn't accept that username or password.") or T(_("Couldn't sign in to BookOrbit:\n%1"), tostring(err)))
-            if not offer_save then return webSignIn(catalog, done, true) end
+            if not typed then forgetLogin(server) end -- a saved password that no longer works
+            failure(err == 401 and _("BookOrbit didn't accept that username or password.\n\nUse the login you sign in to the BookOrbit website with. Your KOReader sync username can be different.") or T(_("Couldn't sign in to BookOrbit:\n%1"), tostring(err)))
+            if not typed then return webSignIn(catalog, done, true) end
             return
         end
         web_sessions[server] = { token = body.accessToken, ["until"] = os.time() + 10 * 60 }
-        if offer_save then
-            UIManager:show(require("ui/widget/confirmbox"):new{
-                text = _("Signed in to BookOrbit.\n\nSave your password so you don't have to type it again?\n\n• Stored only on this device, never uploaded anywhere. It's only sent to your own BookOrbit server's sign-in, the same as typing it in.\n• The password is encrypted, but the key lives on this same device: it stops someone casually browsing your files, not someone with full access to the e-reader.\n• Never in backups.\n• Remove it anytime with BookOrbit Tweaks > Forget Saved BookOrbit Password."),
-                ok_text = _("Save"),
-                cancel_text = _("Not Now"),
-                ok_callback = function()
-                    local enc = Crypto.encrypt(password)
-                    if enc then
-                        local s = loginStore()
-                        s:saveSetting(server, { username = username, password_enc = enc })
-                        s:flush()
-                        note(_("Password saved on this device (encrypted)."), _("Password saved"))
-                    else
-                        -- never kept in plain text
-                        failure(_("Encryption isn't available on this device, so the password wasn't saved. You'll be asked for it again after a restart."))
-                    end
-                end,
-            })
+        typed_users[server] = username
+        if typed and save then
+            local enc = Crypto.encrypt(password)
+            if enc then
+                local st = loginStore()
+                st:saveSetting(server, { username = username, password_enc = enc })
+                st:flush()
+                note(_("Signed in. Password saved on this device (encrypted)."), _("Password saved"))
+            else
+                -- never kept in plain text
+                failure(_("Signed in, but encryption isn't available on this device, so the password wasn't saved. You'll be asked for it again after a restart."))
+            end
         end
         return done(body.accessToken)
     end
@@ -2773,26 +2793,44 @@ local function webSignIn(catalog, done, ask)
     if not ask then
         local saved = loginStore():readSetting(server)
         local password = type(saved) == "table" and Crypto.decrypt(saved.password_enc)
-        if password then return login(saved.username, password, false) end
+        if password then return login(saved.username, password, false, false) end
     end
     local function askPassword()
     local MultiInputDialog = require("ui/widget/multiinputdialog")
-    local dlg
+    local CheckButton = require("ui/widget/checkbutton")
+    local dlg, save_box
     dlg = MultiInputDialog:new{
         title = _("Sign in to BookOrbit"),
+        description = _("Your BookOrbit website login (not your KOReader sync name)."),
         fields = {
-            { text = client.username or "", hint = _("Username") },
+            -- not the sync username: that's a separate account and often a
+            -- different name, which made the right password fail
+            { text = last_web_user(server) or "", hint = _("Website username") },
             { text = "", hint = _("Password"), text_type = "password" },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
             { text = _("Sign In"), is_enter_default = true, callback = function()
                 local f = dlg:getFields()
+                local save = save_box and save_box.checked or false
                 UIManager:close(dlg)
-                if f[1] ~= "" and f[2] ~= "" then login(f[1], f[2], true) end
+                if f[1] ~= "" and f[2] ~= "" then login(f[1], f[2], true, save) end
             end },
         }},
     }
+    -- ticked or not, nothing is saved until the server accepts the sign-in;
+    -- the choice is remembered for next time
+    save_box = CheckButton:new{
+        text = _("Save password on this device (encrypted)"),
+        checked = not (G_reader_settings and G_reader_settings:isFalse("bookorbit_tweaks_save_password")),
+        parent = dlg,
+        callback = function()
+            if G_reader_settings then
+                G_reader_settings:saveSetting("bookorbit_tweaks_save_password", save_box.checked and true or false)
+            end
+        end,
+    }
+    dlg:addWidget(save_box)
     UIManager:show(dlg)
     dlg:onShowKeyboard()
     end
@@ -2907,8 +2945,42 @@ showCollections = function(catalog, detail)
     end)
 end
 
+-- The book page's ⋯ menu (BookOrbit 2.0's own page menu, not the book
+-- sheet): Add To Collection under Open series / Highlights, above Refresh.
+local function hookDetailMenuCollections()
+    local ok, Catalog = pcall(require, "bookorbit_catalog")
+    if not (ok and type(Catalog) == "table" and type(Catalog.detailMenuItems) == "function"
+            and type(Catalog.detailRun) == "function") or Catalog._bookorbit_tweaks_detail_coll then
+        return
+    end
+    Catalog._bookorbit_tweaks_detail_coll = true
+    local orig_items, orig_run = Catalog.detailMenuItems, Catalog.detailRun
+    Catalog.detailMenuItems = function(self, d, detail, ...)
+        local items = orig_items(self, d, detail, ...)
+        if cfg.collections_row ~= false and type(items) == "table" and type(detail) == "table" and tonumber(detail.id) then
+            local at = #items + 1
+            for i, it in ipairs(items) do
+                local k = type(it) == "table" and type(it.action) == "table" and it.action.kind
+                if k == "refresh" or k == "remove" then at = i break end
+            end
+            table.insert(items, at, { icon = "library", label = _("Add To Collection"), action = { kind = "tk-collections" } })
+        end
+        return items
+    end
+    Catalog.detailRun = function(self, action, region, hold, ...)
+        if not hold and type(action) == "table" and action.kind == "tk-collections" then
+            local detail = self.current_context and self.current_context.detail
+            pcall(self.detailSetSheet, self, nil)
+            require("ui/uimanager"):tickAfterNext(function() showCollections(self, detail) end)
+            return true
+        end
+        return orig_run(self, action, region, hold, ...)
+    end
+end
+
 -- The book sheet: our row under BookOrbit's own, and its tap.
 local function hookCollectionsRow()
+    hookDetailMenuCollections()
     local ok, DialogUI = pcall(require, "bookorbit_dialog_ui")
     local ok_m, MenuUI = pcall(require, "bookorbit_menu_ui")
     if not (ok and ok_m) or type(DialogUI) ~= "table" or type(MenuUI) ~= "table"
@@ -3306,7 +3378,7 @@ local function buildMenu()
         },
         {
             text = _("Add To Collection In Book Menu"),
-            help_text = _("Hold a book in a list, or tap ⋯ on a book's page: Add To Collection lists your BookOrbit collections (✓ = the book is in it). Tap one to add or remove the book, or make a new collection. It signs in like the web app, with your BookOrbit password."),
+            help_text = _("Hold a book in a list, or tap ⋯ at the top right of a book's page: Add To Collection lists your BookOrbit collections (✓ = the book is in it). Tap one to add or remove the book, or make a new collection. It signs in like the web app, with your BookOrbit password."),
             checked_func = function() return cfg.collections_row ~= false end,
             callback = function()
                 cfg.collections_row = not (cfg.collections_row ~= false)
