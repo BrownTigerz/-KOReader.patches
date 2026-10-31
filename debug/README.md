@@ -37,4 +37,4 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.14.1 |
 | `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.1.0 |
 | `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.2.1 |
-| `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.1.0 |
+| `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.1.1 |
