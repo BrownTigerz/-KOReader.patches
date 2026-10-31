@@ -1,8 +1,15 @@
 --[[
 2-zz-shortcutstoolbar-quick-shelf-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.0
+Version 1.3.0
 
 Changelog:
+  1.3.0 - Critter menu remarks: each time the tab-bar critter (On Library
+          Toolbar) picks a menu remark, one line: the
+          submenus it saw (deepest first), the tab, which lines it chose
+          (key), the critter and phrase-bank version, and what it said.
+          "saw no submenu" with a submenu open means it couldn't read the
+          name. Opens the 15-minute window if it isn't open yet, so it
+          works in the file browser. Needs Quick Shelf 1.5.0+.
   1.2.0 - Shared perf core (the same block as the other diagnostics):
           Quick Shelf timers that hold the screen 80 ms+, flashes it asks
           for, timers left waiting at sleep, and a once-a-minute perf line,
@@ -47,6 +54,8 @@ It changes nothing in the patch or the toolbar. It records:
   • Anything the patch has pending when the device goes to sleep (should be
     nothing), and the patch's own warnings.
   • A summary with hints: what the log suggests could be made faster.
+  • Critter menu remarks (1.3.0): the submenus seen, the tab, the lines
+    picked and what the critter said.
 
 Battery safety (in case you forget to delete it):
   • Logs for 15 minutes, starting the first time a reader toolbar is built
@@ -79,7 +88,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.2.0"
+local DIAG_VERSION = "1.3.0"
 local DIAG_TAG = "shortcutstoolbar-quick-shelf"   -- = the filename stem (Debugging Menu)
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/" .. DIAG_TAG .. "-diagnostics.state"
@@ -902,6 +911,17 @@ do
         DiagCore.register(client)
         return client
     end
+end
+
+-- Critter menu remarks (Quick Shelf 1.5.0+ calls this when it's here).
+package.loaded["quick_shelf_critter_debug"] = function(t)
+    if not window_done then openWindow() end
+    if not active() or type(t) ~= "table" then return end
+    local names = {}
+    for _i, n in ipairs(type(t.names) == "table" and t.names or {}) do names[#names + 1] = "\"" .. tostring(n) .. "\"" end
+    log("critter menu remark: saw %s | tab %s | lines %s | critter %s | phrases %s | said %s",
+        #names > 0 and ("submenus " .. table.concat(names, " < ")) or "no submenu",
+        q(t.tabkey), q(t.key), q(t.critter), q(t.has_bank), q(t.text))
 end
 
 -- Quick Shelf: its timers that hold the screen 80 ms+, flashes it asks for, and
