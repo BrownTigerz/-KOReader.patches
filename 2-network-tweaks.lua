@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.12.0
+Version: 1.12.1
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -101,6 +101,8 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.12.1 Patch Backup & Restore 3.0: registers its settings, so they are in
+         Everything and in One Patch Or Plugin.
   1.12.0 Calibre: its own messages use the note style (Minimal / Banner),
          whichever way you connect (toolbar, gesture, menu): searching and
          connecting (still tap to cancel), can't find / can't connect with
@@ -222,7 +224,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.12.0"
+local PATCH_VERSION = "1.12.1"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -2794,6 +2796,16 @@ UIManager.broadcastEvent = function(self, event, ...)
         return res
     end
     return orig_broadcast(self, event, ...)
+end
+
+-- Patch Backup & Restore (2-backup-patches.lua): our settings as a backup
+-- target. Works in either patch load order.
+do
+    local BK = package.loaded.backup_patches or { targets = {} }
+    package.loaded.backup_patches = BK
+    BK.targets = BK.targets or {}
+    local target = { id = ADDON_ID, text = _("Network Tweaks"), setting_prefix = SETTINGS_KEY }
+    if type(BK.register) == "function" then pcall(BK.register, target) else table.insert(BK.targets, target) end
 end
 
 logger.info("network-tweaks v" .. PATCH_VERSION)
