@@ -4069,7 +4069,7 @@ local function hookMenu(menu_mod, order_mod)
     if ours[orig] then return end
     Menu.setUpdateItemTable = mine(function(self, ...)
         -- checked at menu build time, so patch load order doesn't matter;
-        -- also shows our own entry when turned off in "Choose what's in Add-ons"
+        -- also shows our own entry when turned off in "Arrange Add-ons"
         local in_addons = TM.active and (type(TM.shows) ~= "function" or TM.shows("simpleui_mod"))
         if self.menu_items and not in_addons then
             addToOrder(order_mod)
