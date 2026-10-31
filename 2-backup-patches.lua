@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     2.4.8 (2026-10-27)
+2-backup-patches.lua                                     2.4.9 (2026-10-30)
 KOReader user patch: per-patch backups, icon cleanup, and better device
 backups with Device Backup & Restore (backup.koplugin).
 
@@ -86,6 +86,11 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  2.4.9  2026-10-30
+    - Patch updates also cover Quotes.lua: it's found in (and installed
+      to) settings/simpleui/sui_quotes/, where SimpleUI reads it, instead
+      of patches/. Files that aren't patches (critter-phrases.lua,
+      Quotes.lua) get their own Extras heading in the list.
   2.4.8  2026-10-27
     - Wording only: error notes use contractions like the rest of the
       file ("Couldn't create the zip" instead of "Could not create
@@ -281,7 +286,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "2.4.8"
+local VERSION = "2.4.9"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -1431,10 +1436,16 @@ end
 -- patches/ (active) or patches/debug/ (switched off); the active copy
 -- wins, and a stale duplicate is reported for cleanup on update.
 -- Returns the chosen path (or nil), plus a stale duplicate path or nil.
+-- Files that aren't patches and live elsewhere on the device. The first
+-- folder is where a fresh install goes.
+local EXTRA_DIRS = {
+    ["Quotes.lua"] = { SETTINGS_DIR .. "/simpleui/sui_quotes" },
+}
+
 local function localInstall(repo_path)
     local filename = repo_path:match("[^/]+$")
     local is_debug = repo_path:sub(1, 6) == "debug/"
-    local dirs = is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR }
+    local dirs = EXTRA_DIRS[repo_path] or (is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR })
     local found = {}
     for i, d in ipairs(dirs) do
         if lfs.attributes(d .. "/" .. filename, "mode") == "file" then
@@ -1451,6 +1462,16 @@ end
 -- there at all.
 local function defaultDest(repo_path)
     local filename = repo_path:match("[^/]+$")
+    local extra = EXTRA_DIRS[repo_path]
+    if extra then
+        -- the folder may not exist yet (sui_quotes/ is made by hand)
+        local dir = ""
+        for part in extra[1]:gmatch("[^/]+") do
+            dir = dir .. "/" .. part
+            if lfs.attributes(dir, "mode") ~= "directory" then lfs.mkdir(dir) end
+        end
+        return extra[1] .. "/" .. filename
+    end
     if repo_path:sub(1, 6) == "debug/" then
         return DEBUG_DIR .. "/" .. filename
     end
@@ -1886,13 +1907,17 @@ function Backup.checkForPatchUpdates()
         -- Patches and diagnostics under labeled headers, easier to scan
         -- and tap. (statuses is sorted by repo path, so the debug/
         -- entries come last.)
-        local in_debug = nil
+        -- Extras: files that aren't patches (critter-phrases.lua,
+        -- Quotes.lua); their names sort between the two.
+        local in_group = nil
         for i, e in ipairs(statuses) do
-            local is_debug = e.repo_path:sub(1, 6) == "debug/"
-            if is_debug ~= in_debug then
-                in_debug = is_debug
+            local group = e.repo_path:sub(1, 6) == "debug/" and "debug"
+                or (e.repo_path:match("^%d") and "patch" or "extra")
+            if group ~= in_group then
+                in_group = group
                 items[#items + 1] = {
-                    text = is_debug and _("Diagnostics") or _("Patches"),
+                    text = group == "debug" and _("Diagnostics")
+                        or group == "extra" and _("Extras") or _("Patches"),
                     select_enabled = false,
                 }
             end
