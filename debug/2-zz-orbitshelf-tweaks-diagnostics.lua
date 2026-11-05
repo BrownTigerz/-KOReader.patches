@@ -1,6 +1,6 @@
 --[[
 2-zz-orbitshelf-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.2
+Version 1.2.3
 
 Watches 2-orbitshelf-tweaks.lua from the outside and writes tagged lines
 ([orbitshelf]) to the shared diagnostics log (shared log contract v1):
@@ -37,15 +37,20 @@ It changes nothing in OrbitShelf Tweaks, Bookshelf, or BookOrbit. It records:
 Battery safety (in case you forget to delete it):
   • Logs for 30 minutes after KOReader starts (time asleep counts). Then every
     hook goes idle.
-  • After 3 days from first install it stops for good (one line per start).
-    State file: orbitshelf-diagnostics.state. Delete that file (or use
-    Debugging Menu → Delete all logs) for a fresh window.
+  • 3 days after this version first runs it stops for good (one line per
+    start). A new version of this file or of OrbitShelf Tweaks starts a new
+    3 days on its own. State file: orbitshelf-diagnostics.state. Delete that
+    file (or use Debugging Menu → Delete all logs) for a fresh window.
   • No repeating timers of its own.
 
 Install: copy next to 2-orbitshelf-tweaks.lua in koreader/patches/ and restart.
 The "zz" loads it after the main patch. Delete the file when done.
 
 Changelog:
+  1.2.3  2026-11-05  The 3 days also start again when OrbitShelf Tweaks itself is
+                     updated (its Version line is read once at start), not only when
+                     this file is, so each new test build gets its own logs. Restarts
+                     on the same versions still count toward the 3 days.
   1.2.2  2026-11-01  Fix: the catalogBooks wrapper named its query argument q, which hid the
                      log helper q(). Any catalog call slower than the slow threshold then
                      died with "attempt to call local 'q' (a table value)", so OrbitShelf
@@ -67,7 +72,7 @@ local WINDOW_MIN = 30
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 3 * 24 * 3600
 local STATE = DataStorage:getDataDir() .. "/orbitshelf-diagnostics.state"
-local DIAG_VERSION = "1.2.2"
+local DIAG_VERSION = "1.2.3"
 local DIAG_TAG = "orbitshelf"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
@@ -170,26 +175,44 @@ end
 
 -- ---- hard expiry ----------------------------------------------------------------
 
+-- OrbitShelf Tweaks' own version, from its header (read once per start)
+local function mainVersion()
+    local v
+    pcall(function()
+        local f = io.open(DataStorage:getDataDir() .. "/patches/2-orbitshelf-tweaks.lua", "r")
+        if not f then return end
+        for _i = 1, 40 do
+            local line = f:read("*l")
+            if not line then break end
+            v = line:match("^Version:%s*(%S+)")
+            if v then break end
+        end
+        f:close()
+    end)
+    return v or "?"
+end
+
 do
     local first
+    local key = DIAG_VERSION .. " " .. mainVersion()
     local f = io.open(STATE, "r")
     if f then
         local v, t = f:read("*l"), tonumber(f:read("*l") or "")
         f:close()
-        if v == DIAG_VERSION and t and t <= os.time() then first = t end
+        if v == key and t and t <= os.time() then first = t end
     end
     if not first then
         first = os.time()
         local w = io.open(STATE, "w")
         if w then
-            w:write(DIAG_VERSION, "\n", tostring(first), "\n")
+            w:write(key, "\n", tostring(first), "\n")
             w:close()
         end
     end
     if os.time() - first > EXPIRE_S then
         expired = true
         active = false
-        write("==== orbitshelf diagnostics expired (3 days since first install); delete "
+        write("==== orbitshelf diagnostics expired (3 days since this version first ran); delete "
             .. "orbitshelf-diagnostics.state or use Debugging Menu for a fresh window ====")
         return
     end
