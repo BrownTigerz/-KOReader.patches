@@ -28,7 +28,7 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 |---|---|---|
 | `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.3.2 |
 | `2-zz-bookorbit-diagnostics.lua` | BookOrbit Tweaks | 1.5.1 |
-| `2-zz-orbitshelf-tweaks-diagnostics.lua` | OrbitShelf Tweaks | 1.2.2 |
+| `2-zz-orbitshelf-tweaks-diagnostics.lua` | OrbitShelf Tweaks | 1.2.3 |
 | `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.2.1 |
 | `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.3.1 |
 | `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 2.1.2 |
@@ -42,4 +42,4 @@ Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Deb
 | `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.2.1 |
 | `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.1.1 |
 
-**OrbitShelf Tweaks diagnostics:** watches `2-orbitshelf-tweaks.lua` from the outside and writes `[orbitshelf]` lines to the shared log: source registration, shelf fetches, covers, downloads, hero pills, the close-only menu and auto-rewrite. Logs for 30 minutes after each start, then goes quiet, and stops for good 3 days after first install.
+**OrbitShelf Tweaks diagnostics:** watches `2-orbitshelf-tweaks.lua` from the outside and writes `[orbitshelf]` lines to the shared log: source registration, shelf fetches, covers, downloads, hero pills, the close-only menu and auto-rewrite. Logs for 30 minutes after each start, then goes quiet, and stops for good 3 days after this version first runs. A new version of this file or of OrbitShelf Tweaks starts a new 3 days.
