@@ -6,32 +6,126 @@ Requires:
   * bookshelf.koplugin (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x)
   * bookorbit.koplugin signed in (server_url + username + userkey)
 
-Version: 1.3.0
+Version: 1.5.7
 
 What it does
   * Toggle **Use BookOrbit In Bookshelf**. Registers a **BookOrbit** fetch-mode
     shelf source (books not on device included).
   * Source modes: Library, Recently added, Recently read, **Series**,
-    **Authors**, **Genres**, and cached collections. Series/Authors/Genres are
-    folder drills (tap a group → its books).
+    **Authors**, **Genres**, and **Collections** (fetched from BookOrbit when
+    Wi-Fi is on, the saved list otherwise). Series/Authors/Genres are folder
+    drills (tap a group → its books), ordered the way Bookshelf orders its own
+    Series / Authors / Genres stacks.
   * Toggle **Rewrite Stock Series/Author/Genre**: points the built-in Series,
     Authors, Genres, Recent and Latest chips at BookOrbit (restored when off).
   * Covers: shared cache/bookorbit/ folder with Side Panel; Clean Up Cache
     matches Reading Log Tweaks.
-  * Hero: hold menu **and** inline **Download / Remove / Open In BookOrbit**
-    pills on the banner for BookOrbit books.
-  * Toggle **Close Only Menu**: start menu becomes only Close Bookshelf, with
-    true **left / right / bottom** placement via StartMenu side_override.
-  * Toggle **Footer Critter**: replaces bottom page nav with your SimpleUI
-    Tiny Critter (same modules as Quick Shelf / Reading Log). Says shelf name,
-    page, and book count. Tap for another remark; left/right edges still page;
-    swipe still pages.
+  * Hero: hold menu and, at the bottom of the banner, **Download / Open In
+    BookOrbit** pills for a BookOrbit book not on the device; small round icons
+    (Remove From Device, Open In BookOrbit, Sync) at the bottom right for one
+    that is, so its description keeps the room.
+  * Toggle **Close Only (No Hamburger)**: the footer hamburger is replaced by a
+    plain close X. One tap closes Bookshelf, no menu in between. Placement is
+    still **left / right / bottom** (Close Control). Gesture / keyboard
+    "open start menu" closes the shelf too while this is on.
+  * Toggle **Footer Critter**: replaces the bottom page nav with your SimpleUI
+    Tiny Critter (same critters as Quick Shelf / Reading Log). The bubble always
+    carries where you are (page, pages, shelf) and says one of four things,
+    moving to the next kind on every tap or page turn:
+      Page    - "Page 3 of 9", "Books 25-36 of 104".
+      Witty   - short remarks that know the page, shelf size and time of day.
+      Picks   - recommendations from the books on this page: one to get back to,
+                one nearly finished, the next in a series, two by one author.
+      Sayings - original one-liners about books and shelves; add your own in
+                koreader/settings/orbitshelf-quotes.txt (one per line, or
+                `quote | author`).
+    Each kind has its own switch (at least one stays on). Left/right edges
+    still page; swipe still pages.
 
 Settings: Tools → OrbitShelf Tweaks (or Add-ons with 2-tweaks-menu.lua).
 
 Install: koreader/patches/2-orbitshelf-tweaks.lua, restart.
 
 Changelog:
+  1.5.7  2026-11-05  Fix: after a download the hero kept the BookOrbit look (no description)
+                     until another book was picked and this one again; it now shows the
+                     book from the file straight away. Removing it puts the hero back to
+                     the BookOrbit book (Download / Open In BookOrbit).
+                     Fix: once a book was on the device the hero lost its Remove From Device,
+                     Open In BookOrbit and Sync buttons (Bookshelf rebuilds the hero's record
+                     from the file, without the BookOrbit id; the file now tells which
+                     BookOrbit book it is). For a book on the device they are small round
+                     icons at the bottom right of the hero, so the description keeps its
+                     room. Sync moved there too (it was top right), next to the pills for a
+                     book not on the device.
+                     Footer critter: the critter keeps its own shape (a big critter image was
+                     stretched to the box), and the page line under the message is light
+                     grey on a dark bar, dark grey on a light one (it was dark on dark and
+                     faded out).
+  1.5.6  2026-11-03  The hero's Download / Remove / Open In BookOrbit buttons now sit inside
+                     the hero card, at the bottom of its right column (they were pushed down
+                     under the tab bar). The footer critter is redrawn to sit in the bar:
+                     the message and detail are written on the bar in its own ink, the
+                     critter sits at the right end, both sized to the bar (the speech box
+                     was taller than the bar and hung over its edge).
+                     New: a Sync button on the hero card's top right (under the status
+                     strip), on BookOrbit shelves. One tap throws away the saved BookOrbit
+                     lists, pulls them fresh, and runs BookOrbit's own "sync all books"
+                     (which relinks books on the device and syncs progress), then redraws
+                     the shelf. Settings: Hero Sync Button on / off.
+  1.5.5  2026-11-02  Choosing a BookOrbit list or collection for a shelf no longer renames
+                     the shelf. Whatever title it already has is kept.
+                     Holding a book that is on the device now has Remove From Device in
+                     Bookshelf's book menu (and in the file browser's long-press menu),
+                     for BookOrbit books. Holding one that is not on the device still shows
+                     Download / Open In BookOrbit.
+                     After a download the shelf is refreshed as soon as the file is saved,
+                     before the book is linked to BookOrbit (a network call), so the hero
+                     card and the downloaded mark update sooner. The linking then runs
+                     right after, in the background of the Open or Later prompt.
+  1.5.4  2026-11-01  Fix: a download started from the hero card's Download pill did not
+                     refresh the shelf, so the book kept showing as not on the device
+                     (and the pill kept saying Download) until something else refreshed
+                     it. Every download now refreshes the shelf when it finishes, whoever
+                     started it.
+  1.5.3  2026-11-01  Tapping a BookOrbit book that is not on the device no longer
+                     downloads and opens it. It shows a small window (title, author,
+                     "Not On Device") with Download, Open In BookOrbit and Cancel; long-press
+                     shows the same. After a download the book is not opened: it asks
+                     Open or Later, like the Side Panel.
+                     Downloads now work like the Side Panel's: BookOrbit's download folder
+                     and folder layout, hash-checked, linked so it syncs, with the
+                     "Downloading" pill.
+                     Books on the device carry Bookshelf's own downloaded mark, and the
+                     file path and mark are re-read every time a list is shown, so a book
+                     downloaded or removed shows its new state without a refresh.
+  1.5.2  2026-11-01  Fix: tapping a BookOrbit book, or opening a list of them, crashed
+                     KOReader (bookshelf_tokens.lua:230). Bookshelf wants `authors` as a
+                     list of names and `author` as the first name; both were one joined
+                     string. Genres are a list too. Saved BookOrbit lists from older
+                     versions are dropped once (new cache key) so they cannot crash it.
+                     Fix: Authors groups now use BookOrbit's author list instead of
+                     splitting a joined string on commas and slashes.
+                     Fix: collections could not be picked unless the Side Panel had
+                     already saved them. The picker and the shelf editor's List row now
+                     fetch them from BookOrbit (Wi-Fi on), falling back to the saved
+                     list, and the editor can pick a Collection. A Collection shelf with
+                     no collection id now stays empty and logs why, instead of showing
+                     the whole library.
+                     Series / Authors / Genres groups and the books inside them are
+                     ordered by Bookshelf's own sort rules (surname, articles ignored,
+                     last opened, book count). Books carry last opened and added times.
+  1.5.1  2026-11-01  Fix: the OrbitShelf Tweaks menu never showed up (not in Tools, not
+                     in Add-ons), so Close Only and the critter switches couldn't be
+                     reached. Registered the way the other patches do it, at load time.
+                     Fix: a failed BookOrbit catalog fetch was cached as an empty shelf
+                     (and an empty one saved from earlier is dropped); failures are
+                     now logged and never cached.
+  1.5.0  2026-11-01  Footer critter: page / witty / picks / sayings. Fixes the
+                     page number and shelf name, which read the wrong Bookshelf
+                     fields and showed page 1 and "this shelf".
+  1.4.0  2026-11-01  Close Only is flat: hamburger becomes a close X, one tap
+                     closes (no menu to open first).
   1.3.0  2026-10-31  Footer critter replaces page nav (shelf / page / count).
   1.2.0  2026-10-31  Fetch-mode Series/Authors/Genres; auto-rewrite; hero pills;
                      true left/right close.
@@ -39,7 +133,7 @@ Changelog:
   1.0.0  2026-10-31  First cut: BookOrbit source, hero hold, close-only menu.
 ]]
 
-local VERSION = "1.3.0"
+local VERSION = "1.5.7"
 local TAG = "orbitshelf-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "orbitshelf_tweaks"
 local MENU_ID = "orbitshelf_tweaks"
@@ -60,12 +154,17 @@ package.loaded["orbitshelf_tweaks_patch"] = true
 local DEFAULTS = {
     use_bookorbit = true,          -- register BookOrbit as a shelf source
     auto_rewrite_stock = true,     -- Series / Authors / Genres / Recent use BO data
-    close_only_menu = false,       -- strip start menu down to Close
+    close_only_menu = false,       -- footer hamburger becomes a one-tap close X
     close_menu_side = "bottom",    -- "left" | "right" | "bottom"
     cache_ttl = 30 * 60,           -- soft refresh window (seconds)
     offline_ttl = 6 * 3600,        -- keep offline lists this long
     hero_pills = true,             -- Download / Remove / Open In BookOrbit on hero
+    hero_sync = true,              -- Sync icon at the hero's bottom right
     footer_critter = true,         -- replace bottom page nav with a critter
+    critter_say_page = true,       -- critter says which page / books you're on
+    critter_say_witty = true,      -- witty remarks
+    critter_say_recs = true,       -- picks from the books on this page
+    critter_say_quotes = true,     -- shelf sayings (plus your own file)
 }
 
 local cfg = {}
@@ -89,7 +188,12 @@ local function saveConfig()
         cache_ttl = cfg.cache_ttl,
         offline_ttl = cfg.offline_ttl,
         hero_pills = cfg.hero_pills,
+        hero_sync = cfg.hero_sync,
         footer_critter = cfg.footer_critter,
+        critter_say_page = cfg.critter_say_page,
+        critter_say_witty = cfg.critter_say_witty,
+        critter_say_recs = cfg.critter_say_recs,
+        critter_say_quotes = cfg.critter_say_quotes,
     })
     if G_reader_settings.flush then pcall(G_reader_settings.flush, G_reader_settings) end
 end
@@ -182,18 +286,33 @@ local function liveBookPath(book_id)
     return nil
 end
 
-local function authorsString(book)
+-- Bookshelf wants `authors` as a list of names and `author` as the first one.
+local function authorList(book)
+    local out = {}
     if type(book.authors) == "table" then
-        local parts = {}
         for _j, a in ipairs(book.authors) do
-            if type(a) == "string" then parts[#parts + 1] = a
-            elseif type(a) == "table" and a.name then parts[#parts + 1] = a.name end
+            if type(a) == "string" and a ~= "" then out[#out + 1] = a
+            elseif type(a) == "table" and type(a.name) == "string" and a.name ~= "" then out[#out + 1] = a.name end
         end
-        return table.concat(parts, ", ")
-    elseif type(book.author) == "string" then
-        return book.author
+    elseif type(book.authors) == "string" and book.authors ~= "" then
+        out[1] = book.authors
     end
-    return ""
+    if #out == 0 and type(book.author) == "string" and book.author ~= "" then out[1] = book.author end
+    return out
+end
+
+-- "2026-10-31T14:03:22.000Z" -> unix time (UTC), nil when it does not parse
+local function isoToUnix(str)
+    if type(str) ~= "string" then return nil end
+    local y, mo, d, h, mi, se = str:match("^(%d+)-(%d+)-(%d+)[T ](%d+):(%d+):(%d+)")
+    if not y then return nil end
+    y, mo, d, h, mi, se = tonumber(y), tonumber(mo), tonumber(d), tonumber(h), tonumber(mi), tonumber(se)
+    local yy = mo <= 2 and y - 1 or y
+    local era = math.floor(yy / 400)
+    local yoe = yy - era * 400
+    local doy = math.floor((153 * (mo + (mo > 2 and -3 or 9)) + 2) / 5) + d - 1
+    local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+    return (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + se
 end
 
 local function coverVersion(book)
@@ -390,11 +509,23 @@ end
 
 -- In-memory + settings-backed page cache: key -> { t=, items=, total= }
 local page_cache = {}
-local CACHE_KEY = "orbitshelf_tweaks_pages"
+local CACHE_KEY = "orbitshelf_tweaks_pages_2"
+local OLD_CACHE_KEY = "orbitshelf_tweaks_pages" -- 1.5.1 and older: authors saved as one string
 
 local function loadPageCache()
+    if G_reader_settings and G_reader_settings:readSetting(OLD_CACHE_KEY) ~= nil then
+        G_reader_settings:delSetting(OLD_CACHE_KEY)
+    end
     local saved = G_reader_settings and G_reader_settings:readSetting(CACHE_KEY)
-    if type(saved) == "table" then page_cache = saved end
+    if type(saved) == "table" then
+        page_cache = saved
+        -- an empty list saved from a failed fetch must not hide the shelf
+        for k, v in pairs(page_cache) do
+            if type(v) ~= "table" or type(v.items) ~= "table" or #v.items == 0 then
+                page_cache[k] = nil
+            end
+        end
+    end
 end
 loadPageCache()
 
@@ -430,8 +561,8 @@ local function recordFromBo(book)
             if type(g) == "string" then genres[#genres + 1] = g
             elseif type(g) == "table" and g.name then genres[#genres + 1] = g.name end
         end
-    elseif type(book.genre) == "string" then
-        genres = book.genre
+    elseif type(book.genre) == "string" and book.genre ~= "" then
+        genres = { book.genre }
     elseif type(book.tags) == "table" then
         genres = {}
         for _i, t in ipairs(book.tags) do
@@ -440,11 +571,12 @@ local function recordFromBo(book)
         end
     end
     local remote = "bookorbit://" .. tostring(id)
+    local authors = authorList(book)
     return {
         filepath = fp or remote,
         title = book.title or book.name or _("Untitled"),
-        authors = authorsString(book),
-        author = authorsString(book),
+        authors = authors,
+        author = authors[1] or "",
         series = series,
         series_name = series,
         series_index = series_index,
@@ -453,6 +585,10 @@ local function recordFromBo(book)
         description = book.description or book.summary,
         cover_image_path = cover,
         pages = tonumber(book.pageCount) or tonumber(book.pages),
+        last_opened = isoToUnix(book.lastReadAt),
+        last_read_time = isoToUnix(book.lastReadAt),
+        added_time = isoToUnix(book.addedAt),
+        downloaded = fp and true or nil,
         bookorbit_id = id,
         bookorbit_cv = cv,
         is_bookorbit = true,
@@ -465,6 +601,13 @@ local function refreshCoverPaths(items)
     if type(items) ~= "table" then return items end
     for _i, rec in ipairs(items) do
         if type(rec) == "table" and rec.bookorbit_id then
+            -- on the device or not, as of now (a download or a removal since the list was saved)
+            local live = liveBookPath(rec.bookorbit_id)
+            if live then
+                rec.filepath, rec.downloaded = live, true
+            else
+                rec.filepath, rec.downloaded = "bookorbit://" .. tostring(rec.bookorbit_id), nil
+            end
             local path = coverPathFor(rec.bookorbit_id, rec.bookorbit_cv)
             if path then
                 rec.cover_image_path = path
@@ -506,12 +649,18 @@ local function fetchBoPage(api_params, force)
 
     local books, seen, page, page_size = {}, {}, 1, 100
     local total
+    local failed = false
     for _guard = 1, 20 do
         local q = {}
         for k, v in pairs(api_params or {}) do q[k] = v end
         q.page, q.size = page, page_size
         local ok_body, body = pcall(function() return client:catalogBooks(q) end)
-        if not ok_body or type(body) ~= "table" then break end
+        if not ok_body or type(body) ~= "table" then
+            failed = true
+            logger.warn(TAG, "catalog fetch failed on page", page, "-", ok_body and "no usable reply" or tostring(body),
+                "(wifi " .. (wifi and "on" or "off") .. ")")
+            break
+        end
         local items = body.items or body.books or body.entries or {}
         if type(items) ~= "table" or #items == 0 then break end
         for _i, book in ipairs(items) do
@@ -526,6 +675,16 @@ local function fetchBoPage(api_params, force)
         page = page + 1
     end
 
+    if failed then
+        -- never cache a failed fetch: keep the last good list, or show what came in
+        if #books == 0 and type(entry) == "table" and type(entry.items) == "table" and #entry.items > 0 then
+            return refreshCoverPaths(entry.items), entry.total, "catalog fetch failed"
+        end
+        return books, total or #books, "catalog fetch failed"
+    end
+    if #books == 0 then
+        logger.info(TAG, "catalog returned no books for", key ~= "" and key or "(all)")
+    end
     page_cache[key] = { t = now, items = books, total = total or #books }
     savePageCache()
     -- pull missing covers into the shared cache (Side Panel / BookOrbit folder)
@@ -551,8 +710,51 @@ local function forgetLocalDownload(book_id)
     G_reader_settings:saveSetting("simpleui_sidepanel_bo_local", mine)
 end
 
+-- The hero shows a book picked on the shelf as Bookshelf's preview record. After a
+-- download (or a removal) that record still points at the old place, so the hero kept
+-- its old look until another book was picked and this one again. It is pointed at the
+-- book's new place here, before the shelf redraws.
+local function retargetHeroPreview(id, local_path)
+    pcall(function()
+        local bs = getBookshelf()
+        local w = bs and bs._widget
+        local pb = w and w._preview_book
+        -- a record rebuilt from the file gets its id back when the hero draws it
+        -- (asBookOrbit), so the id is enough
+        if type(pb) ~= "table" or tonumber(pb.bookorbit_id) ~= tonumber(id) then return end
+        if local_path then
+            -- read from the file now, the way Bookshelf does for a book on the device
+            local fresh = type(w._hydrateBook) == "function" and w:_hydrateBook({ filepath = local_path }) or nil
+            if type(fresh) == "table" then
+                fresh.bookorbit_id = tonumber(id) or id
+                fresh.is_bookorbit = true
+                w._preview_book = fresh
+            else
+                pb.filepath = local_path
+                pb.downloaded = true
+            end
+        else
+            -- back to the BookOrbit record (Download / Open In BookOrbit)
+            local rec
+            for _k, entry in pairs(page_cache) do
+                for _i, r in ipairs(type(entry) == "table" and entry.items or {}) do
+                    if type(r) == "table" and tonumber(r.bookorbit_id) == tonumber(id) then rec = r break end
+                end
+                if rec then break end
+            end
+            local remote = "bookorbit://" .. tostring(id)
+            local copy = {}
+            for k, v in pairs(rec or pb) do copy[k] = v end
+            copy.filepath, copy.downloaded = remote, nil
+            copy.bookorbit_id, copy.is_bookorbit, copy.source_kind = tonumber(id) or id, true, SOURCE_ID
+            w._preview_book = copy
+        end
+        w._hero_book_cache = nil
+    end)
+end
+
 local function downloadBookOrbitBook(book, on_done)
-    local id = book and (book.bookorbit_id or book.id)
+    local id = tonumber(book and (book.bookorbit_id or book.id))
     if not id then
         UIManager:show(require("ui/widget/infomessage"):new{ text = _("No BookOrbit id") })
         return
@@ -562,96 +764,127 @@ local function downloadBookOrbitBook(book, on_done)
         UIManager:show(require("ui/widget/infomessage"):new{ text = _("BookOrbit is not signed in") })
         return
     end
+    local function fail(msg)
+        UIManager:show(require("ui/widget/infomessage"):new{ text = msg })
+    end
 
+    -- the file a download takes: the main supported one
+    local function pickFile(detail)
+        local okU, CU = pcall(require, "bookorbit_catalog_util")
+        local function usable(f) return type(f) == "table" and f.id and (not okU or CU.isSupportedFormat(f.format)) end
+        for _i, f in ipairs(type(detail) == "table" and detail.files or {}) do
+            if usable(f) and f.role == "primary" then return f end
+        end
+        for _i, f in ipairs(type(detail) == "table" and detail.files or {}) do
+            if usable(f) then return f end
+        end
+        return nil
+    end
+
+    -- Same way the Side Panel and BookOrbit's own book page download: BookOrbit's
+    -- download folder and layout, checked against the server's hash, then linked.
     local function run()
         local Trapper = require("ui/trapper")
         Trapper:wrap(function()
-            local ok_d, detail = pcall(function() return client:catalogBook(id) end)
-            if not ok_d or type(detail) ~= "table" then
-                UIManager:show(require("ui/widget/infomessage"):new{ text = _("Could not load book details") })
-                return
+            local okT, Toast = pcall(require, "bookorbit_toast")
+            local pill = okT and Toast.loading and Toast.loading(T(_("Downloading %1…"), tostring(book.title or _("book")))) or nil
+            local function done() if pill and pill.close then pcall(pill.close, pill) end end
+
+            local ok_run, completed, result = pcall(client.runInSubprocess, client, function() return client:catalogBook(id) end)
+            local detail = ok_run and completed and type(result) == "table" and result.body or nil
+            if type(detail) ~= "table" then
+                local ok_d, d = pcall(function() return client:catalogBook(id) end)
+                detail = ok_d and type(d) == "table" and d or nil
             end
-            local okU, CU = pcall(require, "bookorbit_catalog_util")
-            local file
-            local function okf(f)
-                return type(f) == "table" and f.id and (not okU or CU.isSupportedFormat(f.format))
+            if type(detail) ~= "table" then
+                done()
+                return fail(_("Could not load book details"))
             end
-            for _i, f in ipairs(detail.files or {}) do
-                if okf(f) and f.role == "primary" then file = f break end
+            local file = pickFile(detail)
+            if not file then done() return fail(_("No file this reader can open")) end
+
+            local okR, Root = pcall(require, "bookorbit_download_root")
+            local root = okR and type(Root) == "table" and Root.get and Root.get()
+                or (G_reader_settings and G_reader_settings:readSetting("home_dir"))
+            if type(root) ~= "string" or root == "" then
+                done()
+                return fail(_("Set a download folder in BookOrbit first."))
             end
-            if not file then
-                for _i, f in ipairs(detail.files or {}) do
-                    if okf(f) then file = f break end
+            local util = require("util")
+            -- the server's folder layout under the download folder
+            local rel
+            local dp = tostring(file.devicePath or ""):gsub("\\", "/"):gsub("^/+", "")
+            if dp ~= "" then
+                local segs, bad = {}, false
+                for seg in dp:gmatch("[^/]+") do
+                    if seg == ".." then bad = true break end
+                    if seg ~= "." then segs[#segs + 1] = util.getSafeFilename(seg, root) end
                 end
+                if not bad and #segs > 0 then rel = table.concat(segs, "/") end
             end
-            if not file then
-                UIManager:show(require("ui/widget/infomessage"):new{ text = _("No file this reader can open") })
-                return
+            if not rel then
+                local okC, CU = pcall(require, "bookorbit_catalog_util")
+                local base = okC and CU.safeFilenameBase(detail) or tostring(detail.title or ("book-" .. id))
+                rel = util.getSafeFilename(base .. "." .. tostring(file.format or "epub"):lower(), root)
             end
+            local dest = (root ~= "/" and root or "") .. "/" .. rel
+            local parent = dest:match("^(.*)/[^/]+$")
+            if parent then util.makePath(parent) end
 
-            local download_dir = G_reader_settings and G_reader_settings:readSetting("download_dir")
-            if type(download_dir) ~= "string" or download_dir == "" then
-                download_dir = require("datastorage"):getDataDir() .. "/downloads"
-            end
-            require("util").makePath(download_dir)
-
-            local okDR, DownloadRoot = pcall(require, "bookorbit_download_root")
-            if okDR and type(DownloadRoot) == "table" and type(DownloadRoot.get) == "function" then
-                local d = DownloadRoot.get()
-                if type(d) == "string" and d ~= "" then download_dir = d end
-            end
-
-            local safe = require("util").getSafeFilename
-            local base = (detail.title or book.title or "book"):gsub("[/\\]", "_")
-            local ext = string.lower(tostring(file.format or "epub"))
-            local dest = download_dir .. "/" .. (safe and safe(base .. "." .. ext, download_dir) or (base .. "." .. ext))
-
-            UIManager:show(require("ui/widget/infomessage"):new{
-                text = T(_("Downloading %1…"), tostring(detail.title or book.title or "")),
-                timeout = 2,
-            })
-
-            local ok_dl, err = pcall(function()
-                -- Prefer catalog download helper when present
-                if type(client.downloadCatalogFile) == "function" then
-                    return client:downloadCatalogFile(file.id, dest)
-                end
-                if type(client.downloadFile) == "function" then
-                    return client:downloadFile(file.id, dest)
-                end
-                -- Fallback: HTTP path via api if exposed
-                error("no download method on BookOrbit API client")
-            end)
-            if not ok_dl then
-                logger.warn(TAG, "download failed:", err)
-                UIManager:show(require("ui/widget/infomessage"):new{ text = _("Download failed") })
-                return
-            end
             if lfs.attributes(dest, "mode") ~= "file" then
-                UIManager:show(require("ui/widget/infomessage"):new{ text = _("Download failed") })
-                return
+                local okX, Transfer = pcall(require, "bookorbit_download_transfer")
+                if not okX then done() return fail(_("This BookOrbit version can't download from here.")) end
+                pcall(Transfer.sweepStale, root)
+                local ok_t, ok, err = pcall(Transfer.run, {
+                    root = root, destination = dest, generation = os.time(),
+                    expected_bytes = file.sizeBytes, expected_hash = file.fileHash, hash = "partial_md5",
+                    perform = function(o)
+                        o.variant = file.selection and (file.requestedVariant or file.downloadVariant) or nil
+                        o.selection = file.selection
+                        return client:downloadCatalogFile(file.id, dest, o)
+                    end,
+                })
+                if not (ok_t and ok) then
+                    done()
+                    logger.warn(TAG, "download failed:", ok_t and err or ok)
+                    if err ~= "cancelled" then
+                        fail(T(_("Couldn't download it:\n%1"), tostring(ok_t and err or ok)))
+                    end
+                    return
+                end
             end
 
+            -- on the device straight away, before BookOrbit links it
             rememberLocalDownload(id, dest)
 
-            -- Link for sync when possible
-            pcall(function()
-                local util = require("util")
-                local digest = util.partialMD5 and util.partialMD5(dest)
-                if not digest then return end
-                local body = client:matchCheck({ digest }, { [digest] = { source = "file", book_file_id = file.id } })
-                local SM = require("bookorbit_state_manager")
-                if type(body) ~= "table" then return end
-                if SM.applyLibraryVersion then SM.applyLibraryVersion(body.libraryVersion) end
-                for _i, m in ipairs(body.matches or {}) do
-                    if m.hash == digest then
-                        SM.linkFile(digest, m.bookFileId, m.bookId, dest)
-                        return
+            done()
+            if on_done then pcall(on_done, dest) end
+            -- the shelf shows it as on the device now, whoever started the download;
+            -- before the link below, which is a network call
+            retargetHeroPreview(id, dest)
+            local bs = getBookshelf()
+            if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+
+            -- linked to its BookOrbit book, so it syncs: a moment later, after the shelf
+            -- has redrawn
+            UIManager:scheduleIn(0.5, function()
+                pcall(function()
+                    local digest = util.partialMD5(dest)
+                    if not digest then return end
+                    local body = client:matchCheck({ digest }, { [digest] = { source = "file", book_file_id = file.id } })
+                    local SM = require("bookorbit_state_manager")
+                    if type(body) ~= "table" then return end
+                    if SM.applyLibraryVersion then SM.applyLibraryVersion(body.libraryVersion) end
+                    for _i, m in ipairs(body.matches or {}) do
+                        if m.hash == digest then
+                            SM.linkFile(digest, m.bookFileId, m.bookId, dest)
+                            return
+                        end
                     end
-                end
+                end)
             end)
 
-            if on_done then pcall(on_done, dest) end
+            -- it is not opened by itself: the reader chooses
             UIManager:show(require("ui/widget/confirmbox"):new{
                 text = T(_("Downloaded %1.\n\nOpen it now?"), tostring(detail.title or book.title or "")),
                 ok_text = _("Open"),
@@ -714,6 +947,7 @@ local function removeFromDevice(book)
                 end
             end)
             forgetLocalDownload(book.bookorbit_id)
+            if book.bookorbit_id then retargetHeroPreview(book.bookorbit_id, nil) end
             UIManager:show(require("ui/widget/infomessage"):new{
                 text = _("Removed from device"),
                 timeout = 2,
@@ -722,6 +956,61 @@ local function removeFromDevice(book)
             if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
         end,
     })
+end
+
+-- BookOrbit book id for a file on the device, or nil when it is not one of theirs
+local function bookIdForPath(file)
+    if type(file) ~= "string" or file == "" then return nil end
+    for id, fp in pairs(onDeviceByBookId(false)) do
+        if fp == file then return tonumber(id) or id end
+    end
+    local mine = G_reader_settings and G_reader_settings:readSetting("simpleui_sidepanel_bo_local")
+    if type(mine) == "table" then
+        for id, fp in pairs(mine) do
+            if fp == file then return tonumber(id) or id end
+        end
+    end
+    return nil
+end
+
+-- Remove From Device in the long-press menu of a BookOrbit book that is on the device.
+-- Bookshelf shows buttons registered here in its own book menu; the file browser's
+-- long-press menu shows them too.
+local FILE_DIALOG_ID = "orbitshelf_remove_from_device"
+local function registerFileDialogButton()
+    local okFM, FileManager = pcall(require, "apps/filemanager/filemanager")
+    if not (okFM and type(FileManager) == "table" and type(FileManager.addFileDialogButtons) == "function") then
+        return false
+    end
+    FileManager.addFileDialogButtons(FileManager, FILE_DIALOG_ID, function(file, is_file, book_props)
+        if not is_file then return nil end
+        local id = bookIdForPath(file)
+        if not id then return nil end
+        return {{
+            text = _("Remove From Device"),
+            callback = function()
+                -- close the book menu this was tapped in (the top window that has a
+                -- rebuildTab), like Bookshelf's own Delete does
+                pcall(function()
+                    local stack = UIManager._window_stack or {}
+                    for i = #stack, 1, -1 do
+                        local w = stack[i].widget
+                        if type(w) == "table" and type(w.rebuildTab) == "function" then
+                            UIManager:close(w)
+                            break
+                        end
+                    end
+                end)
+                local title = type(book_props) == "table" and book_props.title or nil
+                removeFromDevice({
+                    bookorbit_id = id,
+                    filepath = file,
+                    title = title or (file:match("([^/]+)%.[^./]+$") or file:match("([^/]+)$") or file),
+                })
+            end,
+        }}
+    end)
+    return true
 end
 
 local function openInBookOrbit(book)
@@ -767,6 +1056,37 @@ local function openInBookOrbit(book)
     return false
 end
 
+-- A tap or a long-press on a book that is not on the device: say so and offer
+-- Download. Nothing downloads or opens until a button is pressed.
+local function showNotOnDevice(book)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local lines = { tostring(book.display_title or book.title or "") }
+    local who = book.author
+    if type(who) ~= "string" or who == "" then who = type(book.authors) == "table" and book.authors[1] or "" end
+    if type(who) == "string" and who ~= "" then lines[#lines + 1] = who end
+    if type(book.series) == "string" and book.series ~= "" then
+        local n = tonumber(book.series_index)
+        lines[#lines + 1] = n and T(_("%1 #%2"), book.series, tostring(n)) or book.series
+    end
+    lines[#lines + 1] = _("Not On Device")
+    local dialog
+    dialog = ButtonDialog:new{
+        title = table.concat(lines, "\n"),
+        buttons = {
+            {{ text = _("Download"), callback = function()
+                UIManager:close(dialog)
+                downloadBookOrbitBook(book)
+            end }},
+            {{ text = _("Open In BookOrbit"), callback = function()
+                UIManager:close(dialog)
+                openInBookOrbit(book)
+            end }},
+            {{ text = _("Cancel"), callback = function() UIManager:close(dialog) end }},
+        },
+    }
+    UIManager:show(dialog)
+end
+
 -- ---- Grouping (Series / Authors / Genres) from the BookOrbit library -------------
 
 local function modeParams(source)
@@ -805,7 +1125,8 @@ local function groupKeysFor(rec, mode)
             end
             if #out > 0 then return out end
         end
-        return splitNames(rec.authors or rec.author or "")
+        if type(rec.author) == "string" and rec.author ~= "" then return { rec.author } end
+        return {}
     elseif mode == "genres" then
         if type(rec.genres) == "table" then
             local out = {}
@@ -818,6 +1139,34 @@ local function groupKeysFor(rec, mode)
     end
     return {}
 end
+
+-- Fetch mode skips Bookshelf's own sort, so the groups are put in order here with
+-- Bookshelf's sort engine (surname, articles ignored, missing values last). The
+-- plain comparator is only the fallback when that module cannot be loaded.
+local function sortWith(items, priority, fallback)
+    local okE, Engine = pcall(require, "lib/bookshelf_sort_engine")
+    if okE and type(Engine) == "table" and type(Engine.chainedComparator) == "function" then
+        local okC, cmp = pcall(Engine.chainedComparator, priority)
+        if okC and type(cmp) == "function" and pcall(table.sort, items, cmp) then return end
+    end
+    table.sort(items, fallback)
+end
+
+-- Stock Bookshelf orders: Series cards by last opened, Authors by surname,
+-- Genres by book count; inside a group, series order (Series), series then
+-- number (Authors / Genres).
+local GROUP_CARD_ORDER = {
+    series  = { { key = "last_opened", reverse = true }, { key = "series_name", reverse = false } },
+    authors = { { key = "author_surname", reverse = false }, { key = "series_name", reverse = false } },
+    genres  = { { key = "book_count", reverse = true }, { key = "series_name", reverse = false } },
+}
+local GROUP_BOOK_ORDER = {
+    series  = { { key = "series_index", reverse = false }, { key = "title", reverse = false } },
+    authors = { { key = "series_name", reverse = false }, { key = "series_index", reverse = false },
+                { key = "title", reverse = false } },
+    genres  = { { key = "series_name", reverse = false }, { key = "series_index", reverse = false },
+                { key = "title", reverse = false } },
+}
 
 -- Build folder records for series/authors/genres from the (cached) library list.
 local function groupFolders(mode)
@@ -836,18 +1185,23 @@ local function groupFolders(mode)
             if not b.cover and rec.cover_image_path then b.cover = rec.cover_image_path end
         end
     end
-    table.sort(order, function(a, b)
-        return (buckets[a].title or ""):lower() < (buckets[b].title or ""):lower()
-    end)
     local folders = {}
     for _i, lk in ipairs(order) do
         local b = buckets[lk]
         local id = mode .. ":" .. lk
+        local last
+        for _j, rec in ipairs(b.books) do
+            if rec.last_opened and (not last or rec.last_opened > last) then last = rec.last_opened end
+        end
         folders[#folders + 1] = {
             is_folder = true,
             title = b.title,
             label = b.title,
             display_title = b.title,
+            -- the fields Bookshelf's own group cards carry, so its sort keys read them
+            name = b.title,
+            series_name = b.title,
+            last_opened = last,
             book_count = #b.books,
             cover_image_path = b.cover,
             filepath = "bookorbit://nav/" .. id,
@@ -856,6 +1210,9 @@ local function groupFolders(mode)
             source_kind = SOURCE_ID,
         }
     end
+    sortWith(folders, GROUP_CARD_ORDER[mode] or GROUP_CARD_ORDER.series, function(a, b)
+        return (a.title or ""):lower() < (b.title or ""):lower()
+    end)
     return folders, #folders
 end
 
@@ -871,7 +1228,7 @@ local function booksInGroup(mode, key)
             end
         end
     end
-    table.sort(out, function(a, b)
+    sortWith(out, GROUP_BOOK_ORDER[mode] or GROUP_BOOK_ORDER.series, function(a, b)
         local na = tonumber(a.series_index) or tonumber(a.series_num) or 1e9
         local nb = tonumber(b.series_index) or tonumber(b.series_num) or 1e9
         if na ~= nb then return na < nb end
@@ -891,11 +1248,63 @@ local function slice(items, offset, limit)
     return out, total
 end
 
+-- Collections: from BookOrbit when Wi-Fi is on, else the list saved from the last
+-- time, plus whatever the Side Panel has saved.
+local COLLS_KEY = "orbitshelf_tweaks_collections"
+
+local function fetchBoCollections()
+    local client = boApiClient()
+    if not client then return nil end
+    local ok, body = pcall(function() return client:catalogSection("collections") end)
+    if not ok or type(body) ~= "table" then
+        logger.warn(TAG, "collections fetch failed -", ok and "no usable reply" or tostring(body))
+        return nil
+    end
+    local out = {}
+    for _i, e in ipairs(body.items or body.collections or body.entries or {}) do
+        local id = type(e) == "table" and tonumber(e.id) or nil
+        if id then out[#out + 1] = { id = id, title = e.title or e.name or tostring(id) } end
+    end
+    if #out > 0 and G_reader_settings then G_reader_settings:saveSetting(COLLS_KEY, out) end
+    return out
+end
+
+local function listCollections()
+    local out, seen = {}, {}
+    local function add(list)
+        for _i, c in ipairs(type(list) == "table" and list or {}) do
+            local id = type(c) == "table" and tonumber(c.id) or nil
+            if id and not seen[id] then
+                seen[id] = true
+                out[#out + 1] = { id = id, title = c.title or tostring(id) }
+            end
+        end
+    end
+    if isWifiOn() then add(fetchBoCollections()) end
+    add(G_reader_settings and G_reader_settings:readSetting(COLLS_KEY))
+    local okP, side = pcall(function() return package.loaded["simpleui_sidepanel_bo"] end)
+    if okP and type(side) == "table" and type(side.collections) == "function" then
+        local okC, colls = pcall(side.collections)
+        if okC then add(colls) end
+    end
+    table.sort(out, function(a, b) return tostring(a.title):lower() < tostring(b.title):lower() end)
+    return out
+end
+
+local function pickCollection(target, c)
+    target.source = target.source or {}
+    target.source.kind = SOURCE_ID
+    target.source.mode = "collection"
+    target.source.collection_id = c.id
+    target.source.collection_title = c.title
+    -- the shelf keeps its own title
+end
+
 local function setPickMode(draft, mode, label)
     draft.source = draft.source or {}
     draft.source.kind = SOURCE_ID
     draft.source.mode = mode
-    draft.label = label
+    -- the shelf keeps its own title (label is no longer written)
 end
 
 local function buildSpec()
@@ -937,25 +1346,16 @@ local function buildSpec()
                     end,
                 }},
             }
-            local okP, side = pcall(function() return package.loaded["simpleui_sidepanel_bo"] end)
-            if okP and type(side) == "table" and type(side.collections) == "function" then
-                local colls = side.collections() or {}
-                for i, c in ipairs(colls) do
-                    if i > 8 then break end
-                    local cid, ctitle = c.id, c.title or tostring(c.id)
-                    table.insert(buttons, #buttons, {{
-                        text = T(_("Collection: %1"), ctitle),
-                        callback = function()
-                            UIManager:close(dialog)
-                            draft.source = draft.source or {}
-                            draft.source.kind = SOURCE_ID
-                            draft.source.mode = "collection"
-                            draft.source.collection_id = cid
-                            draft.label = T(_("BookOrbit · %1"), ctitle)
-                            done()
-                        end,
-                    }})
-                end
+            for i, c in ipairs(listCollections()) do
+                if i > 20 then break end
+                table.insert(buttons, #buttons, {{
+                    text = T(_("Collection: %1"), c.title),
+                    callback = function()
+                        UIManager:close(dialog)
+                        pickCollection(draft, c)
+                        done()
+                    end,
+                }})
             end
             dialog = ButtonDialog:new{
                 title = _("BookOrbit shelf"),
@@ -967,6 +1367,10 @@ local function buildSpec()
         -- fetch mode: folders for series/authors/genres, flat lists otherwise
         fetch = function(source, drill, offset, limit)
             local mode = type(source) == "table" and source.mode or "library"
+            if mode == "collection" and not (type(source) == "table" and source.collection_id) then
+                logger.warn(TAG, "collection shelf has no collection id; edit the shelf and pick the collection again")
+                return {}, 0
+            end
             if drill and (drill.group == "series" or drill.group == "authors" or drill.group == "genres") then
                 local items = booksInGroup(drill.group, drill.key)
                 return slice(items, offset, limit)
@@ -1002,9 +1406,19 @@ local function buildSpec()
             end
             local live = liveBookPath(book.bookorbit_id)
             if live then return live end
-            downloadBookOrbitBook(book, function(p)
-                if ctx and type(ctx.open) == "function" and p then ctx.open(p) end
-            end)
+            showNotOnDevice(book)
+            return true
+        end,
+
+        -- long-press on a book that is not on the device
+        info = function(book, ctx)
+            if not book or book.is_folder then return false end
+            local live = liveBookPath(book.bookorbit_id)
+            if live then
+                if ctx and type(ctx.open) == "function" then ctx.open(live) end
+                return true
+            end
+            showNotOnDevice(book)
             return true
         end,
 
@@ -1032,6 +1446,9 @@ local function buildSpec()
                 {{
                     text = function(d)
                         local m = type(d.source) == "table" and d.source.mode or "library"
+                        if m == "collection" and type(d.source) == "table" and d.source.collection_title then
+                            return T(_("List: Collection · %1"), d.source.collection_title)
+                        end
                         return T(_("List: %1"), names[m] or m)
                     end,
                     callback = function(d, done_row)
@@ -1044,23 +1461,34 @@ local function buildSpec()
                                     UIManager:close(dialog)
                                     d.source = d.source or {}
                                     d.source.mode = m
-                                    if m ~= "collection" then d.source.collection_id = nil end
-                                    d.label = "BookOrbit · " .. label
+                                    if m ~= "collection" then d.source.collection_id = nil d.source.collection_title = nil end
                                     done_row()
                                 end,
                             }}
                         end
+                        local buttons = {
+                            go("library", _("Library")),
+                            go("recently_added", _("Recently added")),
+                            go("recently_read", _("Recently read")),
+                            go("series", _("Series")),
+                            go("authors", _("Authors")),
+                            go("genres", _("Genres")),
+                        }
+                        for i, c in ipairs(listCollections()) do
+                            if i > 20 then break end
+                            buttons[#buttons + 1] = {{
+                                text = T(_("Collection: %1"), c.title),
+                                callback = function()
+                                    UIManager:close(dialog)
+                                    pickCollection(d, c)
+                                    done_row()
+                                end,
+                            }}
+                        end
+                        buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function() UIManager:close(dialog) end }}
                         dialog = ButtonDialog:new{
                             title = _("BookOrbit list"),
-                            buttons = {
-                                go("library", _("Library")),
-                                go("recently_added", _("Recently added")),
-                                go("recently_read", _("Recently read")),
-                                go("series", _("Series")),
-                                go("authors", _("Authors")),
-                                go("genres", _("Genres")),
-                                {{ text = _("Cancel"), callback = function() UIManager:close(dialog) end }},
-                            },
+                            buttons = buttons,
                         }
                         UIManager:show(dialog)
                     end,
@@ -1198,8 +1626,23 @@ local function bookOnDevice(book)
     return liveBookPath(book.bookorbit_id) and true or false
 end
 
+-- A BookOrbit book once it is on the device: Bookshelf rebuilds the hero's record
+-- from the file (title, description...), which drops our fields. The file tells us
+-- which BookOrbit book it is, and the record gets its id back.
+local function asBookOrbit(book)
+    if type(book) ~= "table" then return false end
+    if book.is_bookorbit or book.bookorbit_id or book.source_kind == SOURCE_ID then return true end
+    local fp = book.filepath
+    if type(fp) ~= "string" or fp:match("^bookorbit://") then return false end
+    local id = bookIdForPath(fp)
+    if not id then return false end
+    book.bookorbit_id = id
+    book.is_bookorbit = true
+    return true
+end
+
 local function heroActionsFor(book)
-    if not book or not (book.is_bookorbit or book.bookorbit_id or book.source_kind == SOURCE_ID) then
+    if not asBookOrbit(book) then
         return nil
     end
     if book.is_folder then return nil end
@@ -1222,7 +1665,127 @@ local function heroActionsFor(book)
     return actions
 end
 
+-- Sync: the saved BookOrbit lists are thrown away and pulled fresh, then BookOrbit's
+-- own "sync all books" runs (it relinks books on the device and syncs progress), then
+-- the shelf is redrawn again.
+local sync_running = false
+local function syncBookOrbit()
+    if sync_running then return end
+    local okT, Toast = pcall(require, "bookorbit_toast")
+    local function say(msg, is_error)
+        if okT and Toast then
+            if is_error and Toast.error then Toast.error(msg) elseif Toast.show then Toast.show(msg) end
+        else
+            UIManager:show(require("ui/widget/infomessage"):new{ text = msg, timeout = 3 })
+        end
+    end
+    local function redraw()
+        local bs = getBookshelf()
+        if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+    end
+    local function run()
+        sync_running = true
+        local finished = false
+        local function finish(msg, is_error)
+            if finished then return end
+            finished = true
+            sync_running = false
+            pcall(function()
+                local SM = require("bookorbit_state_manager")
+                if type(SM.invalidate) == "function" then SM.invalidate() end
+            end)
+            redraw()
+            say(msg, is_error)
+        end
+        -- fresh lists first
+        page_cache = {}
+        savePageCache()
+        redraw()
+
+        local bo
+        pcall(function()
+            local FM = package.loaded["apps/filemanager/filemanager"]
+            bo = type(FM) == "table" and FM.instance and FM.instance.bookorbit or nil
+        end)
+        local signed_in = false
+        if bo and type(bo.isLoggedIn) == "function" then
+            local okL, v = pcall(bo.isLoggedIn, bo)
+            signed_in = okL and v and true or false
+        end
+        if not (bo and type(bo.startSweep) == "function" and signed_in) then
+            finish(_("BookOrbit lists refreshed"))
+            return
+        end
+        say(_("Syncing BookOrbit…"))
+        -- never leave the button stuck if the sync never reports back
+        UIManager:scheduleIn(300, function() finish(_("BookOrbit sync did not finish"), true) end)
+        local okS, errS = pcall(bo.startSweep, bo, {
+            quiet = true,
+            on_done = function(err)
+                if err then
+                    finish(T(_("Sync stopped: %1"), tostring(err)), true)
+                else
+                    finish(_("BookOrbit synced"))
+                end
+            end,
+        })
+        if not okS then
+            logger.warn(TAG, "sync failed:", tostring(errS))
+            finish(_("Sync could not start"), true)
+        end
+    end
+    local okN, NetworkMgr = pcall(require, "ui/network/manager")
+    if okN and NetworkMgr.runWhenConnected then
+        NetworkMgr:runWhenConnected(run)
+    else
+        run()
+    end
+end
+
+-- A small round icon button (KOReader's symbols font), white with a thin border like
+-- the pills. Returns the button (with getSize) or nil.
+local function makeIconButton(glyph_char, on_tap)
+    local ok_ic, InputContainer = pcall(require, "ui/widget/container/inputcontainer")
+    local ok_fc, FrameContainer = pcall(require, "ui/widget/container/framecontainer")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local ok_iw, TextWidget = pcall(require, "ui/widget/textwidget")
+    local ok_ft, Font = pcall(require, "ui/font")
+    local ok_geom, Geom = pcall(require, "ui/geometry")
+    local ok_gr, GestureRange = pcall(require, "ui/gesturerange")
+    local ok_bb, Blitbuffer = pcall(require, "ffi/blitbuffer")
+    local ok_sc, Screen = pcall(function() return require("device").screen end)
+    if not (ok_ic and ok_fc and ok_iw and ok_ft and ok_geom and ok_gr and ok_bb and ok_sc) then return nil end
+    local glyph = TextWidget:new{
+        text = glyph_char,
+        face = Font:getFace("symbols", 15),
+        fgcolor = Blitbuffer.COLOR_BLACK,
+    }
+    local gsz = glyph:getSize()
+    local side = math.max(gsz.w, gsz.h) + Screen:scaleBySize(8)
+    local frame = FrameContainer:new{
+        bordersize = 1,
+        padding = 0,
+        margin = 0,
+        radius = math.floor(side / 2),
+        background = Blitbuffer.COLOR_WHITE,
+        CenterContainer:new{ dimen = Geom:new{ w = side, h = side }, glyph },
+    }
+    local sz = frame:getSize()
+    local Button = InputContainer:extend{}
+    function Button:onTap()
+        on_tap()
+        return true
+    end
+    local button = Button:new{ dimen = Geom:new{ w = sz.w, h = sz.h }, frame }
+    button.ges_events = { Tap = { GestureRange:new{ ges = "tap", range = button.dimen } } }
+    return button
+end
+
+local ICON_SYNC, ICON_REMOVE, ICON_ORBIT = "\u{F021}", "\u{F1F8}", "\u{F08E}"
+
 local function buildHeroPills(book, width)
+    -- on the device: small icons instead (heroIconsFor), so the description has room
+    if bookOnDevice(book) then return nil end
     local actions = heroActionsFor(book)
     if not actions or #actions == 0 then return nil end
     local ok_ic, InputContainer = pcall(require, "ui/widget/container/inputcontainer")
@@ -1238,22 +1801,25 @@ local function buildHeroPills(book, width)
         return nil
     end
     local face = Font:getFace("xx_smallinfofont")
+    local Screen = require("device").screen
+    local gap = Screen:scaleBySize(8)
     local row = HorizontalGroup:new{ align = "center" }
     for i, a in ipairs(actions) do
         if i > 1 and ok_hs then
-            row[#row + 1] = HorizontalSpan:new{ width = 8 }
+            row[#row + 1] = HorizontalSpan:new{ width = gap }
         end
+        local pad = Screen:scaleBySize(5)
         local label = TextWidget:new{
             text = a.text,
             face = face,
-            max_width = math.floor((width or 200) / #actions) - 12,
+            max_width = math.floor(((width or 200) - gap * (#actions - 1)) / #actions) - 2 * pad - 2,
         }
         local frame = FrameContainer:new{
             bordersize = 1,
-            padding = 4,
+            padding = pad,
             margin = 0,
             background = ok_bb and Blitbuffer.COLOR_WHITE or nil,
-            radius = 4,
+            radius = Screen:scaleBySize(10),
             label,
         }
         local sz = frame:getSize()
@@ -1275,6 +1841,29 @@ local function buildHeroPills(book, width)
             },
         }
         row[#row + 1] = pill
+    end
+    return row
+end
+
+-- The small icons at the bottom right of the hero's right column: for a book on the
+-- device Remove From Device and Open In BookOrbit, and Sync for any BookOrbit book.
+local function heroIconsFor(book)
+    local icons = {}
+    if cfg.hero_pills and bookOnDevice(book) then
+        icons[#icons + 1] = makeIconButton(ICON_REMOVE, function() removeFromDevice(book) end)
+        icons[#icons + 1] = makeIconButton(ICON_ORBIT, function() openInBookOrbit(book) end)
+    end
+    if cfg.hero_sync then
+        icons[#icons + 1] = makeIconButton(ICON_SYNC, syncBookOrbit)
+    end
+    if #icons == 0 then return nil end
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local HorizontalSpan = require("ui/widget/horizontalspan")
+    local gap = require("device").screen:scaleBySize(8)
+    local row = HorizontalGroup:new{ align = "center" }
+    for i, w in ipairs(icons) do
+        if i > 1 then row[#row + 1] = HorizontalSpan:new{ width = gap } end
+        row[#row + 1] = w
     end
     return row
 end
@@ -1310,26 +1899,80 @@ local function hookHero()
         end
     end
 
-    -- Inline pills on the hero right column (bottom)
-    if cfg.hero_pills and type(HeroCard._buildRightColumn) == "function" then
+    -- One row at the bottom of the hero's right column: text pills on the left (a book
+    -- not on the device), small icons on the right (Remove, BookOrbit, Sync). The column
+    -- is built that much shorter so the row sits inside the card (not under the tab
+    -- bar), and all go in one OverlapGroup.
+    if type(HeroCard._buildRightColumn) == "function" then
         local orig_col = HeroCard._buildRightColumn
         HeroCard._buildRightColumn = function(self, book, regions, state, dimen, ...)
-            local column = orig_col(self, book, regions, state, dimen, ...)
-            if not cfg.hero_pills then return column end
-            local is_bo = book and (book.is_bookorbit or book.bookorbit_id or book.source_kind == SOURCE_ID)
-            if not is_bo or (book and book.is_folder) then return column end
-            local w = (dimen and dimen.w) or (self.width) or 200
-            local pills = buildHeroPills(book, w)
-            if not pills then return column end
-            -- Attach under the existing column via a VerticalGroup when possible
-            local ok_vg, VerticalGroup = pcall(require, "ui/widget/verticalgroup")
-            local ok_vs, VerticalSpan = pcall(require, "ui/widget/verticalspan")
-            if not ok_vg then return column end
-            local vg = VerticalGroup:new{ align = "left" }
-            if column then vg[#vg + 1] = column end
-            if ok_vs then vg[#vg + 1] = VerticalSpan:new{ width = 6 } end
-            vg[#vg + 1] = pills
-            return vg
+            if not asBookOrbit(book) then return orig_col(self, book, regions, state, dimen, ...) end
+
+            local okG, Geom = pcall(require, "ui/geometry")
+            local okO, OverlapGroup = pcall(require, "ui/widget/overlapgroup")
+            local have_dimen = okG and okO and type(dimen) == "table" and dimen.w and dimen.h
+
+            local pills, icons
+            if not book.is_folder then
+                local okI, row = pcall(heroIconsFor, book)
+                icons = okI and row or nil
+                local icons_w = 0
+                if icons then
+                    local okS, isz = pcall(icons.getSize, icons)
+                    icons_w = okS and isz and isz.w or 0
+                end
+                if cfg.hero_pills then
+                    -- the text pills share the bottom row with the icons, to their left
+                    local w = ((dimen and dimen.w) or self.width or 200) - (icons_w > 0 and icons_w + 12 or 0)
+                    pills = buildHeroPills(book, math.max(60, w))
+                end
+            end
+
+            -- no size to work with: the old way, pills stacked under the column
+            if not have_dimen then
+                local column = orig_col(self, book, regions, state, dimen, ...)
+                if not pills and not icons then return column end
+                local ok_vg, VerticalGroup = pcall(require, "ui/widget/verticalgroup")
+                local ok_vs, VerticalSpan = pcall(require, "ui/widget/verticalspan")
+                if not ok_vg then return column end
+                local vg = VerticalGroup:new{ align = "left" }
+                if column then vg[#vg + 1] = column end
+                if ok_vs then vg[#vg + 1] = VerticalSpan:new{ width = 6 } end
+                if pills then vg[#vg + 1] = pills end
+                if icons then vg[#vg + 1] = icons end
+                return vg
+            end
+
+            -- one row at the bottom: text pills on the left, icons on the right; the
+            -- column is built that much shorter, so nothing overlaps
+            local function sizeOf(w)
+                if not w then return nil end
+                local okS, sz = pcall(w.getSize, w)
+                return okS and sz or nil
+            end
+            local psz, isz = sizeOf(pills), sizeOf(icons)
+            local row_h = math.max(psz and psz.h or 0, isz and isz.h or 0)
+            local col_dimen = dimen
+            if row_h > 0 then
+                col_dimen = Geom:new{ w = dimen.w, h = math.max(math.floor(dimen.h / 2), dimen.h - row_h - 6) }
+            end
+            local column = orig_col(self, book, regions, state, col_dimen, ...)
+            local extras = {}
+            if pills and psz then
+                pills.overlap_offset = { 0, math.max(0, dimen.h - row_h + math.floor((row_h - psz.h) / 2)) }
+                extras[#extras + 1] = pills
+            end
+            if icons and isz then
+                -- OverlapGroup ignores the offset when a child is aligned "right"
+                icons.overlap_offset = { math.max(0, dimen.w - isz.w),
+                    math.max(0, dimen.h - row_h + math.floor((row_h - isz.h) / 2)) }
+                extras[#extras + 1] = icons
+            end
+            if #extras == 0 then return column end
+            local group = OverlapGroup:new{ dimen = Geom:new{ w = dimen.w, h = dimen.h } }
+            if column then group[#group + 1] = column end
+            for _i, w in ipairs(extras) do group[#group + 1] = w end
+            return group
         end
     end
 end
@@ -1373,6 +2016,78 @@ local function isCloseEntry(entry)
         or entry.internal == "close"
         or (type(entry.label) == "string" and entry.label:find("Close Bookshelf", 1, true))
     )
+end
+
+-- Flat close: with Close Only on, the footer hamburger is painted as a close X
+-- (same slot, same stroke weight as Bookshelf's own start-menu X) and a tap
+-- closes the shelf directly. Anything else that would open the start menu
+-- (gesture action, keyboard focus on the footer button) closes the shelf too.
+local function closeShelfFrom(bw)
+    local done = false
+    if type(bw) == "table" and type(bw.onClose) == "function" then
+        done = pcall(bw.onClose, bw)
+    end
+    if not done then closeBookshelf() end
+    pcall(function() UIManager:setDirty("all", "full") end)
+end
+
+local function buildCloseXIcon(bw, focused, frame_width)
+    local Device = require("device")
+    local Screen = Device.screen
+    local Geom = require("ui/geometry")
+    local Widget = require("ui/widget/widget")
+    local Color = require("lib/bookshelf_color")
+    local art = Screen:scaleBySize(32)
+    frame_width = frame_width or art
+    local stroke = (bw.FOOTER_STROKE_W) or math.max(1, math.floor(art / 14))
+    local span = math.floor(art * 0.62)
+    local ink = bw:_chromeInk()
+    local XWidget = Widget:extend{}
+    function XWidget:getSize() return Geom:new{ w = art, h = art } end
+    function XWidget:paintTo(bb, x, y)
+        self.dimen = Geom:new{ x = x, y = y, w = art, h = art }
+        local ox = x + math.floor((art - span) / 2)
+        local oy = y + math.floor((art - span) / 2)
+        local last = span - stroke
+        for t = 0, last do
+            Color.paintRect(bb, ox + t, oy + t, stroke, stroke, ink)
+            Color.paintRect(bb, ox + last - t, oy + t, stroke, stroke, ink)
+        end
+    end
+    local btn = bw:_wrapAsFooterButton(XWidget:new{}, frame_width, focused, function()
+        closeShelfFrom(bw)
+        return true
+    end)
+    bw._burger_dimen = btn.dimen
+    return btn
+end
+
+local function hookFlatClose(BW)
+    if BW._orbitshelf_flat_close then return end
+    BW._orbitshelf_flat_close = true
+
+    if type(BW._buildStartMenuIcon) == "function" then
+        local orig_icon = BW._buildStartMenuIcon
+        BW._buildStartMenuIcon = function(self, focused, frame_width, ...)
+            if cfg.close_only_menu then
+                local ok, btn = pcall(buildCloseXIcon, self, focused, frame_width)
+                if ok and btn then return btn end
+                logger.warn(TAG, "close X build failed, using stock hamburger:", btn)
+            end
+            return orig_icon(self, focused, frame_width, ...)
+        end
+    end
+
+    if type(BW._openStartMenu) == "function" then
+        local orig_open = BW._openStartMenu
+        BW._openStartMenu = function(self, force, ...)
+            if cfg.close_only_menu and (force or self:_startMenuPosition() ~= "off") then
+                closeShelfFrom(self)
+                return
+            end
+            return orig_open(self, force, ...)
+        end
+    end
 end
 
 local function hookCloseOnlyMenu()
@@ -1439,6 +2154,9 @@ local function hookCloseOnlyMenu()
 
     -- Hamburger on the same side as Close Control (left/right)
     local okW, BW = pcall(require, "lib/bookshelf_widget")
+    if okW and type(BW) == "table" then
+        hookFlatClose(BW)
+    end
     if okW and type(BW) == "table" and type(BW._startMenuPosition) == "function"
             and not BW._orbitshelf_close_side then
         BW._orbitshelf_close_side = true
@@ -1490,145 +2208,457 @@ local function critterId(Assets)
 end
 
 local _footer_remark_i = 0
+local _session_seed = os.time() % 9973
+local _recent, RECENT_MAX = {}, 10
+local _pick_cache = nil -- { key = ..., line = ... }: one pick per page / tap / shelf
 
+-- UTF-8 safe clip with an ellipsis.
+local function clip(s, n)
+    s = tostring(s or "")
+    local count, i, len = 0, 1, #s
+    while i <= len do
+        count = count + 1
+        if count > n then
+            return (s:sub(1, i - 1):gsub("%s+$", "")) .. "…"
+        end
+        local c = s:byte(i)
+        i = i + (c >= 240 and 4 or c >= 224 and 3 or c >= 192 and 2 or 1)
+    end
+    return s
+end
+
+local function quoted(t) return "“" .. clip(t, 22) .. "”" end
+
+local function strHash(s)
+    local h = 0
+    for i = 1, #s do h = (h * 31 + s:byte(i)) % 100003 end
+    return h
+end
+
+-- Where the shelf is right now, read from the fields Bookshelf really keeps:
+-- page (set by _syncPageFromCursor), _total_pages, _total_items, _cursor,
+-- _viewSize(), _chipLabel() and _page_items.
 local function shelfFacts(bw)
-    local page = tonumber(bw and (bw._page or bw._current_page)) or 1
-    local total_pages = tonumber(bw and bw._total_pages) or 1
-    if total_pages < 1 then total_pages = 1 end
-    local items = tonumber(bw and (bw._total_items or bw._spine_books_total)) or 0
-    local label = ""
+    local f = { page = 1, pages = 1, books = 0, first = 1, last = 1, shelf = "", items = {} }
     pcall(function()
-        if type(bw.getActiveChipLabel) == "function" then
-            label = tostring(bw:getActiveChipLabel() or "")
-        elseif type(bw._active_chip_label) == "string" then
-            label = bw._active_chip_label
-        elseif type(bw.active_chip) == "string" then
-            label = bw.active_chip
+        f.pages = math.max(1, tonumber(bw._total_pages) or 1)
+        f.books = math.max(tonumber(bw._spine_books_total) or 0, tonumber(bw._total_items) or 0)
+        local view = 0
+        if type(bw._viewSize) == "function" then view = tonumber(bw:_viewSize()) or 0 end
+        local cursor = tonumber(bw._cursor) or 1
+        f.first = cursor
+        local last = view > 0 and (cursor + view - 1) or cursor
+        if f.books > 0 and last > f.books then last = f.books end
+        f.last = math.max(last, f.first)
+        local page = tonumber(bw.page)
+        if not page and view > 0 then page = math.ceil(f.last / view) end
+        f.page = math.max(1, math.min(page or 1, f.pages))
+        if type(bw._chipLabel) == "function" then
+            f.shelf = tostring(bw:_chipLabel() or "")
         end
-        if label == "" and type(bw._tabs) == "table" then
-            local id = bw._active_chip or bw.active_chip
-            for _i, t in ipairs(bw._tabs) do
-                if type(t) == "table" and t.id == id then
-                    label = t.label or t.id or ""
-                    break
-                end
-            end
-        end
+        if type(bw._page_items) == "table" then f.items = bw._page_items end
     end)
-    if label == "" then label = _("this shelf") end
-    -- Prefer live page counter if Bookshelf exposes one
-    pcall(function()
-        if type(bw._pageCounterText) == "function" then
-            -- don't use as primary; just ensure page vars are sane
-        end
-        if type(bw._cursor) == "number" and type(bw._page_size) == "number" and bw._page_size > 0 then
-            page = math.floor((bw._cursor - 1) / bw._page_size) + 1
-        end
-    end)
+    if f.shelf == "" then f.shelf = _("this shelf") end
+    f.total_pages = f.pages -- the nav-state code below still reads this name
+    return f
+end
+
+local function pageInfo(f)
+    return string.format(_("Page %d of %d · %s"), f.page, f.pages, clip(f.shelf, 16))
+end
+
+-- ---- Kind 1: where you are -------------------------------------------------------
+
+local function pageLines(f)
+    local L = {}
+    local function add(mood, text, sub) L[#L + 1] = { mood = mood, text = text, sub = sub } end
+    add("curious", string.format(_("Page %d of %d."), f.page, f.pages), f.books > 0
+        and string.format(_("%d books on %s"), f.books, clip(f.shelf, 16)) or nil)
+    add("reading", string.format(_("You're on page %d."), f.page))
+    add("happy", T(_("Browsing %1."), clip(f.shelf, 20)), string.format(_("Page %d / %d"), f.page, f.pages))
+    if f.books > 0 then
+        add("neutral", string.format(_("Books %d–%d of %d."), f.first, f.last, f.books),
+            string.format(_("Page %d · %s"), f.page, clip(f.shelf, 16)))
+    end
+    if f.page <= 1 then add("curious", _("Page 1. The very beginning."), pageInfo(f)) end
+    if f.page >= f.pages and f.pages > 1 then add("party", string.format(_("Page %d. That's the last one!"), f.page), pageInfo(f)) end
+    return L
+end
+
+-- ---- Kind 2: witty ---------------------------------------------------------------
+
+local function wittyLines(f)
+    local p, pages, n = f.page, f.pages, f.books
+    local shelf = clip(f.shelf, 18)
+    local L = {}
+    local function add(mood, text) L[#L + 1] = { mood = mood, text = text } end
+    add("playful", string.format(_("Page %d. The books are behaving."), p))
+    add("playful", _("I judge books by their covers. Sorry."))
+    add("neutral", _("Browsing is just reading's warm-up."))
+    add("happy", _("Another page, another maybe."))
+    add("curious", T(_("%1 sends its regards."), shelf))
+    add("playful", _("Tap me again. I have opinions."))
+    add("neutral", _("Somebody has to keep the spines in line."))
+    add("curious", string.format(_("Page %d of %d. Still counting."), p, pages))
+    add("happy", _("No dust here. I checked."))
+    add("playful", _("You can't read them all tonight. Try anyway."))
+    add("cheer", _("Every one of these started as someone's idea."))
+    add("curious", _("That cover is doing a lot of work."))
+    add("playful", _("Shelves don't judge. I do, a little."))
+    add("reading", _("Pick one. The others will understand."))
+    add("neutral", T(_("%1 again? Loyal."), shelf))
+    if p == 1 then add("curious", _("Page one. Where every good pile starts.")) end
+    if pages > 1 and p >= pages then add("party", _("Last page. The shelf ran out before the books did.")) end
+    if pages >= 10 then add("surprised", string.format(_("%d pages of shelf. Brave."), pages)) end
+    if n > 0 and n <= 3 then add("cozy", _("Tiny shelf. Very curated.")) end
+    if n == 0 then add("sad", _("Empty shelf. So much potential.")) end
+    if n >= 100 then add("playful", string.format(_("%d books. Bold of you to keep browsing."), n)) end
+    local h = tonumber(os.date("%H")) or 12
+    if h < 5 then add("sleepy", _("Browsing at this hour? Respect."))
+    elseif h < 11 then add("happy", _("Morning browse. Tea first?"))
+    elseif h >= 21 then add("dreamy", _("One more chapter, you said.")) end
+    return L
+end
+
+-- ---- Kind 3: picks from what's on this shelf page --------------------------------
+
+local function bookInfo(it)
+    if type(it) ~= "table" or it.is_folder then return nil end
+    local title = it.display_title or it.title
+    if type(title) ~= "string" or title == "" then return nil end
+    local author = it.author
+    if (not author or author == "") and type(it.authors) == "table" then author = it.authors[1] end
+    if type(author) ~= "string" or author == "" then author = nil end
+    local pct = tonumber(it.percent_finished or it.book_pct)
+    local st = it.status or it.read_status
+    local state
+    if st == "finished" or st == "complete" then state = "finished"
+    elseif st == "on_hold" or st == "abandoned" then state = "hold"
+    elseif st == "reading" or (pct and pct > 0 and pct < 1) then state = "reading"
+    else state = "unread" end
+    local series = type(it.series_name) == "string" and it.series_name ~= "" and it.series_name or nil
     return {
-        page = page,
-        total_pages = total_pages,
-        books = items,
-        shelf = label,
+        title = title, author = author, pct = pct, state = state,
+        series = series, series_num = it.series_num and tostring(it.series_num) or nil,
     }
 end
 
-local function footerRemarks(f)
-    local shelf = f.shelf or _("this shelf")
-    local page, pages, books = f.page or 1, f.total_pages or 1, f.books or 0
-    local lines = {
-        { mood = "curious", text = string.format(_("Page %d of %d."), page, pages),
-          sub = books > 0 and string.format(_("%d books on %s."), books, shelf) or shelf },
-        { mood = "happy", text = T(_("You're on %1."), shelf),
-          sub = string.format(_("Page %d / %d"), page, pages) },
-        { mood = "reading", text = books > 0 and string.format(_("%d books here."), books) or _("Empty shelf for now."),
-          sub = string.format(_("Page %d of %d · %s"), page, pages, shelf) },
-        { mood = "cheer", text = pages > 1 and string.format(_("Halfway? Page %d."), page) or _("One page, all set."),
-          sub = shelf },
-        { mood = "playful", text = T(_("Still browsing %1."), shelf),
-          sub = books > 0 and string.format(_("%d books · page %d"), books, page) or string.format(_("Page %d"), page) },
-        { mood = "neutral", text = string.format(_("%d of %d"), page, pages),
-          sub = T(_("· %1"), shelf) },
-    }
-    if page >= pages and pages > 1 then
-        lines[#lines + 1] = { mood = "party", text = _("Last page of the shelf!"), sub = shelf }
-    elseif page == 1 then
-        lines[#lines + 1] = { mood = "curious", text = _("Start of the shelf."), sub = shelf }
+local function recommendLines(f)
+    local L = {}
+    local function add(mood, text) L[#L + 1] = { mood = mood, text = text } end
+    local books = {}
+    for _i, it in ipairs(f.items or {}) do
+        local b = bookInfo(it)
+        if b then books[#books + 1] = b end
     end
-    return lines
+    if #books == 0 then return L end
+
+    local by_author, finished = {}, 0
+    for _i, b in ipairs(books) do
+        local t = quoted(b.title)
+        if b.state == "reading" and b.pct then
+            local pc = math.floor(b.pct * 100 + 0.5)
+            if pc >= 80 then
+                add("cheer", string.format(_("%s is %d%% done. One more push?"), t, pc))
+            else
+                add("reading", string.format(_("Back to %s? You're %d%% in."), t, pc))
+            end
+        elseif b.state == "hold" then
+            add("sad", string.format(_("%s is on hold. It misses you."), t))
+        elseif b.state == "unread" then
+            if b.series and b.series_num and b.series_num ~= "1" and b.series_num ~= "0" then
+                add("curious", string.format(_("%s #%s is still unread."), clip(b.series, 18), b.series_num))
+            elseif b.series then
+                add("hungry", string.format(_("Start the %s series?"), clip(b.series, 18)))
+            elseif b.author then
+                add("curious", string.format(_("%s by %s. Still unread."), t, clip(b.author, 20)))
+            else
+                add("curious", string.format(_("Still unread: %s."), t))
+            end
+            if b.author then
+                by_author[b.author] = by_author[b.author] or {}
+                table.insert(by_author[b.author], b.title)
+            end
+        else
+            finished = finished + 1
+        end
+    end
+    for author, titles in pairs(by_author) do
+        if #titles >= 2 then
+            add("playful", string.format(_("Two by %s: %s or %s?"), clip(author, 20), quoted(titles[1]), quoted(titles[2])))
+        end
+    end
+    if #books >= 3 and finished == #books then
+        add("proud", _("All read on this page. Impressive."))
+    end
+    return L
+end
+
+-- ---- Kind 4: shelf sayings (written for Bookshelf, no real person's words) --------
+
+local SAYINGS = {
+    "A shelf is a promise you keep making.",
+    "Every book is a door with a spine.",
+    "Unread books are just future evenings.",
+    "Somewhere on this shelf is your next favourite.",
+    "A good book leaves the light on for you.",
+    "Read slowly. The ending isn't going anywhere.",
+    "Books don't mind waiting. They're good at it.",
+    "One more chapter is how every night begins.",
+    "A full shelf is a quiet kind of wealth.",
+    "Dog-ears are just love with a crease.",
+    "The best bookmark is a good excuse.",
+    "Every cover hides a weather system.",
+    "A page is a small room with a big window.",
+    "Borrowed books always know the way home.",
+    "Rainy day, tall stack. That's the plan.",
+    "Some books are meals. Some are snacks. Both count.",
+    "It's fine to quit a book. Shelves forgive.",
+    "A shelf remembers everything you meant to read.",
+    "Spines in a row, stories in a crowd.",
+    "Your to-read pile is optimism, stacked.",
+    "The first line is a handshake.",
+    "Every library starts with one more book.",
+    "Quiet rooms are where books talk loudest.",
+    "Stories keep. Take your time.",
+    "Browse like you have all afternoon.",
+    "Reading is time travel with better seats.",
+    "A bookmark is a pause button made of paper.",
+    "Don't rush the ending. It's earned.",
+    "The right book finds you on the right page.",
+    "Coffee cools. Good chapters stay warm.",
+    "Browsing is choosing in slow motion.",
+    "Every story started as someone's quiet hour.",
+    "Small screen, big world.",
+    "Future you will thank you for this pile.",
+    "Comfort is a book you've already read twice.",
+    "The shelf is full. The evening is free.",
+}
+
+-- Optional: add your own to koreader/settings/orbitshelf-quotes.txt, one per
+-- line, as `quote` or `quote | author`. Re-read when the file changes.
+local _user_quotes = { mtime = nil, list = {} }
+local function userQuotes()
+    local ok, DataStorage = pcall(require, "datastorage")
+    if not ok or type(DataStorage) ~= "table" or type(DataStorage.getSettingsDir) ~= "function" then
+        return _user_quotes.list
+    end
+    local path = DataStorage:getSettingsDir() .. "/orbitshelf-quotes.txt"
+    local attr = lfs.attributes(path)
+    local mtime = attr and attr.modification or false
+    if mtime == _user_quotes.mtime then return _user_quotes.list end
+    _user_quotes.mtime = mtime
+    _user_quotes.list = {}
+    if not attr then return _user_quotes.list end
+    pcall(function()
+        for line in io.lines(path) do
+            line = line:gsub("^%s+", ""):gsub("%s+$", "")
+            if line ~= "" and line:sub(1, 1) ~= "#" then
+                local text, author = line:match("^(.-)%s*|%s*(.+)$")
+                table.insert(_user_quotes.list, { text = text or line, author = author })
+            end
+        end
+    end)
+    return _user_quotes.list
+end
+
+local function quoteLines(f)
+    local L = {}
+    for _i, s in ipairs(SAYINGS) do
+        L[#L + 1] = { mood = (#L % 3 == 0) and "dreamy" or "reading", text = "“" .. s .. "”" }
+    end
+    for _i, q in ipairs(userQuotes()) do
+        L[#L + 1] = {
+            mood = "reading", text = "“" .. q.text .. "”",
+            sub = q.author and ("— " .. clip(q.author, 18) .. " · " .. string.format(_("p. %d/%d"), f.page, f.pages)) or nil,
+        }
+    end
+    return L
+end
+
+-- ---- Pick one line ----------------------------------------------------------------
+
+local function recentHas(text)
+    for _i, t in ipairs(_recent) do if t == text then return true end end
+    return false
+end
+
+local function remember(text)
+    table.insert(_recent, text)
+    while #_recent > RECENT_MAX do table.remove(_recent, 1) end
+end
+
+local KIND_POOLS = {
+    page = pageLines, witty = wittyLines, recs = recommendLines, quotes = quoteLines,
+}
+
+local function enabledKinds()
+    local order = {}
+    if cfg.critter_say_page then order[#order + 1] = "page" end
+    if cfg.critter_say_witty then order[#order + 1] = "witty" end
+    if cfg.critter_say_recs then order[#order + 1] = "recs" end
+    if cfg.critter_say_quotes then order[#order + 1] = "quotes" end
+    if #order == 0 then order[1] = "page" end
+    return order
+end
+
+-- One line per (page, tap, shelf) so a repaint doesn't change what it says; every
+-- tap or page turn moves to the next kind (page → witty → picks → sayings) and
+-- steps over anything said in the last few lines.
+local function pickFooterLine(bw)
+    local f = shelfFacts(bw)
+    local order = enabledKinds()
+    local key = table.concat({
+        f.page, f.pages, f.books, f.shelf, _footer_remark_i, table.concat(order, ","),
+    }, "|")
+    if _pick_cache and _pick_cache.key == key then return _pick_cache.line end
+
+    local shelf_h = strHash(f.shelf)
+    local start = (_footer_remark_i + f.page + shelf_h + _session_seed) % #order
+    local chosen, chosen_kind
+    for k = 0, #order - 1 do
+        local kind = order[((start + k) % #order) + 1]
+        local pool = KIND_POOLS[kind](f)
+        if #pool > 0 then
+            local base = (_session_seed + f.page * 31 + _footer_remark_i * 17 + shelf_h + #pool * 7) % #pool
+            for j = 0, #pool - 1 do
+                local cand = pool[((base + j) % #pool) + 1]
+                if not recentHas(cand.text) then chosen = cand break end
+            end
+            chosen = chosen or pool[base + 1]
+            chosen_kind = kind
+            break
+        end
+    end
+    chosen = chosen or { mood = "happy", text = string.format(_("Page %d of %d."), f.page, f.pages) }
+    chosen_kind = chosen_kind or "page"
+    local line = { mood = chosen.mood, text = chosen.text, sub = chosen.sub or pageInfo(f) }
+    remember(line.text)
+    _pick_cache = { key = key, line = line }
+    package.loaded["orbitshelf_critter_last"] = {
+        kind = chosen_kind, text = line.text, sub = line.sub, mood = line.mood,
+        page = f.page, pages = f.pages, books = f.books, shelf = f.shelf,
+        on_page = #(f.items or {}),
+    }
+    return line
+end
+
+-- The critter strip: the message and its detail written straight onto the footer bar
+-- (the bar's own ink, centred in the visible bar), and the critter at the right end,
+-- sized to the bar. h is the footer row's height; the visible bar is its top part, the
+-- rest is tap area below it (Bookshelf's 12 dp).
+-- width / height of a critter image, read once per file (nil when it can't be read)
+local critter_aspects = {}
+local function critterAspect(path)
+    local a = critter_aspects[path]
+    if a ~= nil then return a or nil end
+    local ok, bb = pcall(function() return require("ui/renderimage"):renderImageFile(path, false) end)
+    if ok and bb then
+        local w, h = bb:getWidth(), bb:getHeight()
+        pcall(bb.free, bb)
+        a = (h > 0) and (w / h) or false
+    else
+        a = false
+    end
+    critter_aspects[path] = a
+    return a or nil
 end
 
 local function buildFooterCritter(bw, max_w, h)
     local Screen = require("device").screen
     local HorizontalGroup = require("ui/widget/horizontalgroup")
     local HorizontalSpan = require("ui/widget/horizontalspan")
-    local f = shelfFacts(bw)
-    local remarks = footerRemarks(f)
-    local i = ((_footer_remark_i + (f.page or 1) - 1) % #remarks) + 1
-    local line = remarks[i]
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local LeftContainer = require("ui/widget/container/leftcontainer")
+    local TextWidget = require("ui/widget/textwidget")
+    local Blitbuffer = require("ffi/blitbuffer")
+    local Font = require("ui/font")
+    local Geom = require("ui/geometry")
+    local line = pickFooterLine(bw)
     local mood = line.mood or "happy"
     local message, detail = line.text, line.sub
 
-    local Sprite = sui("modules/critter/sprite")
-    local Bubble = sui("modules/critter/bubble")
-    local Assets = sui("modules/critter/assets")
-    local CS = sui("modules/critter/settings")
+    local cap_h = h - Screen:scaleBySize(12)
+    local pad = Screen:scaleBySize(3)
+    local inner_h = math.max(Screen:scaleBySize(16), cap_h - 2 * pad)
 
-    if type(Sprite) == "table" and type(Bubble) == "table" and type(Assets) == "table"
-            and type(Bubble.build) == "function" and type(Assets.get) == "function" then
-        local ok, group = pcall(function()
-            local want = critterId(Assets)
-            local entry = Assets.get(want)
-            if type(entry) == "table" and want and entry.id ~= want and type(Assets.list) == "function" then
-                for _i, e in ipairs(Assets.list()) do
-                    if e.id == want then entry = e break end
-                end
+    -- the critter, when SimpleUI's modules are there
+    local sprite
+    pcall(function()
+        local Sprite = sui("modules/critter/sprite")
+        local Assets = sui("modules/critter/assets")
+        if not (type(Sprite) == "table" and type(Assets) == "table" and type(Assets.get) == "function") then return end
+        local want = critterId(Assets)
+        local entry = Assets.get(want)
+        if type(entry) == "table" and want and entry.id ~= want and type(Assets.list) == "function" then
+            for _i, e in ipairs(Assets.list()) do
+                if e.id == want then entry = e break end
             end
-            local path = entry and (Assets.imagePath(entry, mood)
-                or (BASE_MOOD[mood] and Assets.imagePath(entry, BASE_MOOD[mood]))
-                or Assets.imagePath(entry, "happy"))
-            if not path then return nil end
-            local sprite = Sprite:new{ path = path, max_w = math.floor(max_w * 0.28), max_h = h }
-            if not (sprite.dimen and sprite.dimen.w > 0) then return nil end
-            local style = (type(CS) == "table" and type(CS.bubbleStyle) == "function") and CS.bubbleStyle() or "pixel"
-            if style ~= "smooth" then style = "pixel" end
-            local gap = Screen:scaleBySize(4)
-            local bw_w = max_w - sprite.dimen.w - gap
-            local Font = require("ui/font")
-            local scale = math.max(0.6, math.min(1, h / Screen:scaleBySize(56)))
-            local mf = Font:getFace("xx_smallinfofont", math.floor(14 * scale))
-            local df = Font:getFace("xx_smallinfofont", math.floor(12 * scale))
-            local o = {
-                w = bw_w, h = h, side = "right", message = message,
-                msg_face = mf, msg_bold = false, det_face = df, det_bold = false,
-                scale = scale, style = style, unit = sprite.pixel or Screen:scaleBySize(2),
-                detail = detail,
-            }
-            local bubble = bw_w > 0 and Bubble.build(o) or nil
-            local g = HorizontalGroup:new{ align = "center" }
-            if bubble then
-                g[#g + 1] = bubble
-                g[#g + 1] = HorizontalSpan:new{ width = gap }
-            end
-            g[#g + 1] = sprite
-            return g
-        end)
-        if ok and group then return group, line end
+        end
+        local path = entry and (Assets.imagePath(entry, mood)
+            or (BASE_MOOD[mood] and Assets.imagePath(entry, BASE_MOOD[mood]))
+            or Assets.imagePath(entry, "happy"))
+        if not path then return end
+        -- SimpleUI scales a big critter image to exactly the box it is given, so the
+        -- box keeps the image's own shape (a wide box stretched the critter)
+        local box_w = math.floor(max_w * 0.22)
+        local aspect = critterAspect(path)
+        if aspect then box_w = math.min(box_w, math.max(1, math.floor(inner_h * aspect + 0.5))) end
+        local sp = Sprite:new{ path = path, max_w = box_w, max_h = inner_h }
+        if sp.dimen and sp.dimen.w > 0 then sprite = sp end
+    end)
+
+    local gap = Screen:scaleBySize(6)
+    local text_w = max_w - (sprite and (sprite.dimen.w + gap) or 0) - pad
+    if text_w < Screen:scaleBySize(40) then
+        sprite = nil
+        text_w = max_w - pad
     end
 
-    -- Fallback: text only
-    local TextBoxWidget = require("ui/widget/textboxwidget")
-    local Font = require("ui/font")
-    local text = detail and (message .. "\n" .. detail) or message
-    return TextBoxWidget:new{
-        text = text,
-        face = Font:getFace("xx_smallinfofont"),
-        width = max_w,
-        alignment = "center",
-        height = h,
-        height_adjust = true,
-        height_overflow_show_ellipsis = true,
-    }, line
+    -- the bar's ink, so it reads on a dark or a light bar
+    local ink = Blitbuffer.COLOR_BLACK
+    pcall(function() if bw and type(bw._chromeInk) == "function" then ink = bw:_chromeInk() or ink end end)
+    -- the detail a little softer than the message, but still easy to read: light
+    -- grey on a dark bar, dark grey on a light one (it was the other way round,
+    -- dark on dark, and faded out)
+    local detail_ink = ink
+    pcall(function()
+        local a = ink.getColor8 and ink:getColor8().a or 0
+        detail_ink = Blitbuffer.gray(a >= 128 and 0.15 or 0.75)
+    end)
+
+    -- the biggest type that fits the bar: message over detail
+    local text_block
+    for size = 15, 8, -1 do
+        local msg = TextWidget:new{ text = message or "", face = Font:getFace("xx_smallinfofont", size),
+                                    bold = true, fgcolor = ink, max_width = text_w }
+        local det = detail and detail ~= "" and TextWidget:new{ text = detail,
+                                    face = Font:getFace("xx_smallinfofont", math.max(7, size - 3)),
+                                    fgcolor = detail_ink, max_width = text_w } or nil
+        local total = msg:getSize().h + (det and det:getSize().h or 0)
+        if total <= inner_h or size == 8 then
+            local vg = VerticalGroup:new{ align = "left", msg }
+            if det then vg[#vg + 1] = det end
+            text_block = vg
+            break
+        end
+        msg:free()
+        if det then det:free() end
+    end
+
+    local row = HorizontalGroup:new{ align = "center" }
+    row[#row + 1] = LeftContainer:new{ dimen = Geom:new{ w = text_w, h = inner_h }, text_block }
+    if sprite then
+        row[#row + 1] = HorizontalSpan:new{ width = gap }
+        row[#row + 1] = sprite
+    end
+    -- centred in the visible bar; the tap area below it is left as space
+    local strip = VerticalGroup:new{ align = "left" }
+    strip[#strip + 1] = CenterContainer:new{ dimen = Geom:new{ w = max_w, h = cap_h }, row }
+    if h > cap_h then strip[#strip + 1] = VerticalSpan:new{ width = h - cap_h } end
+    return strip, line
 end
 
 local function hookFooterCritter()
@@ -1657,7 +2687,7 @@ local function hookFooterCritter()
         local edge_w = math.floor(strip_w * 0.12)
         local mid_w = strip_w - 2 * edge_w
 
-        local critter, _line = buildFooterCritter(self, mid_w, h - 4)
+        local critter, _line = buildFooterCritter(self, mid_w, h)
 
         -- Invisible edge buttons: still page with left/right taps
         local function step(dir)
@@ -1756,6 +2786,25 @@ local function showMenu()
         UIManager:close(dlg)
         showMenu()
     end
+    local function sayToggle(key, label)
+        return {
+            text = (cfg[key] and "✓ " or "☐ ") .. label,
+            enabled = cfg.footer_critter,
+            callback = function()
+                local on = 0
+                for _i, k in ipairs({ "critter_say_page", "critter_say_witty", "critter_say_recs", "critter_say_quotes" }) do
+                    if cfg[k] then on = on + 1 end
+                end
+                if cfg[key] and on <= 1 then return end -- keep at least one
+                cfg[key] = not cfg[key]
+                saveConfig()
+                _pick_cache = nil
+                local bs = getBookshelf()
+                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
+                refresh()
+            end,
+        }
+    end
     local buttons = {
         {{
             text = (cfg.use_bookorbit and "✓ " or "☐ ") .. _("Use BookOrbit In Bookshelf"),
@@ -1792,6 +2841,16 @@ local function showMenu()
             end,
         }},
         {{
+            text = (cfg.hero_sync and "✓ " or "☐ ") .. _("Hero Sync Button"),
+            callback = function()
+                cfg.hero_sync = not cfg.hero_sync
+                saveConfig()
+                local bs = getBookshelf()
+                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
+                refresh()
+            end,
+        }},
+        {{
             text = (cfg.footer_critter and "✓ " or "☐ ") .. _("Footer Critter (replaces page nav)"),
             callback = function()
                 cfg.footer_critter = not cfg.footer_critter
@@ -1802,8 +2861,16 @@ local function showMenu()
                 refresh()
             end,
         }},
+        {
+            sayToggle("critter_say_page", _("Page")),
+            sayToggle("critter_say_witty", _("Witty")),
+        },
+        {
+            sayToggle("critter_say_recs", _("Picks")),
+            sayToggle("critter_say_quotes", _("Sayings")),
+        },
         {{
-            text = (cfg.close_only_menu and "✓ " or "☐ ") .. _("Close Only Menu"),
+            text = (cfg.close_only_menu and "✓ " or "☐ ") .. _("Close Only (No Hamburger)"),
             callback = function()
                 cfg.close_only_menu = not cfg.close_only_menu
                 saveConfig()
@@ -1881,56 +2948,63 @@ local function showMenu()
     UIManager:show(dlg)
 end
 
-local function addToolsMenu()
-    local ok, order = pcall(require, "ui/elements/filemanager_menu_order")
-    -- Prefer Dispatcher / main menu patch via FileManager menu
-    local function inject(menu_items)
-        if type(menu_items) ~= "table" then return end
-        if menu_items[MENU_ID] then return end
-        menu_items[MENU_ID] = {
-            text = _("OrbitShelf Tweaks"),
-            sorting_hint = "more_tools",
-            callback = function() showMenu() end,
-        }
-    end
+local function menuItem()
+    return {
+        text = _("OrbitShelf Tweaks"),
+        callback = function() showMenu() end,
+    }
+end
 
-    -- FileManager
-    local FM = require("apps/filemanager/filemanager")
-    if type(FM) == "table" and type(FM.menu_items) == "table" then
-        inject(FM.menu_items)
+-- Registered at load time, the way Screenshot Timer does it: the file manager menu
+-- is built once and then kept, so hooking it later (or editing its items after it
+-- was sorted) never shows anything.
+local function addToolsMenu()
+    -- Add-ons (2-tweaks-menu.lua): shared registry.
+    local TM = package.loaded.tweaks_mods or {}
+    package.loaded.tweaks_mods = TM
+    TM.entries = TM.entries or {}
+    TM.entries[MENU_ID] = {
+        text = _("OrbitShelf Tweaks"),
+        order = 120,
+        where = "filemanager",
+        group = "Home & Library",
+        build = menuItem,
+    }
+
+    -- Fallback: Tools, when the Add-ons patch isn't there (or the entry is turned off).
+    local function addToOrder()
+        local ok, order = pcall(require, "ui/elements/filemanager_menu_order")
+        if not ok or type(order) ~= "table" or type(order.tools) ~= "table" then return end
+        for _i, v in ipairs(order.tools) do if v == MENU_ID then return end end
+        local pos = #order.tools + 1
+        for i, v in ipairs(order.tools) do
+            if type(v) == "string" and v:find("^%-%-%-") then pos = i break end
+        end
+        table.insert(order.tools, pos, MENU_ID)
     end
-    -- Also catch menu builder
-    local okm, Menu = pcall(require, "ui/widget/menu")
-    -- Hook FileManager showMainMenu path used by most patches
     local okf, FMmenu = pcall(require, "apps/filemanager/filemanagermenu")
     if okf and type(FMmenu) == "table" and type(FMmenu.setUpdateItemTable) == "function"
             and not FMmenu._orbitshelf_menu then
         FMmenu._orbitshelf_menu = true
         local orig = FMmenu.setUpdateItemTable
         FMmenu.setUpdateItemTable = function(self, ...)
-            orig(self, ...)
-            if type(self.menu_items) == "table" then inject(self.menu_items) end
+            local in_addons = TM.active and (type(TM.shows) ~= "function" or TM.shows(MENU_ID))
+            if type(self.menu_items) == "table" and not in_addons then
+                addToOrder()
+                local m = menuItem()
+                m.sorting_hint = "tools"
+                self.menu_items[MENU_ID] = m
+            end
+            return orig(self, ...)
         end
     end
-
-    -- Add-ons menu (2-tweaks-menu.lua) if present
-    pcall(function()
-        local addons = package.loaded["tweaks_menu_addons"]
-        if type(addons) == "table" and type(addons.register) == "function" then
-            addons.register({
-                id = MENU_ID,
-                text = _("OrbitShelf Tweaks"),
-                group = "library",
-                callback = showMenu,
-            })
-        end
-    end)
 end
+
+pcall(addToolsMenu)
 
 -- ---- Boot -------------------------------------------------------------------------
 
 local function boot(ui)
-    addToolsMenu()
     if cfg.use_bookorbit and bookOrbitInstalled() then
         if not registerSource(ui) then
             UIManager:nextTick(function() registerSource(ui) end)
@@ -1940,6 +3014,7 @@ local function boot(ui)
         end
     end
     hookHero()
+    pcall(registerFileDialogButton)
     hookCloseOnlyMenu()
     hookFooterCritter()
     pcall(applyAutoRewrite)
