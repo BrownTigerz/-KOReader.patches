@@ -1,6 +1,6 @@
 --[[
 2-zz-orbitshelf-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.0
+Version 1.2.2
 
 Watches 2-orbitshelf-tweaks.lua from the outside and writes tagged lines
 ([orbitshelf]) to the shared diagnostics log (shared log contract v1):
@@ -23,6 +23,11 @@ It changes nothing in OrbitShelf Tweaks, Bookshelf, or BookOrbit. It records:
   • Hero: hold menu / pill row shown for BookOrbit books; whether hero hook
     attached.
   • Close-only menu: StartMenu open with side, whether items were stripped.
+  • Footer critter (1.2.0): each line it picks (kind page / witty / picks /
+    sayings, mood, page / pages, shelf, books on the page) and a count per
+    kind in the summary.
+  • Flat close (1.1.0): footer button built as close X vs stock hamburger,
+    and every direct close (footer tap, focus, gesture) that skipped the menu.
   • Auto-rewrite: when stock Series/Authors/Genres/Recent paths are touched
     (if the main patch hooks them).
   • Shared-style timings: slow taps near Bookshelf, Lua memory once a minute
@@ -41,6 +46,16 @@ Install: copy next to 2-orbitshelf-tweaks.lua in koreader/patches/ and restart.
 The "zz" loads it after the main patch. Delete the file when done.
 
 Changelog:
+  1.2.2  2026-11-01  Fix: the catalogBooks wrapper named its query argument q, which hid the
+                     log helper q(). Any catalog call slower than the slow threshold then
+                     died with "attempt to call local 'q' (a table value)", so OrbitShelf
+                     Tweaks saw a failed fetch and showed empty BookOrbit shelves while this
+                     file was installed. The argument is now called query.
+  1.2.1  2026-11-01  Boot snapshot says where the OrbitShelf Tweaks menu is registered
+                     (Add-ons entry, Tools hook) and how many BookOrbit lists are cached.
+  1.2.0  2026-11-01  Footer critter: logs each pick (kind, mood, page, shelf) and
+                     counts per kind.
+  1.1.0  2026-11-01  Flat close: logs close X vs hamburger and direct closes.
   1.0.0  2026-10-31  First version.
 ]]
 
@@ -52,7 +67,7 @@ local WINDOW_MIN = 30
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 3 * 24 * 3600
 local STATE = DataStorage:getDataDir() .. "/orbitshelf-diagnostics.state"
-local DIAG_VERSION = "1.0.0"
+local DIAG_VERSION = "1.2.2"
 local DIAG_TAG = "orbitshelf"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
@@ -206,6 +221,10 @@ local stats = {
     hero_hold = 0,
     hero_pills = 0,
     menu_close_only = 0,
+    close_direct = 0,
+    critter = { page = 0, witty = 0, recs = 0, quotes = 0 },
+    critter_builds = 0,
+    close_x_built = 0,
     source_refused = 0,
     errors = 0,
     mem_start = mem_kb(),
@@ -224,8 +243,10 @@ function summary(why)
     write(string.format("open: %d, avg %s ms, max %.0f | download: %d, avg %s ms, max %.0f | remove: %d",
         stats.open.n, avg(stats.open), stats.open.max,
         stats.download.n, avg(stats.download), stats.download.max, stats.remove))
-    write(string.format("hero holds: %d | hero pill builds: %d | close-only menu opens: %d | errors: %d",
-        stats.hero_hold, stats.hero_pills, stats.menu_close_only, stats.errors))
+    write(string.format("hero holds: %d | hero pill builds: %d | close-only menu opens: %d | direct closes: %d | close X builds: %d | errors: %d",
+        stats.hero_hold, stats.hero_pills, stats.menu_close_only, stats.close_direct, stats.close_x_built, stats.errors))
+    write(string.format("footer critter: %d builds | page %d, witty %d, picks %d, sayings %d",
+        stats.critter_builds, stats.critter.page, stats.critter.witty, stats.critter.recs, stats.critter.quotes))
     write(string.format("Lua memory: %.0f KB (was %.0f KB at start)", mem_kb(), stats.mem_start))
 
     local hints = {}
@@ -337,6 +358,17 @@ local function snapshot(why)
     log("settings: use_bookorbit=%s auto_rewrite=%s hero_pills=%s close_only=%s close_side=%s",
         q(c.use_bookorbit), q(c.auto_rewrite_stock), q(c.hero_pills),
         q(c.close_only_menu), q(c.close_menu_side))
+    pcall(function()
+        local TM = package.loaded.tweaks_mods
+        local entry = type(TM) == "table" and type(TM.entries) == "table" and TM.entries.orbitshelf_tweaks
+        local okm, FMmenu = pcall(require, "apps/filemanager/filemanagermenu")
+        local lists = 0
+        local saved = G_reader_settings and G_reader_settings:readSetting("orbitshelf_tweaks_pages")
+        if type(saved) == "table" then for _k in pairs(saved) do lists = lists + 1 end end
+        log("settings menu: Add-ons entry=%s (Add-ons patch active=%s) | Tools hook=%s | cached BookOrbit lists=%d",
+            q(entry and true or false), q(type(TM) == "table" and TM.active and true or false),
+            q(okm and type(FMmenu) == "table" and FMmenu._orbitshelf_menu and true or false), lists)
+    end)
     -- cover cache size
     pcall(function()
         local dir = DataStorage:getDataDir() .. "/cache/bookorbit"
@@ -530,10 +562,10 @@ local function hookApiClient()
 
             if type(client.catalogBooks) == "function" then
                 local C = client.catalogBooks
-                client.catalogBooks = function(self, q, ...)
-                    if not on() then return C(self, q, ...) end
+                client.catalogBooks = function(self, query, ...)
+                    if not on() then return C(self, query, ...) end
                     local t0 = now_ms()
-                    local r = { pcall(C, self, q, ...) }
+                    local r = { pcall(C, self, query, ...) }
                     local ms = now_ms() - t0
                     if not r[1] then
                         stats.errors = stats.errors + 1
@@ -546,10 +578,10 @@ local function hookApiClient()
                         local items = body.items or body.books or body.entries
                         n = type(items) == "table" and #items or 0
                     end
-                    local sort = type(q) == "table" and (q.sort or q.collectionId or "default") or "?"
+                    local sort = type(query) == "table" and (query.sort or query.collectionId or "default") or "?"
                     if ms >= SLOW_MS then
                         log("api catalogBooks sort=%s page=%s items=%d in %d ms",
-                            q(sort), q(type(q) == "table" and q.page), n, ms)
+                            q(sort), q(type(query) == "table" and query.page), n, ms)
                     end
                     return unpack(r, 2)
                 end
@@ -719,6 +751,94 @@ local function hookStartMenu()
     return true
 end
 
+-- ---- Flat close (close X replaces hamburger) -------------------------------------
+
+local function hookFooterClose()
+    local ok, BW = pcall(require, "lib/bookshelf_widget")
+    if not ok or type(BW) ~= "table" then
+        log("Bookshelf widget not loadable yet")
+        return false
+    end
+    if BW._orbitshelf_diag_flat then return true end
+    BW._orbitshelf_diag_flat = true
+
+    if type(BW._buildStartMenuIcon) == "function" then
+        local O = BW._buildStartMenuIcon
+        BW._buildStartMenuIcon = function(self, ...)
+            if not on() then return O(self, ...) end
+            local c = orbitshelfCfg()
+            if c.close_only_menu then
+                stats.close_x_built = stats.close_x_built + 1
+                if stats.close_x_built <= 3 then
+                    log("footer button: close X (close_only=yes side=%s)", q(c.close_menu_side))
+                end
+            end
+            return O(self, ...)
+        end
+        log("hook BookshelfWidget._buildStartMenuIcon: applied")
+    end
+
+    if type(BW._openStartMenu) == "function" then
+        local O = BW._openStartMenu
+        BW._openStartMenu = function(self, force, ...)
+            if not on() then return O(self, force, ...) end
+            local c = orbitshelfCfg()
+            if c.close_only_menu then
+                stats.close_direct = stats.close_direct + 1
+                log("start menu request -> direct close (force=%s)", q(force))
+            end
+            return O(self, force, ...)
+        end
+        log("hook BookshelfWidget._openStartMenu: applied")
+    end
+
+    if type(BW.onClose) == "function" then
+        local O = BW.onClose
+        BW.onClose = function(self, ...)
+            if on() and orbitshelfCfg().close_only_menu then
+                log("BookshelfWidget:onClose (close_only=yes)")
+            end
+            return O(self, ...)
+        end
+        log("hook BookshelfWidget.onClose: applied")
+    end
+    return true
+end
+
+-- ---- Footer critter (what it picked) ----------------------------------------------
+
+local function hookFooterCritterLog()
+    local ok, BW = pcall(require, "lib/bookshelf_widget")
+    if not ok or type(BW) ~= "table" then return false end
+    if BW._orbitshelf_diag_critter then return true end
+    if type(BW._buildPaginationFooter) ~= "function" then return false end
+    BW._orbitshelf_diag_critter = true
+    local O = BW._buildPaginationFooter
+    local last_text
+    BW._buildPaginationFooter = function(self, ...)
+        local r = { pcall(O, self, ...) }
+        if not r[1] then
+            stats.errors = stats.errors + 1
+            log("ERROR footer build failed: %s", tostring(r[2]))
+            error(r[2], 0)
+        end
+        if on() and orbitshelfCfg().footer_critter then
+            local c = package.loaded["orbitshelf_critter_last"]
+            if type(c) == "table" and c.text ~= last_text then
+                last_text = c.text
+                stats.critter_builds = stats.critter_builds + 1
+                if stats.critter[c.kind] then stats.critter[c.kind] = stats.critter[c.kind] + 1 end
+                log("critter [%s] mood=%s page=%s/%s shelf=%s books=%s on_page=%s | %s | %s",
+                    q(c.kind), q(c.mood), q(c.page), q(c.pages), q(c.shelf), q(c.books), q(c.on_page),
+                    q(c.text), q(c.sub))
+            end
+        end
+        return unpack(r, 2)
+    end
+    log("hook BookshelfWidget._buildPaginationFooter: applied")
+    return true
+end
+
 -- ---- logger.warn/error catch for our tags ---------------------------------------
 
 local function hookLogger()
@@ -773,6 +893,8 @@ local function tryHooks()
     if bs then hookBookshelf(bs) else log("Bookshelf not ready at boot; will retry") end
     hookHero()
     hookStartMenu()
+    hookFooterClose()
+    hookFooterCritterLog()
 
     if not package.loaded["orbitshelf_tweaks_patch"] then
         log("WARNING: 2-orbitshelf-tweaks.lua did not set orbitshelf_tweaks_patch — is the main patch installed?")
@@ -794,6 +916,8 @@ for _, delay in ipairs({ 1, 3, 8 }) do
             hookBookshelf(bs)
             hookHero()
             hookStartMenu()
+            hookFooterClose()
+            hookFooterCritterLog()
             hookApiClient()
         else
             log("retry %ds: Bookshelf still missing", delay)
