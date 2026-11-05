@@ -42,7 +42,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
 | [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.7 |
-| [OrbitShelf Tweaks](#orbitshelf-tweaks) | `2-orbitshelf-tweaks.lua` | bookshelf.koplugin + bookorbit.koplugin | 1.5.7 |
+| [OrbitShelf Tweaks](#orbitshelf-tweaks) | `2-orbitshelf-tweaks.lua` | bookshelf.koplugin + bookorbit.koplugin | 1.5.11 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -664,11 +664,11 @@ Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics
 
 ## OrbitShelf Tweaks
 
-**File:** `2-orbitshelf-tweaks.lua` · **Requires:** [bookshelf.koplugin](https://github.com/AndyHazz/bookshelf.koplugin) (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x) and bookorbit.koplugin signed in (server_url + username + userkey) · **Version:** 1.5.7
+**File:** `2-orbitshelf-tweaks.lua` · **Requires:** [bookshelf.koplugin](https://github.com/AndyHazz/bookshelf.koplugin) (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x) and bookorbit.koplugin signed in (server_url + username + userkey) · **Version:** 1.5.11
 
 BookOrbit shelves inside Bookshelf.
 
-Settings live under **Tools → OrbitShelf Tweaks** (or **Tools → Add-ons → OrbitShelf Tweaks** when the Add-ons menu patch is installed).
+Settings live under **Tools → OrbitShelf Tweaks** (or **Tools → Add-ons → OrbitShelf Tweaks** when the Add-ons menu patch is installed): the two main switches first, then **Hero**, **Shelf** and **Footer**, and **Clean Up Cache** at the end.
 
 **Install:** copy `2-orbitshelf-tweaks.lua` into KOReader's patches folder and restart.
 
@@ -676,8 +676,10 @@ Settings live under **Tools → OrbitShelf Tweaks** (or **Tools → Add-ons → 
 - **Source modes:** Library, Recently added, Recently read, **Series**, **Authors**, **Genres**, and cached collections. Series, Authors and Genres are folder drills: tap a group to see its books.
 - **Rewrite Stock Series/Author/Genre** — points the built-in Series, Authors, Genres, Recent and Latest chips at BookOrbit instead. Turn it off and the stock chips come back.
 - **Covers:** shared `cache/bookorbit/` folder with the Side Panel. **Clean Up Cache** works the same way as Reading Log Tweaks.
-- **Hero:** hold a BookOrbit book for its menu. A book not on the device gets **Download / Open In BookOrbit** pills at the bottom of the banner; one on the device gets small round icons at the bottom right instead (**Remove From Device**, **Open In BookOrbit**), so its description keeps the room. A small **Sync** icon sits at the bottom right for any BookOrbit book (Hero Sync Button on / off).
-- **Close Only Menu** — the start menu becomes only Close Bookshelf, placed left, right or bottom.
+- **Hero:** hold a BookOrbit book for its menu. A book not on the device gets **Download / Open In BookOrbit** pills at the bottom of the banner; one on the device gets small round icons at the bottom right instead (**Remove From Device**, **Open In BookOrbit**), so its description keeps the room. A small **Sync** icon sits at the bottom right for any BookOrbit book (Hero → Sync Button). **Hero → Flash When It Changes** (off by default) flashes the hero clean when it shows another book, so the old cover doesn't linger.
+- **Shelf → Flash On Every Page Turn** (off by default) makes every shelf page turn a full refresh, to clear ghosting.
+- **Genres:** BookOrbit's book lists carry no genres, so they're built once from each book's BookOrbit page (genres and tags). The first time the Genres shelf opens it asks **Start / Later**; Start runs it in the background (about 2 minutes for 130 books, Wi-Fi on), 10 books at a time, with a progress note; the screen keeps working while it runs. Books on the device use their own file's genres. Wi-Fi off pauses it and it carries on when Wi-Fi is back; afterwards only new or changed books are looked up. **Shelf → Build Genres / Rebuild Genres**.
+- **Close Only** — the footer hamburger becomes a one-tap close X. **Close Control** puts it in the left or right corner, or on **Bookshelf's Side** (wherever Bookshelf's Start menu button is).
 - **Footer Critter** — replaces the bottom page nav with your SimpleUI Tiny Critter (the same modules Quick Shelf and Reading Log use). It says the shelf name, page and book count. Tap it for another remark; the left and right edges still page, and swiping still pages.
 
 Optional diagnostic: `debug/2-zz-orbitshelf-tweaks-diagnostics.lua` (shared `diagnostics.log` with the other debug companions).
