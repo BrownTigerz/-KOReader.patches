@@ -696,7 +696,7 @@ These patches wouldn't exist without the plugins they build on and the people be
 - **[Shortcut Toolbar](https://github.com/xusoo/shortcutstoolbar.koplugin)** by xusoo — the toolbar the Icon Tweaks and Quick Shelf patches customize.
 - **[Reading Insights](https://github.com/peterboda236/readinginsights.koplugin)** by peterboda236 — the stats plugin the Reading Insights Tweaks patch builds on.
 - **[ReadMastery](https://github.com/Lalocaballero/readmastery.koplugin)** by Lalocaballero — the gamification plugin the ReadMastery patches hook into.
-- **[@sandcastles](https://discord.com)** (Discord) — co-wrote the Kobo-Style Sleepscreen Banner patch with TK.
+- **[@sandcastles](https://discord.com)** Kobo-Style Sleepscreen Banner
 - **[u/juancoquet](https://www.reddit.com/user/juancoquet/)** — design cues for the sleepscreen banner.
 
 And [KOReader](https://github.com/koreader/koreader) itself, which makes all of this possible.
