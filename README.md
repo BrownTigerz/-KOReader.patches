@@ -42,7 +42,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
 | [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.7 |
-| [OrbitShelf Tweaks](#orbitshelf-tweaks) | `2-orbitshelf-tweaks.lua` | bookshelf.koplugin + bookorbit.koplugin | **1.3.0 — TEST FILE, testing purposes only. Not ready for general download. Do not download unless you are testing it.** |
+| [OrbitShelf Tweaks](#orbitshelf-tweaks) | `2-orbitshelf-tweaks.lua` | bookshelf.koplugin + bookorbit.koplugin | 1.5.7 |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
 
@@ -664,27 +664,23 @@ Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics
 
 ## OrbitShelf Tweaks
 
-**TEST FILE — testing purposes only. Not ready for general download. Do not download this unless you are testing it.**
-
-**File:** `2-orbitshelf-tweaks.lua` · **Requires:** [bookshelf.koplugin](https://github.com/AndyHazz/bookshelf.koplugin) (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x) and bookorbit.koplugin signed in (server_url + username + userkey) · **Version:** 1.3.0 (TEST FILE — testing purposes only, not ready for general download)
+**File:** `2-orbitshelf-tweaks.lua` · **Requires:** [bookshelf.koplugin](https://github.com/AndyHazz/bookshelf.koplugin) (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x) and bookorbit.koplugin signed in (server_url + username + userkey) · **Version:** 1.5.7
 
 BookOrbit shelves inside Bookshelf.
 
 Settings live under **Tools → OrbitShelf Tweaks** (or **Tools → Add-ons → OrbitShelf Tweaks** when the Add-ons menu patch is installed).
 
-**Install (testers only):** copy `2-orbitshelf-tweaks.lua` into KOReader's patches folder and restart. Do not download or install this unless you are testing it — it is a test file, not ready for general download.
+**Install:** copy `2-orbitshelf-tweaks.lua` into KOReader's patches folder and restart.
 
 - **Use BookOrbit In Bookshelf** — registers a **BookOrbit** fetch-mode shelf source, so books not on the device are included too.
 - **Source modes:** Library, Recently added, Recently read, **Series**, **Authors**, **Genres**, and cached collections. Series, Authors and Genres are folder drills: tap a group to see its books.
 - **Rewrite Stock Series/Author/Genre** — points the built-in Series, Authors, Genres, Recent and Latest chips at BookOrbit instead. Turn it off and the stock chips come back.
 - **Covers:** shared `cache/bookorbit/` folder with the Side Panel. **Clean Up Cache** works the same way as Reading Log Tweaks.
-- **Hero:** hold a BookOrbit book for its menu, and inline **Download / Remove / Open In BookOrbit** pills on the banner.
+- **Hero:** hold a BookOrbit book for its menu. A book not on the device gets **Download / Open In BookOrbit** pills at the bottom of the banner; one on the device gets small round icons at the bottom right instead (**Remove From Device**, **Open In BookOrbit**), so its description keeps the room. A small **Sync** icon sits at the bottom right for any BookOrbit book (Hero Sync Button on / off).
 - **Close Only Menu** — the start menu becomes only Close Bookshelf, placed left, right or bottom.
 - **Footer Critter** — replaces the bottom page nav with your SimpleUI Tiny Critter (the same modules Quick Shelf and Reading Log use). It says the shelf name, page and book count. Tap it for another remark; the left and right edges still page, and swiping still pages.
 
 Optional diagnostic: `debug/2-zz-orbitshelf-tweaks-diagnostics.lua` (shared `diagnostics.log` with the other debug companions).
-
-**Reminder: this is a TEST FILE, testing purposes only. It stays in test status until it is ready for general download — do not download it unless you are testing it.**
 
 ---
 
