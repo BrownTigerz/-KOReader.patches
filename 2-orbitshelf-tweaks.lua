@@ -6,7 +6,7 @@ Requires:
   * bookshelf.koplugin (SOURCE_API >= 1; best with Bookshelf 5.4+ / 6.x)
   * bookorbit.koplugin signed in (server_url + username + userkey)
 
-Version: 1.5.7
+Version: 1.5.11
 
 What it does
   * Toggle **Use BookOrbit In Bookshelf**. Registers a **BookOrbit** fetch-mode
@@ -42,11 +42,51 @@ What it does
     Each kind has its own switch (at least one stays on). Left/right edges
     still page; swipe still pages.
 
-Settings: Tools → OrbitShelf Tweaks (or Add-ons with 2-tweaks-menu.lua).
+  * **Genres**: BookOrbit's lists carry no genres, so they are built once from each
+    book's BookOrbit page (genres + tags), in the background, after a Start / Later
+    question the first time the Genres shelf opens. Books on the device use their
+    file's own genres. Wi-Fi off pauses it; it carries on when Wi-Fi is back.
+    Shelf > Build Genres / Rebuild Genres.
+  * **Flash** (both off by default): Hero > Flash When It Changes flashes the hero
+    clean when it shows another book; Shelf > Flash On Every Page Turn makes every
+    shelf page turn a full refresh. Both clear e-ink ghosting.
+
+Settings: Tools → OrbitShelf Tweaks (or Add-ons with 2-tweaks-menu.lua):
+  Use BookOrbit In Bookshelf, Rewrite Stock Series / Authors / Genres, then
+  Hero, Shelf and Footer sub-menus, and Clean Up Cache at the end.
 
 Install: koreader/patches/2-orbitshelf-tweaks.lua, restart.
 
 Changelog:
+  1.5.11 2026-11-05  Footer > Close Control: "Bottom" did nothing, because the close X is
+                     always in a bottom corner and Bottom just left it where Bookshelf
+                     puts its Start menu button. Renamed to Bookshelf's Side and listed
+                     after Left and Right, with help text. The saved setting is unchanged.
+  1.5.10 2026-11-05  Building genres no longer makes the screen look frozen. Each batch
+                     waited inside BookOrbit's background helper, which holds the screen
+                     until it's done. Now the lookups run in OrbitShelf's own background
+                     process, checked every half second, so the shelf redraws and takes
+                     taps the whole time. 10 books a batch. Sleep stops it; it carries on
+                     when Wi-Fi is back.
+  1.5.9  2026-11-05  Genres fill in. BookOrbit's book lists carry no genres (only a book's
+                     own page has its genres and tags), so the Genres shelf was always
+                     empty. The first time it opens, a question asks to build them: Start
+                     looks each book up once in the background (a separate process, the
+                     shelf stays usable), 20 at a time, saving after each batch, with a
+                     corner note for progress and "Genres ready" at the end. Books on the
+                     device use the genres in their own file, no network. Wi-Fi off, sleep
+                     or a restart pauses it; it carries on when Wi-Fi is back. After that
+                     only new or changed books are looked up, quietly. Shelf > Build
+                     Genres (shows how many are left) and Rebuild Genres. Clean Up Cache
+                     keeps them.
+  1.5.8  2026-11-05  New: Flash When It Changes (Hero) flashes the hero clean when it shows
+                     another book, so the old cover doesn't stay faintly behind the new one
+                     (Bookshelf redraws it without a flash). Flash On Every Page Turn
+                     (Shelf) makes every shelf page turn a full refresh. Both off by
+                     default.
+                     Settings are a normal grouped menu now (was one long button list):
+                     the two main switches, then Hero, Shelf and Footer, then Clean Up
+                     Cache. Each entry has a hold-for-help text. Nothing you set changes.
   1.5.7  2026-11-05  Fix: after a download the hero kept the BookOrbit look (no description)
                      until another book was picked and this one again; it now shows the
                      book from the file straight away. Removing it puts the hero back to
@@ -133,7 +173,7 @@ Changelog:
   1.0.0  2026-10-31  First cut: BookOrbit source, hero hold, close-only menu.
 ]]
 
-local VERSION = "1.5.7"
+local VERSION = "1.5.11"
 local TAG = "orbitshelf-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "orbitshelf_tweaks"
 local MENU_ID = "orbitshelf_tweaks"
@@ -155,7 +195,7 @@ local DEFAULTS = {
     use_bookorbit = true,          -- register BookOrbit as a shelf source
     auto_rewrite_stock = true,     -- Series / Authors / Genres / Recent use BO data
     close_only_menu = false,       -- footer hamburger becomes a one-tap close X
-    close_menu_side = "bottom",    -- "left" | "right" | "bottom"
+    close_menu_side = "bottom",    -- "left" | "right" | "bottom" (= Bookshelf's own side)
     cache_ttl = 30 * 60,           -- soft refresh window (seconds)
     offline_ttl = 6 * 3600,        -- keep offline lists this long
     hero_pills = true,             -- Download / Remove / Open In BookOrbit on hero
@@ -165,6 +205,8 @@ local DEFAULTS = {
     critter_say_witty = true,      -- witty remarks
     critter_say_recs = true,       -- picks from the books on this page
     critter_say_quotes = true,     -- shelf sayings (plus your own file)
+    flash_hero = false,            -- flash the hero clean when it shows another book
+    flash_shelf = false,           -- flash the shelf clean on every page turn
 }
 
 local cfg = {}
@@ -1087,6 +1129,326 @@ local function showNotOnDevice(book)
     UIManager:show(dialog)
 end
 
+-- ---- Genres: built once from each book's details --------------------------------
+-- BookOrbit's book lists carry no genres (only a book's own detail page has its
+-- genres and tags), so the Genres shelf needs them looked up once per book. It asks
+-- first, then runs in the background in a separate process (the shelf stays usable),
+-- 10 books at a time, saving after each batch. Wi-Fi off, sleep or a restart pauses
+-- it; it carries on when Wi-Fi is back. A book on the device uses the genres in its
+-- own file, no network. Afterwards only new or changed books are looked up.
+local GENRES_KEY = "orbitshelf_genres"
+local Genres = { store = nil, running = false, paused = false, asked = false, total = 0, done = 0 }
+
+-- the whole library as saved (no network: the menu and the checks must not wait)
+function Genres.library()
+    local e = page_cache["sort=title"]
+    if type(e) == "table" and type(e.items) == "table" and #e.items > 0 then return e.items end
+    return nil
+end
+
+function Genres.load()
+    if Genres.store then return Genres.store end
+    local saved = G_reader_settings and G_reader_settings:readSetting(GENRES_KEY)
+    Genres.store = type(saved) == "table" and saved or {}
+    return Genres.store
+end
+
+function Genres.save()
+    if G_reader_settings and Genres.store then
+        G_reader_settings:saveSetting(GENRES_KEY, Genres.store)
+    end
+end
+
+-- genres then tags, no repeats (any case), not an author's own name
+function Genres.fromDetail(detail)
+    local seen, out, authors = {}, {}, {}
+    for _i, a in ipairs(type(detail.authors) == "table" and detail.authors or {}) do
+        local name = type(a) == "table" and a.name or a
+        if type(name) == "string" then authors[name:lower()] = true end
+    end
+    for _i, list in ipairs({ detail.genres or {}, detail.tags or {} }) do
+        for _j, v in ipairs(type(list) == "table" and list or {}) do
+            local text = type(v) == "table" and v.name or v
+            text = type(text) == "string" and text:match("^%s*(.-)%s*$") or nil
+            local key = text and text:lower()
+            if key and key ~= "" and not seen[key] and not authors[key] then
+                seen[key] = true
+                out[#out + 1] = text
+            end
+        end
+    end
+    return out
+end
+
+-- the file's own keywords, for a book on the device (no network)
+function Genres.fromFile(path)
+    local out = {}
+    pcall(function()
+        local ds = require("docsettings"):open(path)
+        local props = ds and ds:readSetting("doc_props")
+        local kw = type(props) == "table" and props.keywords or nil
+        if type(kw) == "string" then
+            for part in kw:gmatch("[^\n,;]+") do
+                local t = part:match("^%s*(.-)%s*$")
+                if t and t ~= "" then out[#out + 1] = t end
+            end
+        end
+    end)
+    return out
+end
+
+-- a book's genres, as saved (nil when not built yet)
+function Genres.of(rec)
+    local id = rec and rec.bookorbit_id
+    if not id then return nil end
+    local e = Genres.load()[tostring(id)]
+    return type(e) == "table" and e.g or nil
+end
+
+-- books still to look up: not saved yet, or changed in BookOrbit since
+function Genres.missing(books)
+    local store, out = Genres.load(), {}
+    for _i, rec in ipairs(books or {}) do
+        local id = rec.bookorbit_id
+        if id then
+            local e = store[tostring(id)]
+            if type(e) ~= "table" or (rec.bookorbit_cv and e.cv ~= tostring(rec.bookorbit_cv)) then
+                out[#out + 1] = rec
+            end
+        end
+    end
+    return out
+end
+
+-- a note in the corner (Network Tweaks style), never over the sleep screen
+function Genres.note(text)
+    pcall(function()
+        if require("device").screen_saver_mode then return end
+        local NM = package.loaded["ui/network/manager"]
+        if type(NM) == "table" and type(NM.__network_tweaks_note) == "function" then
+            local ok, handled = pcall(NM.__network_tweaks_note, text, text, 3)
+            if ok and handled then return end
+        end
+        require("ui/widget/notification"):notify(text)
+    end)
+end
+
+function Genres.build(silent)
+    if Genres.running then return end
+    local books = Genres.library() or fetchBoPage({ sort = "title" }, false) or {}
+    local todo = Genres.missing(books)
+    if #todo == 0 then Genres.paused = false return end
+    -- books on the device first, from their files
+    local store, net = Genres.load(), {}
+    for _i, rec in ipairs(todo) do
+        local path = liveBookPath(rec.bookorbit_id)
+        local g = path and Genres.fromFile(path) or {}
+        if #g > 0 then
+            store[tostring(rec.bookorbit_id)] = { cv = tostring(rec.bookorbit_cv or ""), g = g }
+        else
+            net[#net + 1] = rec
+        end
+    end
+    Genres.save()
+    if #net == 0 then
+        local bs = getBookshelf()
+        if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+        return
+    end
+    if not isWifiOn() then
+        Genres.paused = true
+        if not silent then Genres.note(_("Genres paused: Wi-Fi is off. They'll finish when it's back.")) end
+        return
+    end
+    local client = boApiClient()
+    if not client then return end
+    Genres.running, Genres.paused = true, false
+    Genres.total, Genres.done = #net, 0
+    if not silent then Genres.note(T(_("Building genres: 0 of %1"), #net)) end
+    Genres.step(client, net, 1)
+end
+
+-- One line per book back from the worker: id, cover version, genres (unit-separated)
+local GSEP, USEP = "\t", "\31"
+function Genres.encode(got)
+    local lines = {}
+    for _k, e in ipairs(got) do
+        local g = {}
+        for _j, t in ipairs(e.g or {}) do g[#g + 1] = (tostring(t):gsub("[\t\n\31]", " ")) end
+        lines[#lines + 1] = tostring(e.id) .. GSEP .. tostring(e.cv or "") .. GSEP .. table.concat(g, USEP)
+    end
+    return table.concat(lines, "\n") .. "\n"
+end
+
+function Genres.decode(data)
+    local out = {}
+    for line in tostring(data or ""):gmatch("[^\n]+") do
+        local id, cv, rest = line:match("^([^\t]*)\t([^\t]*)\t(.*)$")
+        if id and id ~= "" then
+            local g = {}
+            for t in rest:gmatch("[^\31]+") do g[#g + 1] = t end
+            out[#out + 1] = { id = tonumber(id) or id, cv = cv, g = g }
+        end
+    end
+    return out
+end
+
+-- the detail calls for one batch (runs in the worker, or inline when it can't fork)
+function Genres.fetchBatch(client, batch)
+    local got = {}
+    for _k, b in ipairs(batch) do
+        local okD, d = pcall(function() return client:catalogBook(b.id) end)
+        if okD and type(d) == "table" then
+            got[#got + 1] = { id = b.id, cv = b.cv, g = Genres.fromDetail(d) }
+        end
+    end
+    return got
+end
+
+function Genres.stop(paused)
+    if Genres.pid then
+        local util = require("ffi/util")
+        pcall(util.terminateSubProcess, Genres.pid)
+        -- the worker is gone, so this only closes our end of the pipe
+        if Genres.fd then pcall(util.readAllFromFD, Genres.fd) end
+        Genres.pid, Genres.fd = nil, nil
+    end
+    Genres.running = false
+    Genres.paused = paused and true or false
+end
+
+-- One batch, then the next. The detail calls run in a forked worker that is checked
+-- every half second, so the screen and taps keep working while it waits on the network.
+-- Sleep or Wi-Fi off stops the worker; Wi-Fi back carries on from the next book.
+local GENRES_BATCH = 10
+function Genres.step(client, net, i)
+    if i > #net then
+        Genres.stop(false)
+        Genres.note(_("Genres ready"))
+        return
+    end
+    if not isWifiOn() then
+        Genres.stop(true)
+        Genres.note(T(_("Genres paused at %1 of %2: Wi-Fi is off."), Genres.done, Genres.total))
+        return
+    end
+    local batch = {}
+    for k = i, math.min(i + GENRES_BATCH - 1, #net) do
+        batch[#batch + 1] = { id = net[k].bookorbit_id, cv = tostring(net[k].bookorbit_cv or "") }
+    end
+    local function finish(got)
+        if type(got) ~= "table" then
+            -- the batch failed (network, server): stop for now, pick up later
+            Genres.stop(true)
+            return
+        end
+        local store = Genres.load()
+        for _k, e in ipairs(got) do
+            store[tostring(e.id)] = { cv = e.cv, g = type(e.g) == "table" and e.g or {} }
+        end
+        Genres.save()
+        Genres.done = math.min(Genres.total, Genres.done + #batch)
+        local bs = getBookshelf()
+        if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+        local nxt = i + #batch
+        if nxt <= #net then Genres.note(T(_("Building genres: %1 of %2"), Genres.done, Genres.total)) end
+        UIManager:scheduleIn(0.2, function() Genres.step(client, net, nxt) end)
+    end
+    local ok_util, util = pcall(require, "ffi/util")
+    local can_fork = ok_util and type(util.runInSubProcess) == "function"
+        and type(util.isSubProcessDone) == "function" and client.background_requests ~= false
+    if not can_fork then
+        -- no worker on this device: one book per tick so taps still get through
+        local got = {}
+        local function one(k)
+            if k > #batch then finish(got) return end
+            for _j, e in ipairs(Genres.fetchBatch(client, { batch[k] })) do got[#got + 1] = e end
+            UIManager:scheduleIn(0.1, function() one(k + 1) end)
+        end
+        one(1)
+        return
+    end
+    local pid, fd = util.runInSubProcess(function(_pid, wfd)
+        -- in the worker: run the calls inline, no second worker
+        client.subprocess_depth = (client.subprocess_depth or 0) + 1
+        local okB, got = pcall(Genres.fetchBatch, client, batch)
+        util.writeToFD(wfd, okB and Genres.encode(got) or "", true)
+    end, true)
+    if not pid then finish(nil) return end
+    Genres.pid, Genres.fd = pid, fd
+    local data, waited = "", 0
+    local function poll()
+        if Genres.pid ~= pid then return end -- stopped meanwhile
+        local ok_dev, Device = pcall(require, "device")
+        if ok_dev and Device.screen_saver_mode then
+            -- going to sleep: stop the worker, Wi-Fi back carries on
+            Genres.stop(true)
+            return
+        end
+        if fd and util.getNonBlockingReadSize(fd) ~= 0 then
+            data = data .. (util.readAllFromFD(fd) or "")
+            fd, Genres.fd = nil, nil
+        end
+        if util.isSubProcessDone(pid) then
+            if fd then data = data .. (util.readAllFromFD(fd) or ""); fd = nil end
+            Genres.pid, Genres.fd = nil, nil
+            finish(Genres.decode(data))
+            return
+        end
+        waited = waited + 0.5
+        if waited > 120 then
+            Genres.stop(true)
+            return
+        end
+        UIManager:scheduleIn(0.5, poll)
+    end
+    UIManager:scheduleIn(0.5, poll)
+end
+
+-- Opening the Genres shelf: when books still need looking up, ask once per start.
+-- Once you have said Start (genres saved before), the rest - a build that was cut
+-- short, or new books since - just carries on, quietly.
+function Genres.offer()
+    if Genres.running or Genres.asked then return end
+    local books = Genres.library() or {}
+    local todo = Genres.missing(books)
+    if #todo == 0 then return end
+    local store = Genres.load()
+    if next(store) ~= nil then
+        Genres.asked = true
+        UIManager:nextTick(function() Genres.build(true) end)
+        return
+    end
+    Genres.asked = true
+    UIManager:nextTick(function()
+        local mins = math.max(1, math.floor(#todo * 0.8 / 60 + 0.5))
+        UIManager:show(require("ui/widget/confirmbox"):new{
+            text = T(_("Genres need building first.\n\nBookOrbit doesn't send genres with its book lists, so each book's genres are looked up once: %1 books, about %2 min with Wi-Fi on. It runs in the background; the shelf fills in as it goes. Wi-Fi off pauses it, and it carries on when Wi-Fi is back."), #todo, mins),
+            ok_text = _("Start"),
+            cancel_text = _("Later"),
+            ok_callback = function() Genres.build(false) end,
+        })
+    end)
+end
+
+-- Wi-Fi back on: a paused build carries on (KOReader sends NetworkConnected to the
+-- file manager's modules)
+function Genres.listen()
+    pcall(function()
+        local FM = package.loaded["apps/filemanager/filemanager"]
+        local fm = type(FM) == "table" and FM.instance
+        if not (type(fm) == "table" and type(fm.registerModule) == "function") or fm.orbitshelf_genres then return end
+        local Widget = require("ui/widget/widget")
+        local listener = Widget:new{}
+        function listener:onNetworkConnected()
+            if Genres.paused and not Genres.running then
+                UIManager:scheduleIn(5, function() Genres.build(false) end)
+            end
+        end
+        fm:registerModule("orbitshelf_genres", listener)
+    end)
+end
+
 -- ---- Grouping (Series / Authors / Genres) from the BookOrbit library -------------
 
 local function modeParams(source)
@@ -1128,6 +1490,8 @@ local function groupKeysFor(rec, mode)
         if type(rec.author) == "string" and rec.author ~= "" then return { rec.author } end
         return {}
     elseif mode == "genres" then
+        local built = Genres.of(rec)
+        if built and #built > 0 then return built end
         if type(rec.genres) == "table" then
             local out = {}
             for _i, g in ipairs(rec.genres) do
@@ -1377,6 +1741,11 @@ local function buildSpec()
             end
             if mode == "series" or mode == "authors" or mode == "genres" then
                 local folders = groupFolders(mode)
+                if mode == "genres" then
+                    -- after the list is in, so the count is right
+                    Genres.listen()
+                    Genres.offer()
+                end
                 return slice(folders, offset, limit)
             end
             local items = fetchBoPage(modeParams(source), false) or {}
@@ -2007,7 +2376,7 @@ end
 local function closeMenuSide()
     local side = cfg.close_menu_side or "bottom"
     if side == "left" or side == "right" then return side end
-    return nil -- bottom / default: no override
+    return nil -- "bottom" (the saved value for Bookshelf's Side): no override
 end
 
 local function isCloseEntry(entry)
@@ -2777,181 +3146,266 @@ local function hookFooterCritter()
     logger.info(TAG, "footer critter hooked")
 end
 
+-- ---- Flash (clears e-ink ghosting) ---------------------------------------------------
+-- Bookshelf redraws the hero and the shelf rows in "ui" mode, which never flashes, so a
+-- new cover can show the old one faintly behind it. Flash Hero: the hero's own rect gets
+-- a flash when it shows another book (not on the clock tick). Flash Shelf: every page
+-- turn is a full refresh (Bookshelf's own "Use E-ink refresh rate for shelf pages" only
+-- flashes as often as KOReader's Full refresh rate). Both off by default: a flash takes
+-- a moment and a little battery.
+local function hookFlash()
+    local ok, BW = pcall(require, "lib/bookshelf_widget")
+    if not ok or type(BW) ~= "table" or BW._orbitshelf_flash then return end
+    BW._orbitshelf_flash = true
+    local orig_swap = BW._swapHeroInPlace
+    if type(orig_swap) == "function" then
+        BW._swapHeroInPlace = function(self, ...)
+            local scope
+            if cfg.flash_hero then
+                pcall(function()
+                    local old = self._hero_parent and self._hero_parent[1]
+                    local d = old and old.dimen
+                    if d and d.w and d.w > 0 then
+                        scope = require("ui/geometry"):new{ x = d.x, y = d.y, w = d.w, h = d.h }
+                    end
+                end)
+            end
+            local r = { orig_swap(self, ...) }
+            if scope then
+                UIManager:setDirty(self, function() return "flashui", scope, self.dithered end)
+            end
+            return unpack(r)
+        end
+    end
+    local orig_due = BW._pageTurnFlashDue
+    if type(orig_due) == "function" then
+        BW._pageTurnFlashDue = function(...)
+            if cfg.flash_shelf then
+                local Device = require("device")
+                if Device.hasEinkScreen and Device:hasEinkScreen() then return true end
+            end
+            return orig_due(...)
+        end
+    end
+end
+
 -- ---- Settings menu ----------------------------------------------------------------
 
-local function showMenu()
-    local ButtonDialog = require("ui/widget/buttondialog")
-    local dlg
-    local function refresh()
-        UIManager:close(dlg)
-        showMenu()
-    end
-    local function sayToggle(key, label)
-        return {
-            text = (cfg[key] and "✓ " or "☐ ") .. label,
-            enabled = cfg.footer_critter,
-            callback = function()
-                local on = 0
-                for _i, k in ipairs({ "critter_say_page", "critter_say_witty", "critter_say_recs", "critter_say_quotes" }) do
-                    if cfg[k] then on = on + 1 end
-                end
-                if cfg[key] and on <= 1 then return end -- keep at least one
-                cfg[key] = not cfg[key]
-                saveConfig()
-                _pick_cache = nil
-                local bs = getBookshelf()
-                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
-                refresh()
-            end,
-        }
-    end
-    local buttons = {
-        {{
-            text = (cfg.use_bookorbit and "✓ " or "☐ ") .. _("Use BookOrbit In Bookshelf"),
-            enabled = bookOrbitInstalled(),
-            callback = function()
-                cfg.use_bookorbit = not cfg.use_bookorbit
-                saveConfig()
-                if cfg.use_bookorbit then
-                    registerSource()
-                else
-                    unregisterSource()
-                end
-                refresh()
-            end,
-        }},
-        {{
-            text = (cfg.auto_rewrite_stock and "✓ " or "☐ ") .. _("Rewrite Stock Series/Author/Genre"),
-            enabled = cfg.use_bookorbit and bookOrbitInstalled(),
-            callback = function()
-                cfg.auto_rewrite_stock = not cfg.auto_rewrite_stock
-                saveConfig()
-                pcall(applyAutoRewrite)
-                local bs = getBookshelf()
-                if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
-                refresh()
-            end,
-        }},
-        {{
-            text = (cfg.hero_pills and "✓ " or "☐ ") .. _("Hero Download / Remove Pills"),
-            callback = function()
-                cfg.hero_pills = not cfg.hero_pills
-                saveConfig()
-                refresh()
-            end,
-        }},
-        {{
-            text = (cfg.hero_sync and "✓ " or "☐ ") .. _("Hero Sync Button"),
-            callback = function()
-                cfg.hero_sync = not cfg.hero_sync
-                saveConfig()
-                local bs = getBookshelf()
-                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
-                refresh()
-            end,
-        }},
-        {{
-            text = (cfg.footer_critter and "✓ " or "☐ ") .. _("Footer Critter (replaces page nav)"),
-            callback = function()
-                cfg.footer_critter = not cfg.footer_critter
-                saveConfig()
-                hookFooterCritter()
-                local bs = getBookshelf()
-                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
-                refresh()
-            end,
-        }},
-        {
-            sayToggle("critter_say_page", _("Page")),
-            sayToggle("critter_say_witty", _("Witty")),
-        },
-        {
-            sayToggle("critter_say_recs", _("Picks")),
-            sayToggle("critter_say_quotes", _("Sayings")),
-        },
-        {{
-            text = (cfg.close_only_menu and "✓ " or "☐ ") .. _("Close Only (No Hamburger)"),
-            callback = function()
-                cfg.close_only_menu = not cfg.close_only_menu
-                saveConfig()
-                hookCloseOnlyMenu()
-                local bs = getBookshelf()
-                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
-                refresh()
-            end,
-        }},
-        {{
-            text = T(_("Close Control: %1"),
-                cfg.close_menu_side == "left" and _("Left")
-                or cfg.close_menu_side == "right" and _("Right")
-                or _("Bottom")),
-            enabled = cfg.close_only_menu,
-            callback = function()
-                local order = { "bottom", "left", "right" }
-                local i = 1
-                for n, s in ipairs(order) do if s == cfg.close_menu_side then i = n break end end
-                cfg.close_menu_side = order[(i % #order) + 1]
-                saveConfig()
-                hookCloseOnlyMenu()
-                -- Move the footer hamburger to the new side (critter stays centre)
-                local bs = getBookshelf()
-                if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
-                refresh()
-            end,
-        }},
-        {{
-            text = _("Clean Up Cache…"),
-            callback = function()
-                UIManager:show(require("ui/widget/confirmbox"):new{
-                    text = _("Clean up the cache?\n\nOld covers and leftovers go. Newest cover of each book is kept (at most 600). Half-finished downloads and deleted Side Panel downloads are removed. Nothing you set changes, and nothing on your BookOrbit server."),
-                    ok_text = _("Clean Up"),
-                    ok_callback = function()
-                        local res = BoCovers.cleanUp()
-                        page_cache = {}
-                        savePageCache()
-                        local bs = getBookshelf()
-                        if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
-                        collectgarbage()
-                        local msg
-                        if (res.files or 0) + (res.entries or 0) == 0 then
-                            msg = _("Cache already clean")
-                        else
-                            local bits = {}
-                            if res.files > 0 then
-                                bits[#bits + 1] = string.format("%d old files (%.1f MB)", res.files, (res.bytes or 0) / 1048576)
-                            end
-                            if res.entries > 0 then
-                                bits[#bits + 1] = string.format("%d stale downloads", res.entries)
-                            end
-                            msg = _("Cleaned: ") .. table.concat(bits, ", ")
+-- Grouped like the other patches: the two main switches first, then Hero, Shelf,
+-- Footer, and Clean Up Cache at the end.
+local function rebuildShelf()
+    local bs = getBookshelf()
+    if bs and type(bs._rebuild) == "function" then pcall(bs._rebuild, bs) end
+end
+
+local function toggle(key, label, help, after, enabled_func)
+    return {
+        text = label,
+        help_text = help,
+        checked_func = function() return cfg[key] and true or false end,
+        enabled_func = enabled_func,
+        keep_menu_open = true,
+        callback = function()
+            cfg[key] = not cfg[key]
+            saveConfig()
+            if after then pcall(after) end
+        end,
+    }
+end
+
+local function critterSays(key, label)
+    return {
+        text = label,
+        checked_func = function() return cfg[key] and true or false end,
+        enabled_func = function() return cfg.footer_critter end,
+        keep_menu_open = true,
+        callback = function()
+            local on = 0
+            for _i, k in ipairs({ "critter_say_page", "critter_say_witty", "critter_say_recs", "critter_say_quotes" }) do
+                if cfg[k] then on = on + 1 end
+            end
+            if cfg[key] and on <= 1 then return end -- keep at least one
+            cfg[key] = not cfg[key]
+            saveConfig()
+            _pick_cache = nil
+            rebuildShelf()
+        end,
+    }
+end
+
+local function cleanUpCacheItem()
+    return {
+        text = _("Clean Up Cache…"),
+        help_text = _("Old covers and leftovers go. The newest cover of each book is kept (at most 600). Half-finished downloads and deleted Side Panel downloads are removed. The saved BookOrbit lists are pulled fresh. Nothing you set changes, and nothing on your BookOrbit server."),
+        keep_menu_open = true,
+        callback = function()
+            UIManager:show(require("ui/widget/confirmbox"):new{
+                text = _("Clean up the cache?\n\nOld covers and leftovers go. Newest cover of each book is kept (at most 600). Half-finished downloads and deleted Side Panel downloads are removed. Nothing you set changes, and nothing on your BookOrbit server."),
+                ok_text = _("Clean Up"),
+                ok_callback = function()
+                    local res = BoCovers.cleanUp()
+                    page_cache = {}
+                    savePageCache()
+                    local bs = getBookshelf()
+                    if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+                    collectgarbage()
+                    local msg
+                    if (res.files or 0) + (res.entries or 0) == 0 then
+                        msg = _("Cache already clean")
+                    else
+                        local bits = {}
+                        if res.files > 0 then
+                            bits[#bits + 1] = string.format("%d old files (%.1f MB)", res.files, (res.bytes or 0) / 1048576)
                         end
-                        UIManager:show(require("ui/widget/infomessage"):new{ text = msg, timeout = 3 })
-                    end,
-                })
-            end,
-        }},
-        {{
-            text = _("Close"),
-            callback = function() UIManager:close(dlg) end,
-        }},
+                        if res.entries > 0 then
+                            bits[#bits + 1] = string.format("%d stale downloads", res.entries)
+                        end
+                        msg = _("Cleaned: ") .. table.concat(bits, ", ")
+                    end
+                    UIManager:show(require("ui/widget/infomessage"):new{ text = msg, timeout = 3 })
+                end,
+            })
+        end,
     }
-    local note = ""
+end
+
+local function menuItems()
+    local bo_ok = function() return bookOrbitInstalled() end
+    local items = {}
     if not bookOrbitInstalled() then
-        note = _("\nBookOrbit plugin not found.")
+        items[#items + 1] = { text = _("BookOrbit plugin not found"), enabled_func = function() return false end, separator = true }
     elseif not bookOrbitSignedIn() then
-        note = _("\nSign in to BookOrbit first.")
+        items[#items + 1] = { text = _("Sign in to BookOrbit first"), enabled_func = function() return false end, separator = true }
     end
-    dlg = ButtonDialog:new{
-        title = T(_("OrbitShelf Tweaks  %1%2"), VERSION, note),
-        buttons = buttons,
+    items[#items + 1] = toggle("use_bookorbit", _("Use BookOrbit In Bookshelf"),
+        _("Adds a BookOrbit shelf source to Bookshelf: Library, Recently added, Recently read, Series, Authors, Genres and Collections, books not on the device included."),
+        function()
+            if cfg.use_bookorbit then registerSource() else unregisterSource() end
+        end, bo_ok)
+    items[#items + 1] = toggle("auto_rewrite_stock", _("Rewrite Stock Series / Authors / Genres"),
+        _("Points Bookshelf's own Series, Authors, Genres, Recent and Latest chips at BookOrbit. Off puts the stock chips back."),
+        function()
+            pcall(applyAutoRewrite)
+            local bs = getBookshelf()
+            if bs and bs.sourceChanged then pcall(bs.sourceChanged, bs, SOURCE_ID) end
+        end, function() return cfg.use_bookorbit and bookOrbitInstalled() end)
+    items[#items].separator = true
+    items[#items + 1] = {
+        text = _("Hero"),
+        sub_item_table = {
+            toggle("hero_pills", _("Download / Remove Buttons"),
+                _("A BookOrbit book not on the device: Download and Open In BookOrbit at the bottom of the hero. One on the device: small Remove From Device and Open In BookOrbit icons at the bottom right."),
+                rebuildShelf),
+            toggle("hero_sync", _("Sync Button"),
+                _("A small Sync icon at the bottom right of the hero for BookOrbit books: pulls the BookOrbit lists fresh and runs BookOrbit's sync all books."),
+                rebuildShelf),
+            toggle("flash_hero", _("Flash When It Changes"),
+                _("Flashes the hero clean when it shows another book, so the last cover doesn't show faintly behind the new one. Takes a moment longer. Off by default."),
+                nil),
+        },
     }
-    UIManager:show(dlg)
+    items[#items + 1] = {
+        text = _("Shelf"),
+        sub_item_table = {
+            {
+                text_func = function()
+                    local books = Genres.library() or {}
+                    local left = #Genres.missing(books)
+                    if Genres.running then
+                        return T(_("Genres: building, %1 of %2"), Genres.done, Genres.total)
+                    elseif left == 0 and #books > 0 then
+                        return _("Genres: ready")
+                    end
+                    return T(_("Build Genres (%1 books)"), left)
+                end,
+                help_text = _("BookOrbit doesn't send genres with its book lists, so each book's genres and tags are looked up once from its BookOrbit page, in the background (about 2 minutes for 130 books, Wi-Fi on). Books on the device use the genres in their own file. Wi-Fi off pauses it; it carries on when Wi-Fi is back. Afterwards only new or changed books are looked up."),
+                enabled_func = function() return bookOrbitInstalled() and not Genres.running end,
+                keep_menu_open = true,
+                callback = function() Genres.asked = true; Genres.build(false) end,
+            },
+            {
+                text = _("Rebuild Genres"),
+                help_text = _("Forgets the saved genres and looks every book up again. Use it after changing genres or tags in BookOrbit for many books at once."),
+                enabled_func = function() return bookOrbitInstalled() and not Genres.running end,
+                keep_menu_open = true,
+                callback = function()
+                    UIManager:show(require("ui/widget/confirmbox"):new{
+                        text = _("Rebuild genres?\n\nEvery book's genres are looked up again, in the background."),
+                        ok_text = _("Rebuild"),
+                        ok_callback = function()
+                            Genres.store = {}
+                            Genres.save()
+                            Genres.asked = true
+                            Genres.build(false)
+                        end,
+                    })
+                end,
+                separator = true,
+            },
+            toggle("flash_shelf", _("Flash On Every Page Turn"),
+                _("Every page turn of the shelf is a full refresh, to clear ghosting. Page turns skip their animation and take a little longer. Bookshelf's own \"Use E-ink refresh rate for shelf pages\" flashes only as often as KOReader's Full refresh rate. Off by default."),
+                nil),
+        },
+    }
+    items[#items + 1] = {
+        text = _("Footer"),
+        sub_item_table = {
+            toggle("footer_critter", _("Footer Critter"),
+                _("Your SimpleUI critter in place of the page numbers at the bottom. Tap it for another line; the left and right edges still turn the page."),
+                function() hookFooterCritter() rebuildShelf() end),
+            {
+                text = _("Critter Says"),
+                enabled_func = function() return cfg.footer_critter end,
+                sub_item_table = {
+                    critterSays("critter_say_page", _("Page")),
+                    critterSays("critter_say_witty", _("Witty")),
+                    critterSays("critter_say_recs", _("Picks")),
+                    critterSays("critter_say_quotes", _("Sayings")),
+                },
+                separator = true,
+            },
+            toggle("close_only_menu", _("Close Only (No Hamburger)"),
+                _("The hamburger becomes a close X: one tap closes Bookshelf, no menu first."),
+                function() hookCloseOnlyMenu() rebuildShelf() end),
+            {
+                text_func = function()
+                    return T(_("Close Control: %1"),
+                        cfg.close_menu_side == "left" and _("Left")
+                        or cfg.close_menu_side == "right" and _("Right")
+                        or _("Bookshelf's Side"))
+                end,
+                enabled_func = function() return cfg.close_only_menu end,
+                help_text = _("Which bottom corner the close X sits in. Bookshelf's Side follows Bookshelf's own Start menu position (left unless you changed it there)."),
+                sub_item_table = (function()
+                    local t = {}
+                    for _i, side in ipairs({ { "left", _("Left") }, { "right", _("Right") }, { "bottom", _("Bookshelf's Side") } }) do
+                        t[#t + 1] = {
+                            text = side[2],
+                            radio = true,
+                            keep_menu_open = true,
+                            checked_func = function() return (cfg.close_menu_side or "bottom") == side[1] end,
+                            callback = function()
+                                cfg.close_menu_side = side[1]
+                                saveConfig()
+                                hookCloseOnlyMenu()
+                                rebuildShelf()
+                            end,
+                        }
+                    end
+                    return t
+                end)(),
+            },
+        },
+        separator = true,
+    }
+    items[#items + 1] = cleanUpCacheItem()
+    return items
 end
 
 local function menuItem()
     return {
         text = _("OrbitShelf Tweaks"),
-        callback = function() showMenu() end,
+        sub_item_table_func = menuItems,
     }
 end
 
@@ -3014,6 +3468,8 @@ local function boot(ui)
         end
     end
     hookHero()
+    pcall(hookFlash)
+    pcall(Genres.listen)
     pcall(registerFileDialogButton)
     hookCloseOnlyMenu()
     hookFooterCritter()
