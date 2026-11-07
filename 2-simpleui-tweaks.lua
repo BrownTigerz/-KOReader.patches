@@ -13,6 +13,8 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.14.17 SimpleUI 3.0.3: Dynamic Bubble Width counts the pixel bubble's
+          new shadow, so the text it picks a width for still shows whole.
   2.14.16 Fix: Open Book From Cover Only: the critter's tap-the-cover tip
           stayed on the first one (SimpleUI holds a said line 20 minutes).
           Another four wrong taps now swap in a new tip.
@@ -381,7 +383,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.14.16"
+local VERSION = "2.14.17"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1491,12 +1493,26 @@ end
 
 local function wholeAt(Bubble, UI, o, w)
     local _b, _p, reach, frame = Bubble.metrics(o.scale, o.side ~= nil, o.style, o.unit)
-    local tw = w - reach - frame
+    -- SimpleUI 3.0.3: a pixel-style bubble keeps one unit inside its size for
+    -- its shadow, so the text gets that much less room. Measured from SimpleUI
+    -- itself (0 on 3.0.2 and for smooth bubbles), so either version fits right.
+    local shadow = 0
+    if o.style == "pixel" and o.unit and o.unit >= 1 and type(Bubble.minWidth) == "function" then
+        local tail = o.side ~= nil
+        local okS, extra = pcall(function()
+            local _b1, _p1, r1, f1 = Bubble.metrics(o.scale, tail, "pixel", o.unit)
+            local _b2, _p2, r2, f2 = Bubble.metrics(o.scale, tail, "smooth", o.unit)
+            return (Bubble.minWidth(o.scale, tail, "pixel", o.unit) - r1 - f1)
+                 - (Bubble.minWidth(o.scale, tail, "smooth", o.unit) - r2 - f2)
+        end)
+        if okS and type(extra) == "number" and extra > 0 then shadow = extra end
+    end
+    local tw = w - reach - frame - shadow
     if tw <= 20 then return false end
     local mh, ml = boxHeight(UI, o.msg_face, o.msg_bold, o.message, tw), boxHeight(UI, o.msg_face, o.msg_bold, "Xg", tw)
     if not (mh and ml) then return true end
     if mh > 2 * ml + 1 then return false end
-    local used = mh + frame
+    local used = mh + frame + shadow
     if o.detail then
         local dh, dl = boxHeight(UI, o.det_face, o.det_bold, o.detail, tw), boxHeight(UI, o.det_face, o.det_bold, "Xg", tw)
         if not (dh and dl) then return true end
