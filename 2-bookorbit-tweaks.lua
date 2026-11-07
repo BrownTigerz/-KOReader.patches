@@ -1,6 +1,6 @@
 --[[
 2-bookorbit-tweaks.lua
-BookOrbit Tweaks for current BookOrbit KOReader plugin (plugin 2.0 / server 3.5+).
+BookOrbit Tweaks for current BookOrbit KOReader plugin (plugin 2.0+ / server 3.5+).
 
 Install this file in KOReader/patches/ and restart KOReader.
 
@@ -36,6 +36,11 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.11 2026-11-07  BookOrbit 2.1 (server 3.6): with its Colour setting on, on a
+                      colour screen, Continue Reading in night mode is left to
+                      BookOrbit. Flipping it again showed its cover colour in the
+                      opposite hue. Black-and-white screens, Colour Off and older
+                      BookOrbit are unchanged.
   2.15.10 2026-11-06  Add To Collection from OrbitShelf: "Signing in…" and "Loading
                       your collections…" show as a plain KOReader message there.
                       BookOrbit's loading pill (tinted by Pill Colour) stayed on the
@@ -136,7 +141,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.10"
+local VERSION = "2.15.11"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -531,11 +536,23 @@ local function hookHeroNight()
         bb:paintBorder(x, y, w, h, bw, Blitbuffer.COLOR_BLACK, radius)
     end
 
+    -- BookOrbit 2.1 can colour the board on a colour screen (its Colour
+    -- setting): the hero then takes its cover's shade, turned for night mode
+    -- by BookOrbit itself. Flipping that again shows the opposite hue, so the
+    -- hero is left alone whenever BookOrbit's colour is on.
+    local ok_col, BoardColour = pcall(require, "bookorbit_board_colour")
+    if not (ok_col and type(BoardColour) == "table" and type(BoardColour.on) == "function") then
+        BoardColour = nil
+    end
     local original_tile = BoardWidgets.tile
     BoardWidgets.tile = function(ctx, item, w, h)
         local result = original_tile(ctx, item, w, h)
         if type(item) ~= "table" or item.type ~= "hero" or type(result) ~= "table" then
             return result
+        end
+        if BoardColour then
+            local ok_on, on = pcall(BoardColour.on, ctx)
+            if ok_on and on then return result end
         end
         return HeroNightWidget:new{
             dimen = Geom:new{ w = w, h = h },
