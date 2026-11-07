@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.5.1
+Version: 1.5.2
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -54,6 +54,9 @@ long-press away. Without BookOrbit, or not signed in, a tap does what it
 always did.
 
 Changelog
+  1.5.2  SimpleUI 3.0.3: the critter's bubble counts the pixel style's new
+         shadow when it checks what fits, and the critter gets SimpleUI's
+         ground shadow like the home screen's.
   1.5.1  Critters Say Notifications now also catches Network Tweaks' corner
          notes (Minimal style) and BookOrbit's pills, not just KOReader's own
          toasts; on your setup that's where nearly every notification comes
@@ -141,7 +144,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.5.1"
+local PATCH_VERSION = "1.5.2"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -1119,6 +1122,20 @@ end
 -- remark alone without SimpleUI's critter. nil when there's no room.
 -- Does the second line fit the bubble too (main and second line, 2 rows
 -- each, inside its height)? Without SimpleUI's text helpers: tall rows only.
+-- SimpleUI 3.0.3: a pixel-style bubble keeps one unit inside its size for its
+-- shadow, so its text gets that much less room. Measured from SimpleUI itself
+-- (0 on 3.0.2 and for smooth bubbles), so either version fits right.
+local function bubbleShadow(Bubble, scale, with_tail, style, unit)
+    if style ~= "pixel" or not unit or unit < 1 or type(Bubble.minWidth) ~= "function" then return 0 end
+    local ok, extra = pcall(function()
+        local _b1, _p1, r1, f1 = Bubble.metrics(scale, with_tail, "pixel", unit)
+        local _b2, _p2, r2, f2 = Bubble.metrics(scale, with_tail, "smooth", unit)
+        return (Bubble.minWidth(scale, with_tail, "pixel", unit) - r1 - f1)
+             - (Bubble.minWidth(scale, with_tail, "smooth", unit) - r2 - f2)
+    end)
+    return ok and type(extra) == "number" and extra > 0 and extra or 0
+end
+
 local function detailFits(Bubble, o)
     local UI = sui("infra/sui_core")
     if type(Bubble.metrics) ~= "function" or type(UI) ~= "table" or type(UI.makeTextBox) ~= "function" then
@@ -1126,7 +1143,8 @@ local function detailFits(Bubble, o)
     end
     local ok, res = pcall(function()
         local _b, _p, reach, frame = Bubble.metrics(o.scale, true, o.style, o.unit)
-        local tw = o.w - reach - frame
+        local shadow = bubbleShadow(Bubble, o.scale, true, o.style, o.unit)
+        local tw = o.w - reach - frame - shadow
         if tw <= 20 then return false end
         local function hgt(face, bold, text)
             local box = UI.makeTextBox{ text = text, face = face, bold = bold, width = tw }
@@ -1137,7 +1155,7 @@ local function detailFits(Bubble, o)
         local mh, ml = hgt(o.msg_face, o.msg_bold, o.message), hgt(o.msg_face, o.msg_bold, "Xg")
         local dh, dl = hgt(o.det_face, o.det_bold, o.detail), hgt(o.det_face, o.det_bold, "Xg")
         if mh > 2 * ml + 1 or dh > 2 * dl + 1 then return false end
-        return mh + dh + frame + math.floor(Screen:scaleBySize(2) * (o.scale or 1)) <= o.h
+        return mh + dh + frame + shadow + math.floor(Screen:scaleBySize(2) * (o.scale or 1)) <= o.h
     end)
     return ok and res == true
 end
@@ -1151,7 +1169,8 @@ local function messageFits(Bubble, o)
     end
     local ok, res = pcall(function()
         local _b, _p, reach, frame = Bubble.metrics(o.scale, true, o.style, o.unit)
-        local tw = o.w - reach - frame
+        local shadow = bubbleShadow(Bubble, o.scale, true, o.style, o.unit)
+        local tw = o.w - reach - frame - shadow
         if tw <= 20 then return false end
         local function hgt(text)
             local box = UI.makeTextBox{ text = text, face = o.msg_face, bold = o.msg_bold, width = tw }
@@ -1160,7 +1179,7 @@ local function messageFits(Bubble, o)
             return hh
         end
         local mh, ml = hgt(o.message), hgt("Xg")
-        return mh <= 2 * ml + 1 and mh + frame <= o.h
+        return mh <= 2 * ml + 1 and mh + frame + shadow <= o.h
     end)
     if not ok then return nil end
     return res == true
@@ -1193,7 +1212,8 @@ local function critterGroup(message, mood, max_w, h, detail, fit)
                 or (BASE_MOOD[mood] and Assets.imagePath(entry, BASE_MOOD[mood]))
                 or Assets.imagePath(entry, "happy"))
             if not path then return nil end
-            local sprite = Sprite:new{ path = path, max_w = math.floor(max_w * 0.35), max_h = h }
+            -- shadow: SimpleUI 3.0.3's ground shadow (ignored by older builds)
+            local sprite = Sprite:new{ path = path, max_w = math.floor(max_w * 0.35), max_h = h, shadow = true }
             if not (sprite.dimen and sprite.dimen.w > 0) then return nil end
             local style = (type(CS) == "table" and type(CS.bubbleStyle) == "function") and CS.bubbleStyle() or "pixel"
             if style ~= "smooth" then style = "pixel" end
