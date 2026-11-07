@@ -71,7 +71,8 @@ Changelog:
   2.8.1  2026-11-07  SimpleUI 3.0.3: the critter's bubble counts the pixel
                       style's new shadow when it sizes the text, and the
                       critter gets SimpleUI's ground shadow like the home
-                      screen's.
+                      screen's. Loops no longer use _ as their variable
+                      (it's gettext's name).
   2.8.0  2026-10-31  Paired cards: Library gets a second side, Collecting
                      Dust (books you haven't started, the longest waiting
                      first, under a little dust), and Reading trends gets
@@ -376,7 +377,7 @@ local function critterNews()
             local v = type(w.variants) == "table" and w.variants[1]
             if type(v) ~= "table" then return nil end
             local parts = {}
-            for _, seg in ipairs(v) do
+            for _loop, seg in ipairs(v) do
                 if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
             end
             local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
@@ -392,7 +393,7 @@ local function critterNews()
         if hub.on() and not (okD and Device.screen_saver_mode) then
             local text = hub.toastText(w)
             if text then
-                for _, spot in pairs(hub.spots) do
+                for _loop, spot in pairs(hub.spots) do
                     local okV, vis = pcall(spot.visible)
                     if okV and vis then
                         local okS, said = pcall(spot.say, text)
@@ -516,9 +517,9 @@ local function critterKit(...)
 
     local function tally(books, field)
         local t, order = {}, {}
-        for _, b in ipairs(books) do
+        for _loop, b in ipairs(books) do
             if b.status == "finished" then
-                for _, v in ipairs(b[field] or {}) do
+                for _loop, v in ipairs(b[field] or {}) do
                     local k = v:lower()
                     if not t[k] then t[k] = { name = v, n = 0 }; order[#order + 1] = k end
                     t[k].n = t[k].n + 1
@@ -526,7 +527,7 @@ local function critterKit(...)
             end
         end
         local out = {}
-        for _, k in ipairs(order) do out[#out + 1] = t[k] end
+        for _loop, k in ipairs(order) do out[#out + 1] = t[k] end
         table.sort(out, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.name < b.name end)
         return out
     end
@@ -536,15 +537,15 @@ local function critterKit(...)
         local sug = {}
         recent = recent or {}
         local by_fp = {}
-        for _, b in ipairs(books) do by_fp[b.fp] = b end
+        for _loop, b in ipairs(books) do by_fp[b.fp] = b end
         -- the next in a series you finished a book of in the last 60 days
         local now = os.time()
-        for _, r in ipairs(recent) do
+        for _loop, r in ipairs(recent) do
             if now - (r.at or 0) > 60 * 86400 then break end
             local b = by_fp[r.fp]
             if b and b.series then
                 local key = b.series:lower()
-                for _, c in ipairs(D.pickCandidates(books, {})) do
+                for _loop, c in ipairs(D.pickCandidates(books, {})) do
                     if c.series and c.series:lower() == key then
                         sug.series_next = { done = r.title or b.title, name = b.series, book = c }
                         break
@@ -556,24 +557,24 @@ local function critterKit(...)
         -- your last 3 finished share a genre: something from another one you like
         if #recent >= 3 then
             local common
-            for _, g in ipairs(recent[1].genres or {}) do
+            for _loop, g in ipairs(recent[1].genres or {}) do
                 local k = g:lower()
                 local all = true
                 for i = 2, 3 do
                     local has = false
-                    for _, h in ipairs(recent[i].genres or {}) do if h:lower() == k then has = true end end
+                    for _loop, h in ipairs(recent[i].genres or {}) do if h:lower() == k then has = true end end
                     if not has then all = false break end
                 end
                 if all then common = g break end
             end
             if common then
                 local ck = common:lower()
-                for _, g in ipairs(tally(books, "genres")) do
+                for _loop, g in ipairs(tally(books, "genres")) do
                     if g.name:lower() ~= ck then
                         local cands = {}
-                        for _, c in ipairs(D.pickCandidates(books, { genres = { g.name } })) do
+                        for _loop, c in ipairs(D.pickCandidates(books, { genres = { g.name } })) do
                             local same = false
-                            for _, h in ipairs(c.genres or {}) do if h:lower() == ck then same = true end end
+                            for _loop, h in ipairs(c.genres or {}) do if h:lower() == ck then same = true end end
                             if not same then cands[#cands + 1] = c end
                         end
                         if #cands > 0 then
@@ -586,18 +587,18 @@ local function critterKit(...)
         end
         -- unread books by authors you've finished
         local fin_auth = {}
-        for _, b in ipairs(books) do
-            if b.status == "finished" then for _, a in ipairs(b.authors or {}) do fin_auth[a:lower()] = true end end
+        for _loop, b in ipairs(books) do
+            if b.status == "finished" then for _loop, a in ipairs(b.authors or {}) do fin_auth[a:lower()] = true end end
         end
         local n = 0
-        for _, b in ipairs(books) do
+        for _loop, b in ipairs(books) do
             if b.status == "unread" then
-                for _, a in ipairs(b.authors or {}) do if fin_auth[a:lower()] then n = n + 1 break end end
+                for _loop, a in ipairs(b.authors or {}) do if fin_auth[a:lower()] then n = n + 1 break end end
             end
         end
         if n >= 3 then sug.discover = n end
         -- an author you finish, with a book of theirs not started yet
-        for _, a in ipairs(tally(books, "authors")) do
+        for _loop, a in ipairs(tally(books, "authors")) do
             local cands = D.pickCandidates(books, { authors = { a.name } })
             if #cands > 0 then
                 sug.author = { name = a.name, n = a.n, book = dayIndex(cands, "author" .. a.name) }
@@ -606,11 +607,11 @@ local function critterKit(...)
         end
         -- the next book of a series you've finished a book of
         local done_series = {}
-        for _, b in ipairs(books) do
+        for _loop, b in ipairs(books) do
             if b.status == "finished" and b.series then done_series[b.series:lower()] = b.series end
         end
         local next_in = {}
-        for _, c in ipairs(D.pickCandidates(books, {})) do
+        for _loop, c in ipairs(D.pickCandidates(books, {})) do
             if c.series and done_series[c.series:lower()] then next_in[#next_in + 1] = c end
         end
         if #next_in > 0 then
@@ -618,7 +619,7 @@ local function critterKit(...)
             sug.series = { name = b.series, num = b.num, book = b }
         end
         -- a genre you finish, with a book in it not started yet
-        for _, g in ipairs(tally(books, "genres")) do
+        for _loop, g in ipairs(tally(books, "genres")) do
             if g.n >= 2 then
                 local cands = D.pickCandidates(books, { genres = { g.name } })
                 if #cands > 0 then
@@ -629,7 +630,7 @@ local function critterKit(...)
         end
         -- a book on hold
         local held = {}
-        for _, b in ipairs(books) do if b.status == "on_hold" then held[#held + 1] = b end end
+        for _loop, b in ipairs(books) do if b.status == "on_hold" then held[#held + 1] = b end end
         if #held > 0 then
             local b = dayIndex(held, "hold")
             local pct = D.progress(b.fp)
@@ -658,7 +659,7 @@ local function critterKit(...)
         -- from the books in progress and your usual day
         local avg_min = f.avg_secs and f.avg_secs / 60 or nil
         local now = os.time()
-        for _, b in ipairs(f.reading or {}) do
+        for _loop, b in ipairs(f.reading or {}) do
             -- a quick win: minutes from the end
             if not f.sug.quick and b.left_min and b.left_min >= 2 and b.left_min <= 25 then
                 f.sug.quick = { book = b, left = b.left_min }
@@ -673,7 +674,7 @@ local function critterKit(...)
                 and not (f.quiet_key and A.get("critter_quiet_pass") == f.quiet_key) then
             f.sug.recover = { book = f.reading[1], days = f.idle }
         end
-        for _, b in ipairs(f.reading or {}) do
+        for _loop, b in ipairs(f.reading or {}) do
             if b.left_min and b.left_min > 0 and avg_min and avg_min >= 5 then
                 if not f.sug.tonight and b.left_min <= avg_min * 1.5 then
                     f.sug.tonight = { book = b, left = b.left_min, usual = avg_min }
@@ -707,7 +708,7 @@ local function critterKit(...)
         if type(Q.open) == "function" then
             local ok, list = pcall(Q.open)
             if ok and type(list) == "table" then
-                for _, q in ipairs(list) do
+                for _loop, q in ipairs(list) do
                     local window = ({ weekly = 2, monthly = 5 })[q.period]
                     if q.type == "books_finished" and q.need - q.have == 1 and window and q.days_left <= window then
                         f.quest_book = q
@@ -819,7 +820,7 @@ local function critterKit(...)
         end
         local from = os.time{ year = t.year, month = t.month, day = t.day - into - 7, hour = 0 }
         local to = os.time{ year = t.year, month = t.month, day = t.day - into, hour = 0 }
-        for _, b in ipairs(f.finished_recent or {}) do
+        for _loop, b in ipairs(f.finished_recent or {}) do
             if b.at and b.at >= from and b.at < to then r.books = r.books + 1 end
         end
         if r.best_at then
@@ -836,7 +837,7 @@ local function critterKit(...)
             if m < 1 then y, m = y - 1, m + 12 end
             local ok, fin = pcall(D.finishedIn, refresh, y, m)
             if ok and type(fin) == "table" then
-                for _, b in ipairs(fin) do
+                for _loop, b in ipairs(fin) do
                     list[#list + 1] = { fp = b.fp, title = b.title, genres = b.genres,
                         at = os.time{ year = b.year or y, month = b.month or m, day = b.day or 1, hour = 12 } }
                 end
@@ -936,7 +937,7 @@ local function critterKit(...)
         if ok_r and type(reading) == "table" then
             f.reading = reading
             local close
-            for _, b in ipairs(reading) do
+            for _loop, b in ipairs(reading) do
                 if (b.pct or 0) >= 0.5 and (not close or b.pct > close.pct) then close = b end
             end
             f.closest = close
@@ -1285,7 +1286,7 @@ local function critterKit(...)
             sub = function(f) return string.format("%s is %d%% done. %s", q(f.closest.title), floor(f.closest.pct * 100), TAP) end,
             fp = bookOf(function(f) return f.closest end) },
     }
-    local function addAll(list, names) for _, n in ipairs(names) do list[#list + 1] = S_[n] end end
+    local function addAll(list, names) for _loop, n in ipairs(names) do list[#list + 1] = S_[n] end end
     addAll(R.today,   { "tonight", "boost", "hour", "hold", "quest_daily", "quick", "recover", "stale", "series_next" })
     addAll(R.yearly,  { "author", "series", "quest_book", "series_next" })
     addAll(R.monthly, { "tonight", "quest_book", "genre", "quick" })
@@ -1669,7 +1670,7 @@ local function critterKit(...)
     local function stepsOk(st)
         if type(st) ~= "table" or #st == 0 then return false end
         local prev = 0
-        for _, x in ipairs(st) do
+        for _loop, x in ipairs(st) do
             if type(x) ~= "table" or type(x.upto) ~= "number" or x.upto <= prev or type(x.text) ~= "function"
                 or type(x.subs) ~= "table" or #x.subs == 0 then return false end
             prev = x.upto
@@ -1683,7 +1684,7 @@ local function critterKit(...)
         local ok_ds, DS = pcall(require, "datastorage")
         if ok_ds and DS and DS.getDataDir then paths[1] = DS:getDataDir() .. "/patches/critter-phrases.lua" end
         paths[#paths + 1] = A.dir .. "/critter-phrases.lua"
-        for _, path in ipairs(paths) do
+        for _loop, path in ipairs(paths) do
             local fn = loadfile(path)
             if fn then
                 setfenv(fn, { string = string, math = math, tostring = tostring, tonumber = tonumber,
@@ -1695,7 +1696,7 @@ local function critterKit(...)
                     for kind, m in pairs(BANK_MAP) do
                         local list = type(b.insights) == "table" and b.insights[kind]
                         if type(list) == "table" then
-                            for _, l in ipairs(list) do
+                            for _loop, l in ipairs(list) do
                                 if type(l) == "table" and type(l.text) == "function" and (l.sub == nil or type(l.sub) == "function") then
                                     local adapt, tap = m.d, m.tap
                                     VARIANTS[m.id] = VARIANTS[m.id] or {}
@@ -1771,8 +1772,8 @@ local function critterKit(...)
     -- Pages the reader made: anything from the general pools.
     -- Remarks about a book in progress: tapping the bubble opens that book.
     local CLOSEST_FP = function(f) return f.closest and f.closest.fp or nil end
-    for _, kind in ipairs({ "today", "yearly", "monthly", "library" }) do
-        for _, r in ipairs(R[kind]) do
+    for _loop, kind in ipairs({ "today", "yearly", "monthly", "library" }) do
+        for _loop, r in ipairs(R[kind]) do
             if (r.id == "t_closest" or r.id == "y_behind" or r.id == "m_end_book" or r.id == "l_closest") and not r.fp then
                 r.fp = CLOSEST_FP
             end
@@ -1782,8 +1783,8 @@ local function critterKit(...)
     R.custom = {}
     do
         local seen = {}
-        for _, kind in ipairs({ "today", "yearly", "library" }) do
-            for _, r in ipairs(R[kind]) do
+        for _loop, kind in ipairs({ "today", "yearly", "library" }) do
+            for _loop, r in ipairs(R[kind]) do
                 if not seen[r.id] then seen[r.id] = true; R.custom[#R.custom + 1] = r end
             end
         end
@@ -1813,7 +1814,7 @@ local function critterKit(...)
         local on = {}
         for g, key in pairs(C.SWITCHES) do on[g] = A.get(key, true) ~= false end
         local passed = f.dismissed or {}
-        for _, r in ipairs(pool) do
+        for _loop, r in ipairs(pool) do
             if on[groupOf(r.id)] then
                 local ok, yes = pcall(r.when, f)
                 if ok and yes and r.fp and r.id:sub(1, 2) == "s_" then
@@ -1832,7 +1833,7 @@ local function critterKit(...)
                     "t_comeback", "t_momentum", "s_series_next",
                     "t_pep" } -- once you've read today, the pep talk; it grows as you read
     local FIRST_SET = {}
-    for _, id in ipairs(FIRST) do FIRST_SET[id] = true end
+    for _loop, id in ipairs(FIRST) do FIRST_SET[id] = true end
     -- news only when it's new: a milestone on the day the book was finished, a
     -- comeback run once per comeback (it stays in the rotation after that)
     local FIRST_WHEN = {
@@ -1857,7 +1858,7 @@ local function critterKit(...)
             end
         end
         local list = {}
-        for _, id in ipairs(ids) do if id ~= skip or #ids == 1 then list[#list + 1] = id end end
+        for _loop, id in ipairs(ids) do if id ~= skip or #ids == 1 then list[#list + 1] = id end end
         return list[math.random(#list)]
     end
 
@@ -1969,7 +1970,7 @@ local function critterKit(...)
         if not cid then return ids, by end
         local cats = VOICE_CATS[kind] or { generic = true }
         local sf
-        for _, v in ipairs(Voices) do
+        for _loop, v in ipairs(Voices) do
             if type(v) == "table" and v.critter == cid and cats[v.cat] and type(v.text) == "function" then
                 sf = sf or voiceFacts(f, cid)
                 local ok, yes = pcall(v.when, sf)
@@ -2028,7 +2029,7 @@ local function critterKit(...)
         if want_book then
             -- only the remarks that suggest a book
             local only = {}
-            for _, id in ipairs(ids) do if by[id].fp then only[#only + 1] = id end end
+            for _loop, id in ipairs(ids) do if by[id].fp then only[#only + 1] = id end end
             if #only > 0 then ids = only end
         end
         if #ids == 0 and #vids == 0 then return nil end
@@ -2044,7 +2045,7 @@ local function critterKit(...)
             A.state.critter_first = A.state.critter_first or {}
             local seen = A.state.critter_first
             if seen.day ~= today then seen = { day = today }; A.state.critter_first = seen end
-            for _, id in ipairs(FIRST) do
+            for _loop, id in ipairs(FIRST) do
                 if by[id] and not seen[kind .. ":" .. id] and (not FIRST_WHEN[id] or FIRST_WHEN[id](f)) then first = id break end
             end
             if first then
@@ -2300,7 +2301,7 @@ local function critterKit(...)
         -- anything is cut short.
         local group_w = cap
         if cap < w then
-            for _, cand in ipairs({ cap, floor((cap + w) / 2), w }) do
+            for _loop, cand in ipairs({ cap, floor((cap + w) / 2), w }) do
                 group_w = cand
                 if fits(k, r, cand - sw - gap, h, scale, style, unit, mf, mb, df, db) then break end
             end
@@ -2363,7 +2364,7 @@ local function critterKit(...)
     local function hasBookRemark(page, refresh)
         local pool = poolFor(page)
         local ids, by = eligible(pool, facts(refresh))
-        for _, id in ipairs(ids) do
+        for _loop, id in ipairs(ids) do
             if by[id].fp and id:sub(1, 2) == "s_" then return true end
         end
         return false
@@ -2435,11 +2436,11 @@ local function critterKit(...)
                 if not pool then
                     pool = {}
                     local okq, Q = pcall(require, "modules/quotes")
-                    if okq and type(Q) == "table" then for _, e in ipairs(Q) do pool[#pool + 1] = e end end
+                    if okq and type(Q) == "table" then for _loop, e in ipairs(Q) do pool[#pool + 1] = e end end
                     local MQ = sui("modules/module_quote")
                     if type(MQ) == "table" and type(MQ.customQuotes) == "function" then
                         local okc, cq = pcall(MQ.customQuotes)
-                        if okc and type(cq) == "table" then for _, e in ipairs(cq) do pool[#pool + 1] = e end end
+                        if okc and type(cq) == "table" then for _loop, e in ipairs(cq) do pool[#pool + 1] = e end end
                     end
                 end
                 return pool
@@ -2447,7 +2448,7 @@ local function critterKit(...)
             local rps, coin, quiz
             rps = function()
                 local opts = {}
-                for _, move in ipairs(Games.MOVES or {}) do
+                for _loop, move in ipairs(Games.MOVES or {}) do
                     opts[#opts + 1] = { text = Lines.name(move), on_pick = function()
                         local mine, outcome = Games.rps(move, math.random)
                         if outcome == "win" then win1() end
@@ -2458,7 +2459,7 @@ local function critterKit(...)
             end
             coin = function()
                 local opts = {}
-                for _, call in ipairs({ "heads", "tails" }) do
+                for _loop, call in ipairs({ "heads", "tails" }) do
                     opts[#opts + 1] = { text = Lines.name(call), on_pick = function()
                         local side, right = Games.coin(call, math.random)
                         if right then win1() end
@@ -2506,7 +2507,7 @@ local function critterKit(...)
                 { text = "Open it", on_pick = function() D.openBook(ctx, fp) end },
                 { text = "Another suggestion", on_pick = function() C.dismiss(fp, page); another(true) end },
             }
-            for _, e in ipairs(extras) do options[#options + 1] = e end
+            for _loop, e in ipairs(extras) do options[#options + 1] = e end
         else
             local can_suggest = hasBookRemark(page, refresh)
             opener = can_suggest and "Want me to suggest a book?" or nil
@@ -2514,7 +2515,7 @@ local function critterKit(...)
             if can_suggest then
                 options[#options + 1] = { text = "Suggest a book", on_pick = function() another(true) end }
             end
-            for _, e in ipairs(extras) do options[#options + 1] = e end
+            for _loop, e in ipairs(extras) do options[#options + 1] = e end
             options[#options + 1] = { text = "Not now", on_pick = function() end }
         end
         local ok = pcall(TalkWindow.open, {
@@ -2667,7 +2668,7 @@ local function apply(A)
     do
         local schema = tonumber(A.get("rlt_schema", 0)) or 0
         local legacy = A.get(("t" .. "k_") .. "schema", nil) ~= nil
-        for _, k in ipairs({ "swipe_cards", "today_card", "dash_layout", "club_colls", "club_picks",
+        for _loop, k in ipairs({ "swipe_cards", "today_card", "dash_layout", "club_colls", "club_picks",
                              "start_tab", "bo_colls", "compact_detail", "bo_details", "continue_buttons" }) do
             if legacy then break end
             if A.get(("t" .. "k_") .. k, nil) ~= nil then legacy = true end
@@ -2678,7 +2679,7 @@ local function apply(A)
                 "today_card", "start_tab", "first_page", "continue_buttons", "bo_colls",
                 "club_colls", "club_picks", "dash_layout", "dash_bottom_adjust",
             }
-            for _, k in ipairs(keys) do
+            for _loop, k in ipairs(keys) do
                 local oldv = A.get(("t" .. "k_") .. k, nil)
                 if oldv ~= nil and A.get("rlt_" .. k, nil) == nil then
                     A.set("rlt_" .. k, oldv)
@@ -2841,7 +2842,7 @@ local function apply(A)
         -- offered in Pages And Cards (after Year goal) and as a Simple UI module
         local function insertAfter(list, after, name)
             if type(list) ~= "table" then return end
-            for _, n in ipairs(list) do if n == name then return end end
+            for _loop, n in ipairs(list) do if n == name then return end end
             for i, n in ipairs(list) do
                 if n == after then table.insert(list, i + 1, name); return end
             end
@@ -3084,7 +3085,7 @@ local function apply(A)
         A.DASH_WEIGHT.this_book = 0.3
         local function insertAfter(list, after, name)
             if type(list) ~= "table" then return end
-            for _, n in ipairs(list) do if n == name then return end end
+            for _loop, n in ipairs(list) do if n == name then return end end
             for i, n in ipairs(list) do
                 if n == after then table.insert(list, i + 1, name); return end
             end
@@ -3107,7 +3108,7 @@ local function apply(A)
         { "tbr",         "TBR Shelf" },
     }
     local PICK_SET = {}
-    for _, p in ipairs(PICKS) do PICK_SET[p[1]] = true end
+    for _loop, p in ipairs(PICKS) do PICK_SET[p[1]] = true end
     local SWIPE = "swipe_today"
     local SWIPE_CAP = 0.36
 
@@ -3200,19 +3201,19 @@ local function apply(A)
         local v = A.get("rlt_swipe_cards", nil)
         local out, seen = {}, {}
         if type(v) == "table" then
-            for _, n in ipairs(v) do
+            for _loop, n in ipairs(v) do
                 if PICK_SET[n] and P[n] and not seen[n] and #out < 3 then out[#out + 1] = n; seen[n] = true end
             end
         end
         if #out < 1 then
-            for _, n in ipairs({ "goal_covers", "finished" }) do if P[n] then out[#out + 1] = n end end
+            for _loop, n in ipairs({ "goal_covers", "finished" }) do if P[n] then out[#out + 1] = n end end
         end
         return out
     end
 
     local function swipeWeight()
         local wgt = 0
-        for _, n in ipairs(swipeCards()) do wgt = max(wgt, A.DASH_WEIGHT[n] or 0.25) end
+        for _loop, n in ipairs(swipeCards()) do wgt = max(wgt, A.DASH_WEIGHT[n] or 0.25) end
         A.DASH_WEIGHT[SWIPE] = min(max(wgt, 0.2), SWIPE_CAP)
     end
 
@@ -3263,7 +3264,7 @@ local function apply(A)
     end
 
     local function swipeCell(ctx)
-        for _, r in ipairs((ctx and ctx._regions) or {}) do
+        for _loop, r in ipairs((ctx and ctx._regions) or {}) do
             if r.id == SWIPE .. "|" then return r end
         end
         return nil
@@ -3349,7 +3350,7 @@ local function apply(A)
     -- What sits in the Today slot: one of PICKS, or the swipe spot. Changing
     -- it rewrites the Today page's rows (as Pages And Cards would).
     local function todayPage()
-        for _, p in ipairs(A.dashPages()) do if p.id == "today" then return p end end
+        for _loop, p in ipairs(A.dashPages()) do if p.id == "today" then return p end end
         return nil
     end
 
@@ -3426,7 +3427,7 @@ local function apply(A)
             if m < 1 then y, m = y - 1, 12 end
             local ok, fin = pcall(D.finishedIn, f.refresh, y, m)
             if ok and type(fin) == "table" then
-                for _, b in ipairs(fin) do
+                for _loop, b in ipairs(fin) do
                     local at = os.time{ year = b.year or y, month = b.month or m, day = b.day or 1, hour = 12 }
                     if b.day and at >= since then return true end
                 end
@@ -3449,7 +3450,7 @@ local function apply(A)
 
     -- rules several groups share
     local function nearFinish(f)
-        for _, b in ipairs(f.reading) do
+        for _loop, b in ipairs(f.reading) do
             local left = (b.pct or 0) < 0.995 and minutesLeft(f, b)
             if left and left <= 120 then return true end
         end
@@ -3570,7 +3571,7 @@ local function apply(A)
         },
     }
     local SMART_BY = {}
-    for _, def in ipairs(SMART) do SMART_BY[def.id] = def end
+    for _loop, def in ipairs(SMART) do SMART_BY[def.id] = def end
 
     local function smartState(id)
         A.state.rlt_smart = A.state.rlt_smart or {}
@@ -3584,7 +3585,7 @@ local function apply(A)
     -- the group's cards that are there and have something to show
     local function smartCards(def, env)
         local out = {}
-        for _, n in ipairs(def.cards) do
+        for _loop, n in ipairs(def.cards) do
             local can = def.can_show and def.can_show[n]
             if type(P[n]) == "table" and type(P[n].build) == "function"
                     and (env.sample or not can or can(env)) then
@@ -3606,8 +3607,8 @@ local function apply(A)
         if not f then return nil, true end
         local taken = takenBy(def)
         local have = {}
-        for _, n in ipairs(cards) do if not taken[n] then have[n] = true end end
-        for _, rule in ipairs(def.rules) do
+        for _loop, n in ipairs(cards) do if not taken[n] then have[n] = true end end
+        for _loop, rule in ipairs(def.rules) do
             if have[rule[1]] then
                 local ok, yes = pcall(rule[2], f, env)
                 if ok and yes then return rule[1] end
@@ -3655,7 +3656,7 @@ local function apply(A)
     -- coming back: every Smart Card decides again on its next drawing
     smartAway = function()
         local any = false
-        for _, def in ipairs(SMART) do
+        for _loop, def in ipairs(SMART) do
             smartState(def.id).due = true
             if A.state.rlt_smart_seen and A.state.rlt_smart_seen[def.id] then any = true end
         end
@@ -3663,7 +3664,7 @@ local function apply(A)
     end
 
     local function cellOf(ctx, id)
-        for _, r in ipairs((ctx and ctx._regions) or {}) do
+        for _loop, r in ipairs((ctx and ctx._regions) or {}) do
             if r.id == id .. "|" then return r end
         end
         return nil
@@ -3694,7 +3695,7 @@ local function apply(A)
         smartSet(def, cur + step, ctx)
     end
 
-    for _, def in ipairs(SMART) do
+    for _loop, def in ipairs(SMART) do
         if not P[def.id] then
             P[def.id] = {
                 does = T("shows the card tapped"),
@@ -3759,12 +3760,12 @@ local function apply(A)
             end
             -- as tall as its tallest card (within reason)
             local wgt = 0
-            for _, n in ipairs(def.cards) do wgt = max(wgt, A.DASH_WEIGHT[n] or 0.25) end
+            for _loop, n in ipairs(def.cards) do wgt = max(wgt, A.DASH_WEIGHT[n] or 0.25) end
             A.DASH_WEIGHT[def.id] = min(max(wgt, 0.22), 0.42)
             local list = A.DASH_CARDS
             if type(list) == "table" then
                 local have = false
-                for _, n in ipairs(list) do if n == def.id then have = true end end
+                for _loop, n in ipairs(list) do if n == def.id then have = true end end
                 if not have then list[#list + 1] = def.id end
             end
         end
@@ -3778,14 +3779,14 @@ local function apply(A)
     }
     local function swapCards(map_for)
         local changed = false
-        for _, page in ipairs(A.dashPages()) do
+        for _loop, page in ipairs(A.dashPages()) do
             local map = map_for(page.id)
             if map then
                 local rows = A.dashPageRows(page)
                 local saved, hit = {}, false
-                for _, r in ipairs(rows) do
+                for _loop, r in ipairs(rows) do
                     local cards = {}
-                    for _, n in ipairs(r.cards) do
+                    for _loop, n in ipairs(r.cards) do
                         if map[n] and P[map[n]] then n = map[n]; hit = true end
                         cards[#cards + 1] = n
                     end
@@ -3798,12 +3799,12 @@ local function apply(A)
         return changed
     end
     local function smartSwapped()
-        for _, page in ipairs(A.dashPages()) do
+        for _loop, page in ipairs(A.dashPages()) do
             local map = SMART_SWAPS[page.id]
             if map then
-                for _, r in ipairs(A.dashPageRows(page)) do
-                    for _, n in ipairs(r.cards) do
-                        for _, to in pairs(map) do if n == to then return true end end
+                for _loop, r in ipairs(A.dashPageRows(page)) do
+                    for _loop, n in ipairs(r.cards) do
+                        for _loop, to in pairs(map) do if n == to then return true end end
                     end
                 end
             end
@@ -3884,7 +3885,7 @@ local function apply(A)
                     -- the paired cards (Library / Collecting Dust, Trends / Discover)
                     if switchBy() == "swipe" then
                         for id, flip in pairs(PAIRS) do
-                            for _, r in ipairs((e.ctx and e.ctx._regions) or {}) do
+                            for _loop, r in ipairs((e.ctx and e.ctx._regions) or {}) do
                                 if r.id == id .. "|" and rx >= r.x and rx < r.x + r.w and ry >= r.y and ry < r.y + r.h then
                                     if flip(step, e.ctx) then return true end
                                 end
@@ -3913,7 +3914,7 @@ local function apply(A)
     local function goStartTab(why)
         local id = startTabId()
         if id == "last" then return end
-        for _, t in ipairs(A.state.dash_tabs or {}) do
+        for _loop, t in ipairs(A.state.dash_tabs or {}) do
             if t.kind == "page" and t.id == id then
                 if A.state.dash_page ~= t.page then
                     A.state.dash_page = t.page
@@ -3932,7 +3933,7 @@ local function apply(A)
         -- the page SimpleUI remembers for a home screen it reopens
         if SE._current_page and SE._current_page ~= 1 then SE._current_page = nil end
         if type(SE._cs_state) == "table" then
-            for _, st in pairs(SE._cs_state) do
+            for _loop, st in pairs(SE._cs_state) do
                 if type(st) == "table" and st._current_page and st._current_page ~= 1 then st._current_page = nil end
             end
         end
@@ -3942,7 +3943,7 @@ local function apply(A)
             local ok, l = pcall(SE.knownScreenIds)
             if ok and type(l) == "table" then ids = l end
         end
-        for _, id in ipairs(ids) do
+        for _loop, id in ipairs(ids) do
             local ok, w = pcall(SE.getInstance, id)
             if ok and type(w) == "table" and (w._current_page or 1) ~= 1 then
                 if type(w._setPage) == "function" then pcall(w._setPage, w, 1) else w._current_page = 1 end
@@ -3960,7 +3961,7 @@ local function apply(A)
             if e.painted and e.win == win and d and d.x and d.w then
                 local rx, ry = pos.x - d.x, pos.y - d.y
                 if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
-                    for _, r in ipairs((e.ctx and e.ctx._regions) or {}) do
+                    for _loop, r in ipairs((e.ctx and e.ctx._regions) or {}) do
                         if rx >= r.x and rx < r.x + r.w and ry >= r.y and ry < r.y + r.h then
                             if r.id == "bookclub|" then return e.ctx end
                             if r.id == SWIPE .. "|" then
@@ -3988,7 +3989,7 @@ local function apply(A)
         if type(sub) ~= "string" then return false end
         -- a card inside a swipe spot or Smart Card: "this_book|cover"
         local last = sub:match("([^|]*)$") or sub
-        for _, p in ipairs(BOOK_SPOTS) do if last:find(p) then return true end end
+        for _loop, p in ipairs(BOOK_SPOTS) do if last:find(p) then return true end end
         return false
     end
     local function bookUnder(win, pos)
@@ -3999,7 +4000,7 @@ local function apply(A)
                 if rx >= 0 and ry >= 0 and rx < d.w and ry < d.h then
                     -- the smallest book spot under the finger
                     local best, area
-                    for _, r in ipairs((e.ctx and e.ctx._regions) or {}) do
+                    for _loop, r in ipairs((e.ctx and e.ctx._regions) or {}) do
                         if rx >= r.x and rx < r.x + r.w and ry >= r.y and ry < r.y + r.h then
                             local name, sub = tostring(r.id):match("^([%w_]+)|(.+)$")
                             if name and bookSpot(sub) and type(P[name]) == "table" and type(P[name].tap) == "function" then
@@ -4071,7 +4072,7 @@ local function apply(A)
                 local RUI = package.loaded["apps/reader/readerui"]
                 local ui = type(RUI) == "table" and RUI.instance or nil
                 if type(ui) == "table" and type(ui.document) == "table" and ui.document.file == fp then
-                    for _, b in ipairs(row) do b.enabled = false end
+                    for _loop, b in ipairs(row) do b.enabled = false end
                 end
                 buttons[#buttons + 1] = row
             end
@@ -4125,11 +4126,11 @@ local function apply(A)
         if not enterSideOn() then return end
         local sw = A.screen():getWidth()
         if ges.pos.x < sw / 8 or ges.pos.x > sw - sw / 8 then return end -- the side panel's
-        for _, e in pairs(LIVE) do
+        for _loop, e in pairs(LIVE) do
             if e.win == win and e.painted then return end -- on the Dashboard: not entering it
         end
         local first, last
-        for _, t in ipairs(A.state.dash_tabs or {}) do
+        for _loop, t in ipairs(A.state.dash_tabs or {}) do
             if t.kind == "page" then first = first or t; last = t end
         end
         local t = ges.direction == "west" and first or last
@@ -4188,12 +4189,12 @@ local function apply(A)
             -- which Dashboard was actually painted this time (not one on
             -- another Simple UI page)
             w.paintTo = function(self, ...)
-                for _, e in pairs(LIVE) do if e.win == self then e.painted = false end end
+                for _loop, e in pairs(LIVE) do if e.win == self then e.painted = false end end
                 CUR_WIN = self
                 local res = { orig_paint(self, ...) }
                 CUR_WIN = nil
                 local vis = false
-                for _, e in pairs(LIVE) do if e.win == self and e.painted then vis = true end end
+                for _loop, e in pairs(LIVE) do if e.win == self and e.painted then vis = true end end
                 local was = rawget(self, "_rl_vis")
                 if was == true and vis == false then
                     goStartTab("page turned")
@@ -4321,7 +4322,7 @@ local function apply(A)
         local ok, list = pcall(share.collections)
         if not ok or type(list) ~= "table" then return nil end
         local want = name:sub(#BO_PREFIX + 1)
-        for _, e in ipairs(list) do if tostring(e.title) == want then return e.id end end
+        for _loop, e in ipairs(list) do if tostring(e.title) == want then return e.id end end
         return nil
     end
     if type(D.collections) == "function" and type(D.collection) == "function" and not D._rlt_bo_colls then
@@ -4335,8 +4336,8 @@ local function apply(A)
                 local ok, list = pcall(share.collections)
                 if ok and type(list) == "table" and #list > 0 then
                     local out = {}
-                    for _, n in ipairs(names) do out[#out + 1] = n end
-                    for _, e in ipairs(list) do out[#out + 1] = BO_PREFIX .. tostring(e.title) end
+                    for _loop, n in ipairs(names) do out[#out + 1] = n end
+                    for _loop, e in ipairs(list) do out[#out + 1] = BO_PREFIX .. tostring(e.title) end
                     return out, fav
                 end
             end
@@ -4349,7 +4350,7 @@ local function apply(A)
                     local ok, books = pcall(boShare().books, id)
                     local out = {}
                     if ok and type(books) == "table" then
-                        for _, b in ipairs(books) do
+                        for _loop, b in ipairs(books) do
                             if type(b.path) == "string" then out[#out + 1] = b.path end
                         end
                     end
@@ -4370,7 +4371,7 @@ local function apply(A)
     local function clubColls()
         local v = A.get("rlt_club_colls", nil)
         local out = {}
-        if type(v) == "table" then for _, n in ipairs(v) do if type(n) == "string" then out[#out + 1] = n end end end
+        if type(v) == "table" then for _loop, n in ipairs(v) do if type(n) == "string" then out[#out + 1] = n end end end
         return out
     end
     if type(P.bookclub) == "table" and type(P.bookclub.collection) == "function" and not P.bookclub._rlt_multi then
@@ -4384,10 +4385,10 @@ local function apply(A)
         D.collection = function(name, ...)
             if name == CLUB_MULTI then
                 local out, seen = {}, {}
-                for _, n in ipairs(clubColls()) do
+                for _loop, n in ipairs(clubColls()) do
                     local ok, files = pcall(D.collection, n)
                     if ok and type(files) == "table" then
-                        for _, fp in ipairs(files) do
+                        for _loop, fp in ipairs(files) do
                             if not seen[fp] then seen[fp] = true; out[#out + 1] = fp end
                         end
                     end
@@ -4531,7 +4532,7 @@ local function apply(A)
     local function boOn() return bookTapMode() == "bookorbit" end
 
     local function boPlugin()
-        for _, mod in ipairs({ "apps/filemanager/filemanager", "apps/reader/readerui" }) do
+        for _loop, mod in ipairs({ "apps/filemanager/filemanager", "apps/reader/readerui" }) do
             local UI = package.loaded[mod]
             local inst = type(UI) == "table" and UI.instance
             local pl = type(inst) == "table" and (inst.bookorbit or inst.BookOrbit)
@@ -4561,7 +4562,7 @@ local function apply(A)
         local pl = boPlugin()
         if not pl then return false end
         if not pl.catalog_browser then
-            for _, fn in ipairs({ "openBookOrbit", "browseCatalog", "openCatalogBrowser" }) do
+            for _loop, fn in ipairs({ "openBookOrbit", "browseCatalog", "openCatalogBrowser" }) do
                 if not pl.catalog_browser and type(pl[fn]) == "function" then
                     pcall(pl[fn], pl, fn == "browseCatalog" and false or nil)
                 end
@@ -4691,7 +4692,7 @@ local function apply(A)
     A.state.rlt_src = { of = srcOf, useBo = useBo, useStock = useStock, avail = boAvail, cards = SRC_CARDS }
     -- any card wants BookOrbit's list
     local function boPicksOn()
-        for _, k in ipairs(SRC_CARDS) do if k ~= "discover" and useBo(k) then return true end end
+        for _loop, k in ipairs(SRC_CARDS) do if k ~= "discover" and useBo(k) then return true end end
         return false
     end
     local function boPseudo(fp) return type(fp) == "string" and tonumber(fp:match("^bookorbit:(%d+)$")) or nil end
@@ -4700,9 +4701,9 @@ local function apply(A)
         return type(c) == "table" and type(c.books) == "table" and c or nil
     end
     local function boEntry(id)
-        for _, b in ipairs((boLib() or {}).books or {}) do if tonumber(b.id) == id then return b end end
+        for _loop, b in ipairs((boLib() or {}).books or {}) do if tonumber(b.id) == id then return b end end
         local dc = A.get("rlt_bo_discover", nil)
-        for _, b in ipairs(type(dc) == "table" and type(dc.books) == "table" and dc.books or {}) do
+        for _loop, b in ipairs(type(dc) == "table" and type(dc.books) == "table" and dc.books or {}) do
             if tonumber(b.id) == id then return b end
         end
         return nil
@@ -4732,7 +4733,7 @@ local function apply(A)
                     local body = client:catalogBooks({ page = page, size = 100, sort = "recently_added" })
                     local items = type(body) == "table" and (body.items or body.books) or nil
                     if type(items) ~= "table" or #items == 0 then break end
-                    for _, b in ipairs(items) do
+                    for _loop, b in ipairs(items) do
                         if type(b) == "table" and b.id then
                             local cv = tostring(b.updatedAt or ""):gsub("%D", "")
                             if #cv > 32 then cv = cv:sub(1, 16) .. cv:sub(-16) end
@@ -4796,17 +4797,17 @@ local function apply(A)
             local want_auth
             if type(o.authors) == "table" and #o.authors > 0 then
                 want_auth = {}
-                for _, a in ipairs(o.authors) do want_auth[tostring(a):lower()] = true end
+                for _loop, a in ipairs(o.authors) do want_auth[tostring(a):lower()] = true end
             end
             local have = {}
-            for _, b in ipairs(out) do have[tostring(b.title or ""):lower()] = true end
-            for _, b in ipairs(lib.books) do
+            for _loop, b in ipairs(out) do have[tostring(b.title or ""):lower()] = true end
+            for _loop, b in ipairs(lib.books) do
                 local id = tonumber(b.id)
                 local unread = (b.rs == nil or b.rs == "unread" or b.rs == "want_to_read")
                     and not ((tonumber(b.pct) or 0) > 0)
                 local auth_ok = not want_auth
                 if want_auth then
-                    for _, a in ipairs(type(b.authors) == "table" and b.authors or {}) do
+                    for _loop, a in ipairs(type(b.authors) == "table" and b.authors or {}) do
                         if want_auth[tostring(a):lower()] then auth_ok = true end
                     end
                 end
@@ -4916,7 +4917,7 @@ local function apply(A)
         end
         UIManager:nextTick(function() openBoDetail(id) end)
     end
-    for _, fname in ipairs({ "showDetails", "openBook" }) do
+    for _loop, fname in ipairs({ "showDetails", "openBook" }) do
         local inner = D[fname]
         if type(inner) == "function" then
             D[fname] = function(ctx, fp, ...)
@@ -4971,7 +4972,7 @@ local function apply(A)
         if dev_cache.lib == lib then return dev_cache.list end
         local l = require("libs/libkoreader-lfs")
         local list = {}
-        for _, b in ipairs(lib.books) do
+        for _loop, b in ipairs(lib.books) do
             if b.status == "unread" and type(b.fp) == "string" then
                 list[#list + 1] = { fp = b.fp, title = b.title, at = l.attributes(b.fp, "modification") or 0 }
             end
@@ -5002,7 +5003,7 @@ local function apply(A)
                 local body = client:catalogDiscover()
                 local items = type(body) == "table" and (body.discover or body.items or body.books) or nil
                 local out = {}
-                for _, b in ipairs(type(items) == "table" and items or {}) do
+                for _loop, b in ipairs(type(items) == "table" and items or {}) do
                     if type(b) == "table" and b.id then
                         local cv = tostring(b.updatedAt or ""):gsub("%D", "")
                         if #cv > 32 then cv = cv:sub(1, 16) .. cv:sub(-16) end
@@ -5034,7 +5035,7 @@ local function apply(A)
             if lib then
                 local here = boLocalMap()
                 local on_dev = {}
-                for _, d in ipairs(dev) do on_dev[d.fp] = true end
+                for _loop, d in ipairs(dev) do on_dev[d.fp] = true end
                 -- the list comes newest first: the far end is the dustiest
                 for i = #lib.books, 1, -1 do
                     local b = lib.books[i]
@@ -5066,7 +5067,7 @@ local function apply(A)
             if dc then
                 local here = boLocalMap()
                 local out = {}
-                for _, b in ipairs(dc.books) do
+                for _loop, b in ipairs(dc.books) do
                     local id = tonumber(b.id)
                     local p = id and here[id]
                     if id and boUnread(b) and not (p and boStarted(p)) then
@@ -5080,8 +5081,8 @@ local function apply(A)
                     local lib = boLib()
                     if lib then
                         local seen, extra = {}, {}
-                        for _, e in ipairs(out) do seen[e.fp] = true end
-                        for _, b in ipairs(lib.books) do
+                        for _loop, e in ipairs(out) do seen[e.fp] = true end
+                        for _loop, b in ipairs(lib.books) do
                             local bid = tonumber(b.id)
                             local p = bid and here[bid]
                             local fp = bid and ("bookorbit:" .. bid)
@@ -5294,7 +5295,7 @@ local function apply(A)
             -- the second side had nothing after all: the regions say base
             if shown ~= i then
                 A.state[key] = 1
-                for _, r in ipairs(c.regions or c._regions or {}) do
+                for _loop, r in ipairs(c.regions or c._regions or {}) do
                     if type(r.id) == "string" then r.id = r.id:gsub("^alt|", "base|") end
                 end
             end
@@ -5399,13 +5400,13 @@ local function apply(A)
             if type(st) ~= "table" or type(st.books) ~= "table" or not useBo("club") then return st end
             club_env = env
             local in_coll = {}
-            for _, b in ipairs(st.books) do if b.fp then in_coll[b.fp] = b end end
+            for _loop, b in ipairs(st.books) do if b.fp then in_coll[b.fp] = b end end
             local here = boLocalMap()
             local all = env.cfg("picks", nil)
             local chosen = type(all) == "table" and all[P.bookclub.monthKey(0)] or nil
             if type(chosen) == "table" then
                 local picks, any_bo = {}, false
-                for _, fp in ipairs(chosen) do
+                for _loop, fp in ipairs(chosen) do
                     local id = boPseudo(fp)
                     if id then
                         any_bo = true
@@ -5436,8 +5437,8 @@ local function apply(A)
             local lib = boLib()
             if lib then
                 local have = {}
-                for _, b in ipairs(st.books) do have[tostring(b.title or ""):lower()] = true end
-                for _, b in ipairs(lib.books) do
+                for _loop, b in ipairs(st.books) do have[tostring(b.title or ""):lower()] = true end
+                for _loop, b in ipairs(lib.books) do
                     local id = tonumber(b.id)
                     local p = id and here[id]
                     if id and not (p and in_coll[p]) and not have[tostring(b.title or ""):lower()] then
@@ -5454,7 +5455,7 @@ local function apply(A)
             local all = club_env.cfg("picks", nil)
             local chosen = type(all) == "table" and all[P.bookclub.monthKey(0)] or nil
             local want = false
-            for _, fp in ipairs(type(chosen) == "table" and chosen or {}) do
+            for _loop, fp in ipairs(type(chosen) == "table" and chosen or {}) do
                 if boPseudo(fp) == id then want = true end
             end
             if not want then return end
@@ -5513,7 +5514,7 @@ local function apply(A)
         end
         if type(list) == "table" then
             local pool = {}
-            for _, e in ipairs(list) do
+            for _loop, e in ipairs(list) do
                 if type(e) == "table" and type(e.q) == "string" and e.q ~= "" then pool[#pool + 1] = e end
             end
             if #pool > 0 then _qpool = pool end
@@ -5793,7 +5794,7 @@ local function apply(A)
     end
     local function rowWeight(row)
         local wgt = 0
-        for _, name in ipairs(row.cards) do wgt = max(wgt, A.DASH_WEIGHT[name] or 0.25) end
+        for _loop, name in ipairs(row.cards) do wgt = max(wgt, A.DASH_WEIGHT[name] or 0.25) end
         return wgt * (row.k or 1)
     end
     local function dashTabs()
@@ -5813,10 +5814,10 @@ local function apply(A)
     end
     local function currentPage(tabs)
         local want = tonumber(A.state.dash_page)
-        for _, t in ipairs(tabs) do
+        for _loop, t in ipairs(tabs) do
             if t.kind == "page" and t.page == want then return want end
         end
-        for _, t in ipairs(tabs) do
+        for _loop, t in ipairs(tabs) do
             if t.kind == "page" then A.state.dash_page = t.page; return t.page end
         end
         return 1
@@ -5907,7 +5908,7 @@ local function apply(A)
             -- smaller size that fits, instead of being cut short
             for _ = 1, 6 do
                 local widest = 0
-                for _, tab in ipairs(tabs) do
+                for _loop, tab in ipairs(tabs) do
                     widest = max(widest, c:text(tab.label, size, { bold = true, caps = caps }).w)
                 end
                 local room = CYT and (cell - 6 - tgap - floor(bar_h * 0.3)) or (cell - bar_h * 0.3)
@@ -5960,8 +5961,8 @@ local function apply(A)
         -- Yearly page (when the page doesn't have it already)
         if page.id == "yearly" and type(A.reviewSeason) == "function" and A.reviewSeason() and P.year_review then
             local has = false
-            for _, r in ipairs(rows) do
-                for _, n in ipairs(r.cards or {}) do if n == "year_review" then has = true end end
+            for _loop, r in ipairs(rows) do
+                for _loop, n in ipairs(r.cards or {}) do if n == "year_review" then has = true end end
             end
             if not has then
                 local lead = { { cards = { "year_review" }, k = 1 } }
@@ -6021,7 +6022,7 @@ local function apply(A)
         end
 
         local total = 0
-        for _, row in ipairs(rows) do total = total + rowWeight(row) end
+        for _loop, row in ipairs(rows) do total = total + rowWeight(row) end
         local avail = body_h - y - gap * (#rows - 1)
         for ri, row in ipairs(rows) do
             local rh = floor(avail * rowWeight(row) / total)
@@ -6130,7 +6131,7 @@ local function apply(A)
     local function extrasMenu()
         local function picked()
             local set = {}
-            for _, n in ipairs(swipeCards()) do set[n] = true end
+            for _loop, n in ipairs(swipeCards()) do set[n] = true end
             return set
         end
         local today = {
@@ -6163,7 +6164,7 @@ local function apply(A)
                 separator = true,
             },
         }
-        for _, pk in ipairs(PICKS) do
+        for _loop, pk in ipairs(PICKS) do
             if P[pk[1]] then
                 today[#today + 1] = {
                     text = pk[2],
@@ -6175,7 +6176,7 @@ local function apply(A)
                     callback = function()
                         if swipeOn() then
                             local list = {}
-                            for _, n in ipairs(swipeCards()) do if n ~= pk[1] then list[#list + 1] = n end end
+                            for _loop, n in ipairs(swipeCards()) do if n ~= pk[1] then list[#list + 1] = n end end
                             if picked()[pk[1]] then
                                 if #list < 1 then return end
                             else
@@ -6345,7 +6346,7 @@ local function apply(A)
                 text_func = function()
                     local id = startTabId()
                     if id == "last" then return "Start On Tab: Last Viewed" end
-                    for _, t in ipairs(A.state.dash_tabs or {}) do
+                    for _loop, t in ipairs(A.state.dash_tabs or {}) do
                         if t.id == id then return "Start On Tab: " .. tostring(t.label) end
                     end
                     return "Start On Tab: " .. tostring(id)
@@ -6371,7 +6372,7 @@ local function apply(A)
                             end
                         end
                     end
-                    for _, t in ipairs(tabs) do
+                    for _loop, t in ipairs(tabs) do
                         if t.kind == "page" and t.id then
                             list[#list + 1] = {
                                 text = tostring(t.label or t.id), radio = true,
@@ -6409,17 +6410,17 @@ local function apply(A)
                 sub_item_table_func = function()
                     local items = {}
                     local ok, names = pcall(D.collections)
-                    for _, n in ipairs(ok and names or {}) do
+                    for _loop, n in ipairs(ok and names or {}) do
                         items[#items + 1] = {
                             text = (D.collectionLabel and D.collectionLabel(n)) or n,
                             checked_func = function()
-                                for _, c in ipairs(clubColls()) do if c == n then return true end end
+                                for _loop, c in ipairs(clubColls()) do if c == n then return true end end
                                 return false
                             end,
                             keep_menu_open = true,
                             callback = function()
                                 local list, found = {}, false
-                                for _, c in ipairs(clubColls()) do
+                                for _loop, c in ipairs(clubColls()) do
                                     if c == n then found = true else list[#list + 1] = c end
                                 end
                                 if not found then list[#list + 1] = n end
@@ -6594,7 +6595,7 @@ local function apply(A)
             local function srcMenu(card, label, help, opts)
                 local names = { stock = "Stock", bookorbit = "BookOrbit", both = "Both" }
                 local items = {}
-                for _, v in ipairs(opts) do
+                for _loop, v in ipairs(opts) do
                     items[#items + 1] = { text = names[v], radio = true, keep_menu_open = true,
                         checked_func = function() return srcOf(card) == v end,
                         callback = function()
@@ -6608,7 +6609,7 @@ local function apply(A)
                          help_text = help, sub_item_table = items, enabled_func = boAvail }
             end
             local function allBo()
-                for _, k in ipairs(SRC_CARDS) do if srcOf(k) == "stock" then return false end end
+                for _loop, k in ipairs(SRC_CARDS) do if srcOf(k) == "stock" then return false end end
                 return true
             end
             local bo_items = {
@@ -6620,7 +6621,7 @@ local function apply(A)
                     keep_menu_open = true,
                     callback = function()
                         local to_bo = not allBo()
-                        for _, k in ipairs(SRC_CARDS) do
+                        for _loop, k in ipairs(SRC_CARDS) do
                             local v = to_bo and SRC_DEFAULT[k] or "stock"
                             A.set("rlt_src_" .. k, v ~= SRC_DEFAULT[k] and v or nil)
                         end
@@ -6680,9 +6681,9 @@ local function apply(A)
                                             end
                                         end
                                     end
-                                    for _, e in ipairs(all) do if e.old then gone(e.path) end end
+                                    for _loop, e in ipairs(all) do if e.old then gone(e.path) end end
                                     local keep = {}
-                                    for _, e in ipairs(all) do if not e.old then keep[#keep + 1] = e end end
+                                    for _loop, e in ipairs(all) do if not e.old then keep[#keep + 1] = e end end
                                     table.sort(keep, function(x, y) return x.at > y.at end)
                                     for i = 601, #keep do gone(keep[i].path) end
                                     -- half-finished downloads, ten minutes old or more
@@ -6714,11 +6715,11 @@ local function apply(A)
                             end)
                             if not ok_clean then warn("clean up cache:", tostring(clean_err)) end
                             -- this patch's settings no version uses any more
-                            for _, k in ipairs({ "rlt_lib_dust" }) do
+                            for _loop, k in ipairs({ "rlt_lib_dust" }) do
                                 if A.get(k, nil) ~= nil then A.set(k, nil); res.keys = res.keys + 1 end
                             end
                             -- the BookOrbit lists: kept, refreshed next time with Wi-Fi on
-                            for _, k in ipairs({ "rlt_bo_lib", "rlt_bo_discover" }) do
+                            for _loop, k in ipairs({ "rlt_bo_lib", "rlt_bo_discover" }) do
                                 local c = A.get(k, nil)
                                 if type(c) == "table" and c.at then
                                     local copy = {}
@@ -6772,7 +6773,7 @@ local function apply(A)
     if type(orig_mods) == "function" then
         A.simpleUIModules = function(...)
             local list = orig_mods(...)
-            for _, m in ipairs(list or {}) do
+            for _loop, m in ipairs(list or {}) do
                 if type(m) == "table" and m.id == (A.ID_PREFIX or "readinglog_") .. "dashboard" and not m._rl_tweaks then
                     m._rl_tweaks = true
                     local orig_build, orig_menu = m.build, m.getMenuItems
