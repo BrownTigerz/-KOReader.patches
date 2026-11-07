@@ -36,6 +36,18 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.10 2026-11-06  Add To Collection from OrbitShelf: "Signing in…" and "Loading
+                      your collections…" show as a plain KOReader message there.
+                      BookOrbit's loading pill (tinted by Pill Colour) stayed on the
+                      shelf as a blank bar until the shelf redrew; 2.15.9's extra
+                      refresh didn't clear it and is gone. BookOrbit's own pages are
+                      unchanged.
+  2.15.9  2026-11-06  Add To Collection: after typing the password, the collection
+                      list does one clean refresh, so no blank pill is left at the
+                      bottom where the sign-in box and "Signing in…" were.
+  2.15.8  2026-11-06  Add To Collection is shared with other plugins: OrbitShelf's
+                      book menus open the same picker, with this patch's sign-in
+                      and saved password. Nothing else changed.
   2.15.7  2026-10-31  Downloading on a book's page: the redraws when the
                       button turns into progress and back only refresh the
                       button's area; the whole page updates once, when the
@@ -124,7 +136,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.7"
+local VERSION = "2.15.10"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -3038,6 +3050,43 @@ showCollections = function(catalog, detail)
         end)
     end)
 end
+
+-- Outside BookOrbit's own pages (OrbitShelf's Bookshelf menus) BookOrbit's loading
+-- pill isn't cleared by the shelf underneath: it stayed at the bottom as a blank
+-- bar (tinted by Pill Colour) until the shelf redrew. There the wait shows as a
+-- plain KOReader message instead, which closes cleanly; the request is the same.
+local function shelfCatalog(client, Catalog)
+    local shim = setmetatable({ client = client }, { __index = Catalog })
+    shim.fetch = function(self, text, fn, opts)
+        if type(opts) == "table" and opts.invisible then return Catalog.fetch(self, text, fn, opts) end
+        local UIManager = require("ui/uimanager")
+        local msg = require("ui/widget/infomessage"):new{ text = text or _("Loading…"), dismissable = false }
+        UIManager:show(msg)
+        UIManager:forceRePaint()
+        -- closed whatever happens, so it can't be left behind either
+        local res = { pcall(Catalog.fetch, self, text, fn, { invisible = true }) }
+        UIManager:close(msg)
+        if not res[1] then error(res[2], 0) end
+        return unpack(res, 2, 4)
+    end
+    return shim
+end
+
+-- 2.15.8: the same picker for other plugins (OrbitShelf's book menus). They
+-- pass a BookOrbit API client and a book id; the sign-in and the saved
+-- password stay this patch's. fetch / runConnected come from BookOrbit's own
+-- catalog, so loading pills and Wi-Fi work the same.
+package.loaded["bookorbit_tweaks_collections"] = {
+    api = 1,
+    show = function(client, book_id, title)
+        local okC, Catalog = pcall(require, "bookorbit_catalog")
+        if not (okC and type(Catalog) == "table" and type(client) == "table" and tonumber(book_id)) then
+            return false
+        end
+        showCollections(shelfCatalog(client, Catalog), { id = tonumber(book_id), title = title })
+        return true
+    end,
+}
 
 -- The book page's ⋯ menu (BookOrbit 2.0's own page menu, not the book
 -- sheet): Add To Collection under Open series / Highlights, above Refresh.
