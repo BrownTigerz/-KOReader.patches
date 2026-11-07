@@ -20,9 +20,9 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.16 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.17 |
 | [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.33 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.8.0 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.8.1 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.0 |
@@ -34,7 +34,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.6 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.0 |
-| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.5.1 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.5.2 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
@@ -63,7 +63,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 
 - **Modules:** text colour with a separate Night Mode colour, set for all modules and overridable per module. Recolour grey text, progress bar/ring/border colours per module, bold per module or all.
 - **Currently Reading:** swipe left/right to step through your most recent books still in progress (4 by default, 2-6; finished ones skipped), with dots on the cover showing where you are. Tap opens the book shown. **Open Book From Cover Only** (Modules, off by default; 2.14.14, working since 2.14.15): only a tap on the cover opens it, a tap anywhere else on the module does nothing; tap the wrong spot four times in a row and the critter tells you (cutely) to tap the cover. Keep missing and it keeps changing its tip (2.14.16).
-- **Tiny Critter bubble width** (SimpleUI 3.0): Modules → Critter Bubble Width — Default, **Dynamic**, Wide, Wider or Full Row, so longer lines fit on fewer rows. Its chat answers follow the bubble. **Dynamic** keeps SimpleUI's width for short lines and grows only as much as a long one needs (the critter and bubble then sit at the start of the row, like Full Row).
+- **Tiny Critter bubble width** (SimpleUI 3.0): Modules → Critter Bubble Width — Default, **Dynamic**, Wide, Wider or Full Row, so longer lines fit on fewer rows. Its chat answers follow the bubble. **Dynamic** keeps SimpleUI's width for short lines and grows only as much as a long one needs (the critter and bubble then sit at the start of the row, like Full Row). With SimpleUI 3.0.3's pixel bubble, Dynamic counts its new shadow so the text still shows whole (2.14.17).
 - **Tiny Critter insights** (SimpleUI 3.0): Modules → Critter Insights, on by default. The critter tells you about your reading: your best reading day this month, book milestones this year (5, 10, 25, 50, 75, 100, then every 50), getting back on a roll after a break, the book you're on being 25 minutes or less from the end, the finish rate your yearly goal needs ("20 books to go, 69 days left. About one every 3 days catches you up.", worded for on pace or catching up), a gentle nudge after 3+ quiet days, and whether you read more on weekends or weekdays. They wait for the critter like its own reactions (book finished, comeback), at most 3 a day, and only when your stats back them: a milestone when you finish that book (once a year each), back on a roll once per comeback, a nudge once per quiet stretch, goal pace and weekend reading once a week (weekend reading needs 4+ weekend and 8+ weekday reading days in 8 weeks, and doesn't flip-flop). Best day is in minutes read. One statistics read a day, no timers. Its chat no longer suggests the same book twice in a day. Needs the critter's Reactions on.
 - **Side panel:** moved out in 2.14.6 — see SimpleUI Side Panel below.
 - **Page Turn Flash** (SimpleUI Tweaks menu): SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. **Normal** adds a quick flash to each turn; **Strong** a full refresh, which also clears dark pages and night mode. **Off** (default) keeps turns as fast as they are now.
@@ -428,12 +428,13 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
   - **Critters Say Notifications:** see SimpleUI Tweaks; one setting for every critter, also under Critter Remarks here.
   - The lines are in `critter-phrases.lua` 1.1.0+ (`reading`, `reading_voices`, `shelf`, `shelf_voices`, `menus`, `menu_voices`, `menu_words`; edit freely, it's on the updater). Without it a few built-in lines stand in. Pace remarks (fast / slow / time left) need KOReader's reading statistics on. Some lines use your name ("Bedtime, TK."): the one you gave SimpleUI's critter under **Your name** in its settings; without a name those lines are skipped.
   - Without SimpleUI 3.0's critter it's the remark alone.
+  - **SimpleUI 3.0.3:** the critter stands on the same ground shadow as the home screen's, and its pixel bubble counts the new shadow when checking what fits (1.5.2).
 
 ---
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.8.0
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.8.1
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
@@ -489,6 +490,7 @@ Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Ad
   - **Critter's Own Voice** (Simple UI 3.0.2): Suey, Chonk, Tulu, Frankie, Vlad, Sholmes, Argos and Hazel say about one remark in three their own way, on the pages their lines fit. Donny, Blu and Donny & Blu join in with SimpleUI Tweaks 2.14.9+ and `critter-phrases.lua`, and since 1.1.2 the page insights (comeback, a run of days, best day this month, milestone, goal pace, weekend reading) are in their voice about half the time.
   - **Games And Quotes** (Simple UI 3.0.2): in the talk window, Let's Play (rock, paper, scissors; heads or tails; guess the author) and Read Me A Quote. The critter's last word shows in the bubble.
   - **Critter Rewards:** drawn beside the critter here and on the home screen: a stack of books at 5, 10, 25 and 50 books this year, a medal at a 7-day streak and a trophy at 30, and a balloon on your reading anniversary.
+  - **SimpleUI 3.0.3:** the critter stands on the same ground shadow as the home screen's, and its pixel bubble counts the new shadow when sizing the text (2.8.1).
 - **Fine Tuning:** Layout (In The Page or Full Screen, filling everything between the status bar and the nav bar), Bottom Space, and **Move Tab Row** (2.0.3): down moves the Today / Monthly / ... tabs away from the cards toward the page dots (into the margin, and in Full Screen into the room Bottom Space adds; past that the cards get shorter), up moves them closer. Its own setting, separate from Reading Log 2.0's Tab Bar Position. **Swipe Between Tabs** (2.1.0, off by default): swipe left or right on the Dashboard for the next or previous tab; at the first or last tab the swipe turns Simple UI's page as usual, and the Today Page Card's swipe cards still flip on their own. **Enter From The Side You Swipe From** (2.5.3, on): swiping from another Simple UI page onto the Dashboard lands on its first tab when you swipe left and its last tab when you swipe right.
 
 Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
