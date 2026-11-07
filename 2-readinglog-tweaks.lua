@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.8.0
+Version: 2.8.1
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -68,6 +68,10 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.8.1  2026-11-07  SimpleUI 3.0.3: the critter's bubble counts the pixel
+                      style's new shadow when it sizes the text, and the
+                      critter gets SimpleUI's ground shadow like the home
+                      screen's.
   2.8.0  2026-10-31  Paired cards: Library gets a second side, Collecting
                      Dust (books you haven't started, the longest waiting
                      first, under a little dust), and Reading trends gets
@@ -296,7 +300,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.8.0"
+local PATCH_VERSION = "2.8.1"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -2209,17 +2213,32 @@ local function critterKit(...)
         return v
     end
 
+-- SimpleUI 3.0.3: a pixel-style bubble keeps one unit inside its size for its
+    -- shadow, so its text gets that much less room. Measured from SimpleUI itself
+    -- (0 on 3.0.2 and for smooth bubbles), so either version fits right.
+    local function bubbleShadow(Bubble, scale, with_tail, style, unit)
+        if style ~= "pixel" or not unit or unit < 1 or type(Bubble.minWidth) ~= "function" then return 0 end
+        local ok, extra = pcall(function()
+            local _b1, _p1, r1, f1 = Bubble.metrics(scale, with_tail, "pixel", unit)
+            local _b2, _p2, r2, f2 = Bubble.metrics(scale, with_tail, "smooth", unit)
+            return (Bubble.minWidth(scale, with_tail, "pixel", unit) - r1 - f1)
+                 - (Bubble.minWidth(scale, with_tail, "smooth", unit) - r2 - f2)
+        end)
+        return ok and type(extra) == "number" and extra > 0 and extra or 0
+    end
+    
     -- Whether `r` fits whole (nothing cut short) in a bubble `bw` wide and `h`
     -- tall, the way SimpleUI's bubble lays it out: the main line, a small gap,
     -- the second line, inside its frame. Unmeasurable counts as fitting.
     local function fits(k, r, bw, h, scale, style, unit, mf, mb, df, db)
         local _b, _p, reach, frame = k.Bubble.metrics(scale, true, style, unit)
-        local text_w = bw - reach - frame
+        local shadow = bubbleShadow(k.Bubble, scale, true, style, unit)
+        local text_w = bw - reach - frame - shadow
         if text_w <= 20 then return false end
         local mh, ml = textHeight(mf, mb, r.text, text_w), textHeight(mf, mb, "Xg", text_w)
         if not (mh and ml) then return true end
         if mh > 2 * ml + 1 then return false end   -- the bubble shows 2 lines of each at most
-        local used = mh + frame
+        local used = mh + frame + shadow
         if r.sub then
             local dh, dl = textHeight(df, db, r.sub, text_w), textHeight(df, db, "Xg", text_w)
             if not (dh and dl) then return true end
@@ -2262,7 +2281,8 @@ local function critterKit(...)
         if base and path and path == k.Assets.imagePath(entry, "neutral") then path = k.Assets.imagePath(entry, base) end
         if not path then return false end
         local cap = (max_w and max_w < w) and max_w or w
-        local sprite = k.Sprite:new{ path = path, max_w = floor(cap * 0.3), max_h = h }
+        -- shadow: SimpleUI 3.0.3's ground shadow (ignored by older builds)
+        local sprite = k.Sprite:new{ path = path, max_w = floor(cap * 0.3), max_h = h, shadow = true }
         local sw, sh = sprite.dimen.w, sprite.dimen.h
         if sw <= 0 or sh <= 0 then return false end
         local gap = max(4, floor(Screen:scaleBySize(6) * scale))
