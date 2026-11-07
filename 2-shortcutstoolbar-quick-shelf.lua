@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.5.2
+Version: 1.5.3
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
@@ -54,6 +54,7 @@ long-press away. Without BookOrbit, or not signed in, a tap does what it
 always did.
 
 Changelog
+  1.5.3  Loops no longer use _ as their variable (it's gettext's name).
   1.5.2  SimpleUI 3.0.3: the critter's bubble counts the pixel style's new
          shadow when it checks what fits, and the critter gets SimpleUI's
          ground shadow like the home screen's.
@@ -144,7 +145,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.5.2"
+local PATCH_VERSION = "1.5.3"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -236,7 +237,7 @@ local function critterNews()
             local v = type(w.variants) == "table" and w.variants[1]
             if type(v) ~= "table" then return nil end
             local parts = {}
-            for _, seg in ipairs(v) do
+            for _loop, seg in ipairs(v) do
                 if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
             end
             local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
@@ -252,7 +253,7 @@ local function critterNews()
         if hub.on() and not (okD and Device.screen_saver_mode) then
             local text = hub.toastText(w)
             if text then
-                for _, spot in pairs(hub.spots) do
+                for _loop, spot in pairs(hub.spots) do
                     local okV, vis = pcall(spot.visible)
                     if okV and vis then
                         local okS, said = pcall(spot.say, text)
@@ -917,7 +918,7 @@ local function readingRemark()
     if not f then return nil end
     local b, cid = phraseBank(), critterNow()
     local pool, total = {}, 0
-    for _, s in ipairs(SITUATIONS) do
+    for _loop, s in ipairs(SITUATIONS) do
         local ok, yes = pcall(s[3], f)
         if ok and yes then
             local shared, own = linesFor(b.reading, b.reading_voices, s[1], cid, f.user_name ~= nil)
@@ -930,12 +931,12 @@ local function readingRemark()
     end
     if #pool == 0 then return nil end
     if total == 0 then
-        for _, p in ipairs(pool) do p[2] = 1 end
+        for _loop, p in ipairs(pool) do p[2] = 1 end
         total = #pool
     end
     local r = rnd() * total
     local pick = pool[#pool]
-    for _, p in ipairs(pool) do
+    for _loop, p in ipairs(pool) do
         r = r - p[2]
         if r <= 0 then pick = p break end
     end
@@ -982,7 +983,7 @@ local function shelfRemark(list, src)
         f.next_title, f.next_pct = titleOf(fp), pctOf(fp)
     end
     local pool, total = {}, 0
-    for _, s in ipairs(SHELF_SITUATIONS) do
+    for _loop, s in ipairs(SHELF_SITUATIONS) do
         local ok, yes = pcall(s[3], f)
         if ok and yes then
             local shared, own = linesFor(b.shelf, b.shelf_voices, s[1], cid, f.user_name ~= nil)
@@ -995,12 +996,12 @@ local function shelfRemark(list, src)
     end
     if #pool == 0 then return nil end
     if total == 0 then
-        for _, p in ipairs(pool) do p[2] = 1 end
+        for _loop, p in ipairs(pool) do p[2] = 1 end
         total = #pool
     end
     local r = rnd() * total
     local pick = pool[#pool]
-    for _, p in ipairs(pool) do
+    for _loop, p in ipairs(pool) do
         r = r - p[2]
         if r <= 0 then pick = p break end
     end
@@ -1074,11 +1075,11 @@ local function menuRemark(tabkey, names)
     local b, cid = phraseBank(), critterNow()
     local key, name = nil, nil
     local words = type(b.menu_words) == "table" and b.menu_words or {}
-    for _, nm in ipairs(names) do
+    for _loop, nm in ipairs(names) do
         local low = nm:lower()
-        for _, e in ipairs(words) do
+        for _loop, e in ipairs(words) do
             if type(e) == "table" and type(e.key) == "string" and type(e.words) == "table" then
-                for _, w in ipairs(e.words) do
+                for _loop, w in ipairs(e.words) do
                     if type(w) == "string" and w ~= "" and low:find(w, 1, true) then key, name = e.key, nm break end
                 end
             end
@@ -1230,7 +1231,7 @@ local function critterGroup(message, mood, max_w, h, detail, fit)
             if fit and bw > 0 then
                 local fits = messageFits(Bubble, o)
                 if fits == false then
-                    for _, k in ipairs({ 0.85, 0.72 }) do
+                    for _loop, k in ipairs({ 0.85, 0.72 }) do
                         o.scale = scale * k
                         o.msg_face, o.msg_bold, o.det_face, o.det_bold = bubbleFaces(o.scale)
                         fits = messageFits(Bubble, o)
@@ -1450,7 +1451,7 @@ local function makePager(panel, avail_w)
         if type(p) == "table" then
             if opt("tap_bookorbit", false) and openThisBook() then return true end
             if type(p.onTap) == "function" then return p:onTap(arg, ges) end
-            for _, n in ipairs({ "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+            for _loop, n in ipairs({ "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
                 if type(p[n]) == "function" then return p[n](p, arg, ges) end
             end
         end
@@ -1608,7 +1609,7 @@ local function bookOrbit()
     local RUI = package.loaded["apps/reader/readerui"]
     local ui = type(RUI) == "table" and RUI.instance
     if type(ui) ~= "table" then return nil end
-    for _, key in ipairs({ "bookorbit", "BookOrbit" }) do
+    for _loop, key in ipairs({ "bookorbit", "BookOrbit" }) do
         local bo = ui[key]
         if type(bo) == "table" and (
                 type(bo.onBookOrbitThisBook) == "function"
@@ -1675,7 +1676,7 @@ local function wireTaps(panel)
         if opt("tap_bookorbit", false) and openThisBook() then return true end
         return nil -- fall through
     end
-    for _, name in ipairs({ "onTap", "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+    for _loop, name in ipairs({ "onTap", "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
         local orig = panel[name]
         if type(orig) == "function" or name == "onTap" then
             panel[name] = function(self, ...)
