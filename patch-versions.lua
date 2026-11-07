@@ -34,7 +34,7 @@ return {
     ["2-shelfsync-tweaks.lua"] = "1.11.20",
     ["2-screenshot-timer.lua"] = "1.0.0",
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.17.0",
-    ["2-shortcutstoolbar-quick-shelf.lua"] = "1.5.2",
+    ["2-shortcutstoolbar-quick-shelf.lua"] = "1.5.3",
     ["2-simpleui-sidepanel.lua"] = "1.0.33",
     ["2-simpleui-tweaks.lua"] = "2.14.17",
     ["2-track-reading-location.lua"] = "1.9.6",
