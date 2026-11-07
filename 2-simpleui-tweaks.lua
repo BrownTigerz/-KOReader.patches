@@ -15,6 +15,7 @@ Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 Changelog
   2.14.17 SimpleUI 3.0.3: Dynamic Bubble Width counts the pixel bubble's
           new shadow, so the text it picks a width for still shows whole.
+          Loops no longer use _ as their variable (it's gettext's name).
   2.14.16 Fix: Open Book From Cover Only: the critter's tap-the-cover tip
           stayed on the first one (SimpleUI holds a said line 20 minutes).
           Another four wrong taps now swap in a new tip.
@@ -1485,7 +1486,7 @@ local function boxHeight(UI, face, bold, text, width)
     local h = box:getSize().h
     pcall(box.free, box)
     local n = 0
-    for _ in pairs(_bh) do n = n + 1 end
+    for _loop in pairs(_bh) do n = n + 1 end
     if n > 200 then _bh = {} end
     _bh[key] = h
     return h
@@ -1917,7 +1918,7 @@ local function critterNews()
             local v = type(w.variants) == "table" and w.variants[1]
             if type(v) ~= "table" then return nil end
             local parts = {}
-            for _, seg in ipairs(v) do
+            for _loop, seg in ipairs(v) do
                 if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
             end
             local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
@@ -1933,7 +1934,7 @@ local function critterNews()
         if hub.on() and not (okD and Device.screen_saver_mode) then
             local text = hub.toastText(w)
             if text then
-                for _, spot in pairs(hub.spots) do
+                for _loop, spot in pairs(hub.spots) do
                     local okV, vis = pcall(spot.visible)
                     if okV and vis then
                         local okS, said = pcall(spot.say, text)
