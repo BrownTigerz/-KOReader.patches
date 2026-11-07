@@ -41,7 +41,7 @@ All patches work independently and together. If one fails to attach (for example
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.7 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.10 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -577,7 +577,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.7
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.10
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -623,6 +623,8 @@ Flashes only fire while BookOrbit is the window on top (no stray flash on the fi
 **Add To Collection In Book Menu** (on by default) — hold a book in a list (the sheet gets an **Add To Collection** row), or tap ⋯ at the top right of a book's page (**Add To Collection**, above Refresh from BookOrbit; 2.15.3). It lists your BookOrbit collections with ✓ on the ones the book is already in; tap one to add or remove the book, or **New Collection…** to make one with the book in it.
 
 BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit **website** username and password (asked the first time). That's not your KOReader sync login: BookOrbit keeps that as a separate account, often with a different username, so the box starts empty (2.15.1) and remembers the website username after. The sign-in box has a **Save password on this device** tick (2.15.2; remembers your last choice). Only a sign-in BookOrbit accepted gets saved, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
+
+With the OrbitShelf plugin (1.2.12 on, its own **Add To Collection** setting on), holding a BookOrbit book in Bookshelf or tapping one that isn't on the device opens this same picker, with this sign-in and saved password (2.15.8). There, the sign-in and loading waits show as a plain KOReader message, so no blank bar is left on the shelf (2.15.10).
 
 ### Open Book Only From Buttons
 
