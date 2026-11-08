@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.17.0
+Version: 1.17.1
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -63,6 +63,9 @@ a D-Bus query), then reuse the answer for redraws. Nothing runs
 in the background or while asleep.
 
 Changelog
+  1.17.1 Holding a Calibre or Bookshelf shortcut for BookOrbit closes the
+         top menu first, so it's gone when you leave BookOrbit (it stayed
+         open under BookOrbit).
   1.17.0 Hold a Bookshelf shortcut for BookOrbit directly, no menu: hold a
          custom shortcut that goes to the Bookshelf home screen to open
          BookOrbit. New per-hold Flip Tap And Hold: tap runs the hold
@@ -194,7 +197,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.17.0"
+local PATCH_VERSION = "1.17.1"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -214,7 +217,7 @@ local function saveSettings(s)
 end
 
 local function modeText(id)
-    for _, m in ipairs(MODES) do
+    for _loop, m in ipairs(MODES) do
         if m.id == id then return m.text end
     end
     return id
@@ -554,7 +557,7 @@ table.insert(STATES, 2, { id = "menu", text = "Menu Toggle", get = cachedRead("m
 table.insert(STATES, { id = "bluetooth", text = "Bluetooth", get = cachedRead("bluetooth") })
 
 local STATE_BY_ID = {}
-for _, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
+for _loop, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
 
 -- --------------------------------------------------------------------------
 -- Rendering
@@ -962,11 +965,21 @@ local function findBookOrbit()
     return nil
 end
 
+-- The top menu the toolbar sits in is closed first (the way BookOrbit's own
+-- menu icon does it), and BookOrbit opens once that close has been painted.
+-- Otherwise the menu stays under BookOrbit and is still open after closing it.
 local function holdBookOrbit()
     local bo = findBookOrbit()
     if type(bo) ~= "table" then return false end
-    local ok = pcall(bo.openBookOrbit, bo)
-    if not ok then return false end
+    local menu = type(bo.ui) == "table" and bo.ui.menu
+    if type(menu) == "table" then
+        local close = menu.onCloseFileManagerMenu or menu.onCloseReaderMenu
+        if type(close) == "function" then pcall(close, menu) end
+    end
+    UIManager:tickAfterNext(function()
+        local ok, err = pcall(bo.openBookOrbit, bo)
+        if not ok then require("logger").warn("shortcutstoolbar icon tweaks: BookOrbit hold failed:", err) end
+    end)
     return true
 end
 
@@ -1056,9 +1069,9 @@ local function expectedKeys(config)
     local ok_d, SHORTCUT_DATA = pcall(require, "shortcuts_data")
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     local known = {}
-    if ok_d then for _, it in ipairs(SHORTCUT_DATA) do known[it.key] = it end end
+    if ok_d then for _loop, it in ipairs(SHORTCUT_DATA) do known[it.key] = it end end
     if ok_m then
-        for _, it in ipairs(Manager.getShortcutDataItems(config.view or "reader")) do
+        for _loop, it in ipairs(Manager.getShortcutDataItems(config.view or "reader")) do
             known[it.key] = it
         end
     end
@@ -1120,7 +1133,7 @@ local function withCapture(config, fn, ...)
     if not ok then error(res) end
 
     local settings = loadSettings()
-    for _, c in ipairs(captured) do
+    for _loop, c in ipairs(captured) do
         local btn, key = c.btn, c.key
         tweakButton(btn, key)
         local k = keySettings(settings, key)
@@ -1390,7 +1403,7 @@ end
 
 local function modeRadio(get, set)
     local t = {}
-    for _, m in ipairs(MODES) do
+    for _loop, m in ipairs(MODES) do
         table.insert(t, {
             text = m.text,
             radio = true,
