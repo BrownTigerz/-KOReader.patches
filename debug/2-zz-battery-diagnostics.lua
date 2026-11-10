@@ -1,6 +1,6 @@
 --[[
 2-zz-battery-diagnostics.lua - battery drain troubleshooting patch for KOReader
-Version 1.0.6
+Version 1.0.7
 
 Finds where the battery goes, mostly while the device is asleep, and names
 the plugin or patch behind it when it can. Writes to its own log:
@@ -46,6 +46,9 @@ starts, or when you use its menu. Log capped at 1 MB (older part kept as
 battery.log.old).
 
 Changes:
+  1.0.7 2026-11-09  The awake stretch (with CPU use) is also logged when KOReader
+                    closes or restarts and when the Battery report is opened;
+                    before, only going to sleep logged it.
   1.0.6 2026-11-09  Awake stretches show CPU busy %, the processes that used it,
                     CPU governor and speed, and the battery draw in mA; flags a
                     CPU busy 50%+ or stuck on "performance". Plugin list skips
@@ -71,7 +74,7 @@ Changes:
   1.0.0 2026-11-08  First version.
 ]]
 
-local VERSION = "1.0.6"
+local VERSION = "1.0.7"
 local SELF = "2-zz-battery-diagnostics"
 local ID = "battery_diagnostics"
 
@@ -543,7 +546,7 @@ end
 -- Awake stretch → sleep session
 ---------------------------------------------------------------------------
 
-local function closeAwake()
+local function closeAwake(why)
     local a = awake
     if not a then return end
     awake = nil
@@ -559,7 +562,7 @@ local function closeAwake()
         run.awake_s = run.awake_s + secs
         run.awake_drop = run.awake_drop + drop
     end
-    local head = string.format("AWAKE %s: battery %s → %s", dur(secs), pct(a.batt), pct(b1))
+    local head = string.format("AWAKE %s%s: battery %s → %s", dur(secs), why and (" (" .. why .. ")") or "", pct(a.batt), pct(b1))
     if a.chg then
         head = head .. " (charging)"
     elseif r then
@@ -943,6 +946,18 @@ if type(UIManager.schedule) == "function" then
     end
 end
 
+-- KOReader closing or restarting: log the awake stretch, or it's lost.
+if type(UIManager.quit) == "function" then
+    local orig = UIManager.quit
+    UIManager.quit = function(self, ...)
+        if awake and not sleep then
+            local ok, err = pcall(closeAwake, "KOReader closing")
+            if not ok then logger.warn("battery diagnostics: exit hook failed:", err) end
+        end
+        return orig(self, ...)
+    end
+end
+
 -- Standby blocks: who holds them.
 if type(UIManager.preventStandby) == "function" and type(UIManager.allowStandby) == "function" then
     local orig_p, orig_a = UIManager.preventStandby, UIManager.allowStandby
@@ -1302,6 +1317,12 @@ local function menuItem()
                 text = "Battery report",
                 keep_menu_open = true,
                 callback = function()
+                    -- Log the awake stretch so far (with its CPU use), then
+                    -- carry on with a fresh one.
+                    if awake and not sleep then
+                        pcall(closeAwake, "so far, report opened")
+                        newAwake()
+                    end
                     local ok, res = pcall(report)
                     if ok then
                         write("REPORT opened")
