@@ -1,6 +1,6 @@
 --[[
 2-zz-battery-diagnostics.lua - battery drain troubleshooting patch for KOReader
-Version 1.0.5
+Version 1.0.6
 
 Finds where the battery goes, mostly while the device is asleep, and names
 the plugin or patch behind it when it can. Writes to its own log:
@@ -21,8 +21,9 @@ What it records
     timers left waiting and alarms set to wake the device (and who set
     them), buttons and sleep cover events while asleep, and anything that
     set timers or turned Wi-Fi on while asleep.
-  • Every awake stretch: drain per hour, front light, how long Wi-Fi was on
-    and who turned it on, Bluetooth, time in standby, things blocking standby, and the
+  • Every awake stretch: drain per hour, battery draw in mA, CPU busy % and
+    the processes using it, CPU governor and speed, front light, how long
+    Wi-Fi was on and who turned it on, Bluetooth, time in standby, things blocking standby, and the
     busiest timers by plugin/patch.
 
 Menu: Tools → Battery diagnostics
@@ -45,6 +46,10 @@ starts, or when you use its menu. Log capped at 1 MB (older part kept as
 battery.log.old).
 
 Changes:
+  1.0.6 2026-11-09  Awake stretches show CPU busy %, the processes that used it,
+                    CPU governor and speed, and the battery draw in mA; flags a
+                    CPU busy 50%+ or stuck on "performance". Plugin list skips
+                    macOS "._" files (counted, harmless).
   1.0.5 2026-11-08  Auto shutdown's wake-up alarm is named even when it was set
                     a while before the suspend (it counts from the last use).
   1.0.4 2026-11-08  No drain rate (or "normal") from a short stretch where the
@@ -66,7 +71,7 @@ Changes:
   1.0.0 2026-11-08  First version.
 ]]
 
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local SELF = "2-zz-battery-diagnostics"
 local ID = "battery_diagnostics"
 
@@ -321,6 +326,83 @@ local function radios()
     return wifi, bt
 end
 
+-- CPU: governor, speed, and which processes used it. /proc is read only at
+-- sleep, wake and start, never in between.
+local CPU = "/sys/devices/system/cpu/cpu0/cpufreq/"
+
+local function cpuState()
+    local gov = readLine(CPU .. "scaling_governor") or readLine("/sys/devices/system/cpu/cpufreq/policy0/scaling_governor")
+    local khz = tonumber(readLine(CPU .. "scaling_cur_freq") or "")
+    local load = (readLine("/proc/loadavg") or ""):match("^(%S+)")
+    return gov, khz and math.floor(khz / 1000 + 0.5) or nil, load
+end
+
+local function cpuText()
+    local gov, mhz, load = cpuState()
+    if not gov and not mhz and not load then return nil end
+    return string.format("CPU %s%s%s", gov or "?", mhz and (" " .. mhz .. " MHz") or "", load and (" | load " .. load) or "")
+end
+
+-- Battery current. Most Kobos report µA, some (e.g. Sage) mA: big numbers
+-- are taken as µA. Returns mA, or nil.
+local function currentMA()
+    local v = tonumber(sysfs("current_now") or "")
+    if not v then return nil end
+    v = math.abs(v)
+    if v > 20000 then v = v / 1000 end
+    return math.floor(v + 0.5)
+end
+
+local function procSnapshot()
+    local snap = { procs = {} }
+    local stat = readLine("/proc/stat")
+    if stat then
+        local nums, total = {}, 0
+        for num in stat:gmatch("%d+") do nums[#nums + 1] = tonumber(num) end
+        for i = 1, math.min(#nums, 8) do total = total + nums[i] end
+        snap.total = total
+        snap.idle = (nums[4] or 0) + (nums[5] or 0)
+    end
+    local ok, iter, dir_obj = pcall(lfs.dir, "/proc")
+    if not ok then return snap end
+    for entry in iter, dir_obj do
+        if entry:match("^%d+$") then
+            local line = readLine("/proc/" .. entry .. "/stat")
+            local comm, rest
+            if line then comm, rest = line:match("^%d+ %((.*)%) (.*)$") end
+            if rest then
+                local f = {}
+                for field in rest:gmatch("%S+") do f[#f + 1] = field end
+                local t = (tonumber(f[12]) or 0) + (tonumber(f[13]) or 0)
+                snap.procs[entry] = { comm = comm, t = t }
+            end
+        end
+    end
+    return snap
+end
+
+-- CPU busy % over the stretch and the top processes (share of one core).
+local function cpuUse(before, secs)
+    if not before or secs < 30 then return nil end
+    local after = procSnapshot()
+    local busy
+    if before.total and after.total and after.total > before.total then
+        local dt = after.total - before.total
+        local didle = (after.idle or 0) - (before.idle or 0)
+        busy = math.floor(100 * (dt - didle) / dt + 0.5)
+    end
+    local by = {}
+    for pid, p in pairs(after.procs) do
+        local b = before.procs[pid]
+        local d = p.t - ((b and b.comm == p.comm) and b.t or 0)
+        if d > 0 then by[p.comm] = (by[p.comm] or 0) + d end
+    end
+    local arr = {}
+    for comm, d in pairs(by) do arr[#arr + 1] = { comm = comm, pct = 100 * d / 100 / secs } end
+    table.sort(arr, function(a, b) return a.pct > b.pct end)
+    return busy, arr
+end
+
 local function onOff(v, on_text)
     if v == nil then return "n/a" end
     return v and (on_text or "ON") or "off"
@@ -377,6 +459,8 @@ local function newAwake()
         sched = {}, wifi_s = 0, wifi_since = wifiOn() and clock() or nil, wifi_by = {},
         standby_n = 0, standby_s = 0, standby_refused = 0,
     }
+    local ok, snap = pcall(procSnapshot)
+    if ok then awake.procs = snap end
 end
 
 -- Battery reads in whole %, so a short stretch with 0-1% gone says nothing:
@@ -487,7 +571,29 @@ local function closeAwake()
         parts[#parts + 1] = string.format("standby %d%% of the time (%d times)", math.floor(100 * a.standby_s / math.max(secs, 1) + 0.5), a.standby_n)
     end
     if a.standby_refused > 0 then parts[#parts + 1] = "standby refused " .. a.standby_refused .. "×" end
+    local ma = currentMA()
+    if ma then parts[#parts + 1] = "draw now " .. ma .. " mA" end
+    local ct = cpuText()
+    if ct then parts[#parts + 1] = ct end
     lines[#lines + 1] = "  " .. table.concat(parts, " | ")
+    local ok_cpu, busy, procs = pcall(cpuUse, a.procs, secs)
+    if ok_cpu and (busy or procs) then
+        local top = {}
+        for i = 1, math.min(5, procs and #procs or 0) do
+            if procs[i].pct >= 1 then top[#top + 1] = string.format("%s %d%%", procs[i].comm, math.floor(procs[i].pct + 0.5)) end
+        end
+        lines[#lines + 1] = string.format("  CPU busy %s (all cores)%s", busy and (busy .. "%") or "?",
+            #top > 0 and (" | top processes (% of one core): " .. table.concat(top, ", ")) or "")
+        local hog = procs and procs[1] and procs[1].pct >= 40
+        if secs >= 600 and ((busy and busy >= 50) or hog) then
+            problem("cpu_busy", string.format("The CPU stayed busy while awake (%s all cores; top: %s). An idle reader sits near 0–10%%; a process like that alone can drain 15%%+ an hour.",
+                busy and (busy .. "%") or "?", #top > 0 and table.concat(top, ", ") or "?"))
+        end
+    end
+    local gov = cpuState()
+    if gov == "performance" then
+        problem("governor", "The CPU governor is stuck on \"performance\" (full speed all the time). A reboot of the Kobo usually clears it; if it comes back, it was set that way before KOReader started.")
+    end
     local wb = topList(a.wifi_by, 4)
     if wb ~= "" then lines[#lines + 1] = "  Wi-Fi turned on by: " .. wb end
     local busy = topList(a.sched, 6)
@@ -881,11 +987,17 @@ local function listPlugins()
         paths[#paths + 1] = DATA .. "/plugins"
     end
     local on, seen = {}, {}
+    local junk = 0
     for i = 1, #paths do
         local ok, iter, dir_obj = pcall(lfs.dir, paths[i])
         if ok then
             for entry in iter, dir_obj do
                 local name = entry:match("^(.+)%.koplugin$")
+                if name and name:sub(1, 2) == "._" then
+                    junk = junk + 1
+                    name = nil
+                end
+                if name and lfs.attributes(paths[i]:gsub("/$", "") .. "/" .. entry, "mode") ~= "directory" then name = nil end
                 if name and not seen[name] then
                     seen[name] = true
                     if not disabled[name] then
@@ -896,7 +1008,7 @@ local function listPlugins()
         end
     end
     table.sort(on, function(a, b) return a.name < b.name end)
-    return on, disabled
+    return on, disabled, junk
 end
 
 local function listPatches()
@@ -967,13 +1079,18 @@ local function startupReport()
     local cur, volt, status = sysfs("current_now"), sysfs("voltage_now"), sysfs("status")
     lines[#lines + 1] = string.format("battery %s%s%s%s%s", pct(battery()), charging() and " (charging)" or "",
         status and (" | status " .. status) or "",
-        cur and (" | current " .. cur .. " µA") or "", volt and (" | voltage " .. volt .. " µV") or "")
+        cur and (" | current_now " .. cur .. " (~" .. tostring(currentMA()) .. " mA)") or "", volt and (" | voltage " .. volt) or "")
+    local ct = cpuText()
+    if ct then lines[#lines + 1] = ct end
     local r_wifi, r_bt = radios()
     lines[#lines + 1] = "radios now: Wi-Fi " .. onOff(r_wifi, "on") .. " | Bluetooth " .. onOff(r_bt, "on")
     local sline, keep = settingsLine()
     lines[#lines + 1] = sline
     if keep then problem("keepalive", "Keep alive is ON: the device never sleeps by itself while it's on.") end
-    local plugins, disabled = listPlugins()
+    local plugins, disabled, junk = listPlugins()
+    if junk > 0 then
+        lines[#lines + 1] = "macOS \"._\" files in plugins: " .. junk .. " (left by copying with a Mac; KOReader ignores them, harmless)"
+    end
     local b, u = {}, {}
     for i = 1, #plugins do
         if plugins[i].builtin then b[#b + 1] = plugins[i].name else u[#u + 1] = plugins[i].name end
