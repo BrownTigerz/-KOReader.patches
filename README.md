@@ -40,6 +40,7 @@ All patches work independently and together. If one fails to attach (for example
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
+| [Test Mode](#test-mode) | `2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.1 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
 | [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.11 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
@@ -574,6 +575,25 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 - Tap it again before the 10 s are up to cancel (shows a check mark while waiting).
 - Going to sleep cancels it, so no timer waits through sleep.
 - Nothing runs until you tap it. Temporary helper — delete the file when you're done.
+
+---
+
+## Test Mode
+
+`2-zz-test-mode.lua` — one switch for trying things out without anything counting. Open books, turn pages, finish them: nothing syncs and nothing lands in your stats. When you're done, the books go back to how they were.
+
+- **Menu:** Tools → Add-ons → Test Mode (Maintenance), or Tools → Test Mode without the Add-ons patch. **Gesture:** Toggle Test Mode (General).
+- **Held back** while it's on, and for any book opened during it until it's reset:
+  - **ShelfSync**: no progress, status, notes or "finished" to StoryGraph, Goodreads, Hardcover or the others, no auto-linking, nothing queued for later. ShelfSync Tweaks' Link & Update and Sync All show a note instead of switching Wi-Fi on.
+  - **BookOrbit**: no progress push or pull, book sync (OrbitShelf's Sync and the Side Panel too), highlight exchange, library sweep or close/sleep sync, nothing queued.
+  - **Progress sync (KOSync)**: no push or pull.
+  - **Statistics**: the book opens as if statistics were off, so no time, pages or book entry reach statistics.sqlite3 (Reading Insights and Reading Log don't see it either).
+  - **ReadMastery** (and ReadMastery Quests): no session, XP or quest progress.
+  - **SimpleUI**: no critter reaction or daily challenge from the session.
+- **Still works**, so you can test it: position, finished status, highlights, History, and things like OrbitShelf's Next In Series.
+- **Turning it off** asks to reset the books you opened: **Reset** puts each one's sidecar (position, status, highlights) back to what it was before testing, or removes it if it had none, and takes books that weren't in History back out. **Keep** leaves them as they are; they sync normally again from then on. **Reset Test Books** in its menu does the same any time (with no book open).
+- **So you don't forget:** a corner note when a book opens and at start-up, and it turns itself off after 24 hours (the reset is still offered). Its menu shows what was held back this session.
+- Named `2-zz-` so it loads after every other patch and sits on top of their hooks. Anything it can't find to hold back (a plugin update renamed it) goes to crash.log at start-up. No timers.
 
 ---
 
