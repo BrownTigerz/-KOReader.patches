@@ -15,7 +15,8 @@
 --            one, and only if that fails too a popup says so. The routine
 --            Goodreads lines (search fallback, token retry) moved from
 --            crash.log to the ShelfSync diagnostic (1.2.0+); a leftover
---            comment above the Amazon sign-in code is gone.
+--            comment above the Amazon sign-in code is gone, and the last 9
+--            `_` loop variables are renamed `_i` / `_k` (same sweep as the other patches).
 --   1.11.20  Clean-up: the vendored Goodreads storage module (never
 --            required by anything), unused
 --            requires and two empty checks left from the tracer are gone.
@@ -2240,7 +2241,7 @@ local REDACTIONS = {
 function Logging.redact(value)
     if value == nil then return "" end
     local s = tostring(value)
-    for _, rule in ipairs(REDACTIONS) do
+    for _i, rule in ipairs(REDACTIONS) do
         s = s:gsub(rule[1], rule[2])
     end
     return s
@@ -2580,7 +2581,7 @@ function Http.sanitizeCookie(header)
         end
     end
     local parts = {}
-    for _, name in ipairs(order) do
+    for _i, name in ipairs(order) do
         parts[#parts + 1] = name .. "=" .. jar[name]
     end
     return table.concat(parts, "; ")
@@ -2623,7 +2624,7 @@ function Http.mergeSetCookie(jar, set_cookie)
         end
     end
     local parts = {}
-    for _, name in ipairs(order) do
+    for _i, name in ipairs(order) do
         if jar_map[name] then parts[#parts + 1] = name .. "=" .. jar_map[name] end
     end
     return table.concat(parts, "; ")
@@ -2767,7 +2768,7 @@ end
 local function is_intercepted(status, headers)
     if status == 202 then return true end
     if headers then
-        for _, value in pairs(headers) do
+        for _k, value in pairs(headers) do
             if type(value) == "string" and value:lower():find("challenge", 1, true) then
                 return true
             end
@@ -2793,7 +2794,7 @@ end
 
 local function looks_like_sign_in(url, body)
     if url then
-        for _, marker in ipairs(SIGN_IN_MARKERS) do
+        for _i, marker in ipairs(SIGN_IN_MARKERS) do
             if url:find(marker, 1, true) then return true end
         end
     end
@@ -2961,13 +2962,13 @@ local function parse_form_with_password(html)
             -- Goodreads historically used user[email]/user[password]; the
             -- Amazon AP form uses email/password (and sometimes ap_email).
             local email_name, password_name = "email", "password"
-            for _, n in ipairs({ "user[email]", "ap_email", "email" }) do
+            for _i, n in ipairs({ "user[email]", "ap_email", "email" }) do
                 if inner:find('name="' .. n .. '"', 1, true) then
                     email_name = n
                     break
                 end
             end
-            for _, n in ipairs({ "user[password]", "ap_password", "password" }) do
+            for _i, n in ipairs({ "user[password]", "ap_password", "password" }) do
                 if inner:find('name="' .. n .. '"', 1, true) then
                     password_name = n
                     break
@@ -3106,7 +3107,7 @@ end
 local function sign_in_link(html)
     local links = collect_sign_in_links(html)
     -- Prefer the straightforward sign-in flow over the third-party buttons.
-    for _, link in ipairs(links) do
+    for _i, link in ipairs(links) do
         if not link:find("identityProvider", 1, true) then return link end
     end
     return links[1]
@@ -3118,7 +3119,7 @@ end
 
 local function contains_any(haystack, needles)
     local h = lower(haystack)
-    for _, needle in ipairs(needles) do
+    for _i, needle in ipairs(needles) do
         if h:find(needle, 1, true) then return true end
     end
     return false
