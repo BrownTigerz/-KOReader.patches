@@ -27,7 +27,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.0 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.4.5 |
-| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.1 |
+| [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.13.0 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.12.0 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
@@ -262,8 +262,8 @@ Wi-Fi, SSH and Calibre, handled the same way. Menu: Settings (gear) → Network 
 
 - **Stop SSH Server On Sleep** (on): stops KOReader's SSH server when the device sleeps, like Wi-Fi, and doesn't restart it on wake. Without this, SSH quietly becomes reachable again as soon as Wi-Fi reconnects.
 - **SSH Follows Wi-Fi** (off): SSH starts when you turn Wi-Fi on and stops whenever Wi-Fi goes off, however that happens. It isn't started by the automatic reconnect after waking, so SSH stays off after sleep. Handy for pushing patches.
-- **Choose Network…:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved · away, or Open. Tap one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
-- **Forget on the device too:** the device keeps its own Wi-Fi list (on Kobo, the stock reader's), and background reconnects use it, so a network forgotten only in KOReader still comes back. When the device has it too, Forget and Forget all ask **KOReader Only** or **Device + KOReader**. The device's old list is kept as `wpa_supplicant.conf.bak`. A network you connect to from the list is saved on the device too, so background reconnects work for it; with nothing saved on the device, tapping Wi-Fi opens the list instead of KOReader's flow that freezes the screen for ~5 s.
+- **Choose Network…:** scans (tap the scanning message to cancel) and lists networks as Connected, Saved, Saved · away, Saved · device / Device · away, or Open. **Saved · device** (1.13.0) is a network saved only on the device (on Kobo, joined in Kobo's own Wi-Fi settings), the list background connect uses: tap **Connect** and it joins with the key the device has, then KOReader has it saved too. The device's list is only read while the network list is open. Tap any other one for Reconnect / Edit password / Forget, or Disconnect when connected. It never connects by itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and closing the list without picking puts Wi-Fi back off.
+- **Forget on the device too:** the device keeps its own Wi-Fi list (on Kobo, the stock reader's), and background reconnects use it, so a network forgotten only in KOReader still comes back. When the device has it too, Forget and Forget all ask **KOReader Only** or **Device + KOReader**; one saved only on the device just asks once and is removed from the device's list. The device's old list is kept as `wpa_supplicant.conf.bak`. A network you connect to from the list is saved on the device too, so background reconnects work for it; with nothing saved on the device, tapping Wi-Fi opens the list instead of KOReader's flow that freezes the screen for ~5 s.
 - **Bluetooth…** (only with kobo.koplugin, on devices it supports): the plugin's Bluetooth menu — on/off, scan, paired devices, settings — moved here from Settings → Network. On MTK Kobos Bluetooth shares the Wi-Fi chip, so the patch also keeps the hand-off sane: one Wi-Fi restore at a time, and Wi-Fi on/off taps during Bluetooth start-up are applied once it's up.
 - **Storefront** (no menu, only with storefront.koplugin): its short self-closing messages use the note style above (Normal leaves them as they are; progress messages like "Checking plugin updates…" and anything with buttons stay as Storefront shows them), and its sleep step skips the full memory clean-ups it runs (four per sleep, about 0.85 s).
 - **Notifications** (default Banner): one style for Wi-Fi on/off, SSH on/off and the Calibre wireless connection, however you trigger them.
@@ -278,6 +278,7 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 **Notes**
 - Background connect uses the device's own Wi-Fi config, the same one the automatic reconnect on wake uses. On Kobo that means networks joined in Kobo's own Wi-Fi settings; networks joined only in KOReader aren't in it. If that config has no networks, the Normal flow is used instead. Background connect needs Kobo or Kindle.
+- crash.log only gets warnings, the startup line and changes to the device's Wi-Fi list (1.13.0). The routine Wi-Fi, SSH, Calibre and network list lines are in the Network Tweaks diagnostic (`debug/2-zz-network-tweaks-diagnostics.lua` 1.4.0+) while it's logging.
 - Shortcuts Toolbar Icon Tweaks' SSH and Calibre indicators update the moment they change with Network Tweaks 1.4.0+.
 
 ---
