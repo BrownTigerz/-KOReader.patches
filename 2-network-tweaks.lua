@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.13.0
+Version: 1.13.1
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -89,6 +89,9 @@ Storefront (storefront.koplugin)
     (measured: 185-310 ms each). Those clean-ups are skipped; the rest of
     its sleep step runs as before. Harmless once Storefront drops them
     itself.
+  - Its background "am I online?" check answers "not online" straight
+    away when Wi-Fi is off, connecting or has no address, instead of
+    holding the screen while a name lookup times out (up to ~40 s).
 
 Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   No menu: works on its own when the plugin is installed. On MTK Kobos
@@ -105,6 +108,14 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.13.1 Storefront: its background "am I online?" check no longer
+         freezes the screen while Wi-Fi is off, still connecting or has no
+         address yet (logged on device: 40 s with the whole screen held).
+         KOReader's check looks a name up on the internet, which waits for
+         every DNS try to time out when there's no network; for
+         Storefront's checks the patch first looks at Wi-Fi itself and
+         answers "not online" at once. Connected, it asks KOReader as
+         before. Every other caller is unchanged.
   1.13.0 Choose Network also shows the networks saved only on the device
          (on Kobo, the ones joined in Kobo's own Wi-Fi settings, which
          background connect uses): "Saved · device" in range, "Device ·
@@ -241,7 +252,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.13.0"
+local PATCH_VERSION = "1.13.1"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -1497,6 +1508,35 @@ end
 -- got there. Other wrappers (diagnostics) between it and here are passed
 -- over. Every other caller, and every other collectgarbage option, goes
 -- straight through.
+-- Storefront asks NetworkMgr:isOnline() from its background timers. That
+-- resolves a hostname, and with no usable network every DNS try runs to
+-- its timeout first: the screen was held 40 s (diagnostics, 11-11). For a
+-- caller inside Storefront, no Wi-Fi / no address / no default route is
+-- answered "not online" at once; otherwise KOReader's own check runs.
+do
+    local orig_online = NetworkMgr.isOnline
+    if type(orig_online) == "function" and not NetworkMgr.__network_tweaks_sf_online then
+        NetworkMgr.__network_tweaks_sf_online = true
+        NetworkMgr.isOnline = function(self, ...)
+            if fromStorefront() then
+                -- strict: nil counts as no (no address yet returns nil)
+                local function yes(fn, strict)
+                    if type(fn) ~= "function" then return true end -- can't tell: let KOReader check
+                    local ok, v = pcall(fn, self)
+                    if not ok then return true end
+                    if strict then return v and true or false end
+                    return v ~= false -- hasDefaultRoute: nil = couldn't check
+                end
+                if not (yes(self.isWifiOn, true) and yes(self.isConnected, true) and yes(self.hasDefaultRoute)) then
+                    trace("Storefront online check: no network yet, answered not online")
+                    return false
+                end
+            end
+            return orig_online(self, ...)
+        end
+    end
+end
+
 local sf_suspend -- { source, linedefined } of Storefront's onSuspend
 userpatch.registerPatchPluginFunc("storefront", function(plugin)
     if sf_suspend or type(plugin) ~= "table" or type(plugin.onSuspend) ~= "function" then return end
