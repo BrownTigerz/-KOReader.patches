@@ -1,6 +1,6 @@
 --[[
 2-zz-shelfsync-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.0
+Version 1.2.0
 
 Watches ShelfSync and ShelfSync tweaks from the outside and writes what it
 sees as [shelfsync]-tagged lines to the SHARED diagnostics log
@@ -13,6 +13,10 @@ line. It doesn't touch 2-shelfsync-tweaks.lua. The "zz" makes it load after
 it, so it sees the tweaks' hooks too.
 
 Changelog:
+  1.2.0  Logs the routine lines ShelfSync tweaks 1.12.0+ keeps quiet in
+         crash.log (Goodreads search fallback, token retries, progress
+         retries) while logging is on; they stop by themselves when the
+         logging window ends.
   1.1.0  Shared perf core (same block as the other diagnostics): every
          timer from ShelfSync and the tweaks is timed (slow ones logged),
          screen updates and flashes they ask for, the timers they leave
@@ -104,7 +108,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
 -- single chronological log. Rotation at 2 MB, older part kept as
@@ -273,6 +277,17 @@ log("logging for %d min (until %s) | expires %s | log: %s",
     ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
     os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), "diagnostics.log")
 log("device %s | %s", q(Device.model), wifiState())
+
+-- ShelfSync tweaks 1.12.0+ hands its routine lines here while logging
+package.loaded.shelfsync_tweaks_trace = function(...)
+    if not on() then
+        package.loaded.shelfsync_tweaks_trace = nil
+        return
+    end
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    log("tweaks: %s", mask(table.concat(parts, " ")))
+end
 
 -- --------------------------------------------------------------------------
 -- ShelfSync's own log lines (and the tweaks' warnings)
