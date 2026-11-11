@@ -1,8 +1,12 @@
 --[[
 2-zz-network-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.3.1
+Version 1.4.0
 
 Changelog:
+  1.4.0 - Logs the routine lines Network Tweaks 1.13.0+ keeps out of
+          crash.log (Wi-Fi, SSH, Calibre, network list events) while
+          logging is on; they stop by themselves when the logging window
+          ends.
   1.3.1 - Sleep breakdown: while KOReader hands out the sleep event,
           every plugin's sleep handler is timed and the slow ones are
           logged by name ("sleep: storefront 412 ms (main.lua:11464)"),
@@ -97,7 +101,7 @@ How to use:
   3. Send diagnostics.log, then delete this file and restart.
 ]]
 
-local DIAG_VERSION = "1.3.1"
+local DIAG_VERSION = "1.4.0"
 local ACTIVE_MINUTES = 5   -- logging window after each KOReader start
 local EXPIRES_HOURS = 24   -- after first install: no hooks at all
 
@@ -267,6 +271,17 @@ log("==================== network-tweaks diagnostics %s started ================
 log("logging for %d min (until %s) | expires %s | log %s",
     ACTIVE_MINUTES, os.date("%I:%M %p", stop_at),
     os.date("%b %d %I:%M %p", first + EXPIRES_HOURS * 3600), SHARED_LOG)
+
+-- Network Tweaks 1.13.0+ hands its routine lines here while logging
+package.loaded.network_tweaks_trace = function(...)
+    if not on() then
+        package.loaded.network_tweaks_trace = nil
+        return
+    end
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    log("tweaks: %s", table.concat(parts, " "))
+end
 
 -- --------------------------------------------------------------------------
 -- Network list opener (toolbar hold looks it up at call time)
