@@ -1,0 +1,293 @@
+{
+  "api": 1,
+  "styles": [
+    {
+      "id": "northern_lights",
+      "version": "2.1",
+      "api": 1,
+      "name": "Northern Lights",
+      "description": "A winter night in a round window for the rings: the aurora grows with your pages, stars come out and the cabin lights up with your minutes. Night skies with an aurora streak for the days, aurora curtains for the bar charts, an igloo built block by block for the year goal and a dog sled racing to the cabin for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "candy_hearts",
+      "version": "2.1",
+      "api": 1,
+      "name": "Candy Hearts",
+      "description": "A heart-shaped candy box for the rings: it fills red with your pages, lace runs round it with your minutes and a gold bow goes on when both are done. Conversation hearts for the days, stacks of candy hearts for the bar charts, a candy jar for the year goal and a box of chocolates for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "lanterns",
+      "version": "2.1",
+      "api": 1,
+      "name": "Lanterns",
+      "description": "A paper lantern for the rings: it fills red with your pages, glows and grows its tassel with your minutes, and shines when both are done. Small lanterns for the days, tall lanterns for the bar charts, a row of lanterns under the eaves for the year goal and a dragon dance chasing the pearl for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "maple",
+      "version": "2.1",
+      "api": 1,
+      "name": "Maple",
+      "description": "Sugaring season for the rings: a sap bucket on a maple fills with your pages, drips fall and the sugar shack steams with your minutes. Maple leaves that turn red for the days, syrup bottles for the bar charts, a stack of pancakes for the year goal and a jug of syrup filling up for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "rain",
+      "version": "2.1",
+      "api": 1,
+      "name": "Rain",
+      "description": "A rain gauge for the rings: it fills with your pages, the rain comes down with your minutes and a rainbow comes out when both are done. Raindrops that fill for the days, rain boots for the bar charts, an umbrella stand for the year goal and a paper boat sailing to the rainbow for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "blossom",
+      "version": "2.1",
+      "api": 1,
+      "name": "Blossom",
+      "description": "A cherry branch for the rings: blossoms open along it with your pages, petals drift down with your minutes and a little bird lands when both are done. Buds that open for the days, blossom sprigs in vases for the bar charts, a garland of blossoms for the year goal and a folding fan opening for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "garden",
+      "version": "2.1",
+      "api": 1,
+      "name": "Garden",
+      "description": "A raised garden bed for the rings: tomatoes, carrots and lettuce grow with your pages, the watering can pours with your minutes and a butterfly visits when both are done. Seeds that sprout for the days, carrots for the bar charts, a harvest crate for the year goal and a wheelbarrow full of vegetables for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "solstice",
+      "version": "2.1",
+      "api": 1,
+      "name": "Solstice",
+      "description": "Midsummer for the rings: the sun rises between the standing stones with your pages, its rays reach out with your minutes and a halo rings it when both are done. The sun's path across each day, standing stones for the bar charts, a midsummer flower crown for the year goal and a maypole wrapping in ribbons for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "campfire",
+      "version": "2.1",
+      "api": 1,
+      "name": "Campfire",
+      "description": "A campfire under the stars for the rings: the fire builds with your pages, sparks fly and a marshmallow toasts with your minutes, and the tent glows when both are done. Flames for the days and the bar charts, a stack of s'mores for the year goal and a trail up the mountain to the tent for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "lake",
+      "version": "2.1",
+      "api": 1,
+      "name": "Lake",
+      "description": "A lake in a round window for the rings: the water rises with your pages, the sun climbs over the pines with your minutes and a paddleboarder heads out when both are done. Lily pads that flower for the days, pines for the bar charts, a canoe rack for the year goal and a paddleboard crossing to an island for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "sunflower",
+      "version": "2.1",
+      "api": 1,
+      "name": "Sunflower",
+      "description": "One big sunflower for the rings: seeds fill its middle with your pages, its petals light up with your minutes and a bee lands when both are done. Sunflowers that open for the days, tall stalks for the bar charts, sunflowers peeking over the fence for the year goal and a sunflower growing past the measuring stick for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "library",
+      "version": "2.1",
+      "api": 1,
+      "name": "Library",
+      "description": "A reading desk in the library for the rings: the open book fills with lines as you read your pages, the green lamp warms up with your minutes and a bookmark and a cup of tea appear when both are done. Books that open for the days, stacks of books for the bar charts, a bookshelf for the year goal and the library ladder for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "fair",
+      "version": "2.1",
+      "api": 1,
+      "name": "Fair",
+      "description": "A Ferris wheel at dusk for the rings: its cars light up with your pages, the rim lights come on with your minutes and balloons float up when both are done. Balloons that fill for the days, cotton candy for the bar charts, a prize shelf of teddy bears for the year goal and the high striker ringing the bell for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "pumpkin",
+      "version": "2.1",
+      "api": 1,
+      "name": "Pumpkin",
+      "description": "A pumpkin patch at dusk for the rings: the pumpkin ripens with your pages, its carved face glows with your minutes and bats fly out when both are done. Pumpkins that ripen for the days, candy corn for the bar charts, pumpkins on the vine for the year goal and a hayride to the barn for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "poppy",
+      "version": "2.1",
+      "api": 1,
+      "name": "Poppy",
+      "description": "A poppy in a wheat field for the rings: its petals turn red with your pages, more poppies open in the field with your minutes and a dove flies over when both are done. Buds that bloom for the days, poppies on tall stems for the bar charts, a poppy field for the year goal and a wreath of poppies for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "hearth",
+      "version": "2.1",
+      "api": 1,
+      "name": "Hearth",
+      "description": "A fireplace for the rings: the fire builds with your pages, the kettle steams and the mug fills with your minutes, and the cat curls up on the rug when both are done. Mugs of cocoa for the days, brick chimneys for the bar charts, a patchwork quilt for the year goal and a scarf being knitted for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "fireworks",
+      "version": "2.1",
+      "api": 1,
+      "name": "Fireworks",
+      "description": "A city skyline at night for the rings: a rocket climbs with your pages and bursts open, more fireworks go off with your minutes and a finale lights the sky when both are done. Bursts that grow for the days, rockets for the bar charts, a sky full of fireworks for the year goal and a countdown clock to midnight for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "first_thaw",
+      "version": "2.1",
+      "api": 1,
+      "name": "First Thaw",
+      "description": "Spring melt for the rings: the snow melts off the field with your pages, crocuses come up with your minutes and a robin and the sun come out when both are done. Icicles dripping for the days, snowdrops for the bar charts, crocuses breaking through the snow for the year goal and the river ice breaking up for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "meadow",
+      "version": "2.1",
+      "api": 1,
+      "name": "Meadow",
+      "description": "A hillside meadow for the rings: wildflowers bloom across it with your pages, a kite climbs with your minutes and butterflies come when both are done. Daisies for the days, tufts of wildflowers for the bar charts, a bouquet in a jar for the year goal and a kite flying higher for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "golden_wheat",
+      "version": "2.1",
+      "api": 1,
+      "name": "Golden Wheat",
+      "description": "Harvest on the farm for the rings: the silo fills with grain with your pages, the windmill turns with your minutes and the harvest moon rises when both are done. Sheaves for the days, wheat stalks for the bar charts, round hay bales for the year goal and the combine cutting the field for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "autumn_leaves",
+      "version": "2.1",
+      "api": 1,
+      "name": "Autumn Leaves",
+      "description": "A park bench in the fall for the rings: the leaf pile grows with your pages, leaves drift down with your minutes and a squirrel comes by when both are done. Leaves turning colour for the days, columns of leaves for the bar charts, a scrapbook of pressed leaves for the year goal and a leaf pile big enough to jump in for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "ravens",
+      "version": "2.1",
+      "api": 1,
+      "name": "Ravens",
+      "description": "A moonlit branch for the rings: the moon waxes with your pages, ravens gather on the branch with your minutes and their trinket glints when both are done. Moon phases for the days, feathers for the bar charts, a raven's nest of shiny trinkets for the year goal and a raven crossing the moon for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "gingerbread",
+      "version": "2.1",
+      "api": 1,
+      "name": "Gingerbread",
+      "description": "A gingerbread house for the rings: the icing is piped on with your pages, gumdrops go on and the windows light with your minutes and the chimney smokes when both are done. Gingerbread cookies iced for the days, candy canes for the bar charts, a tray of cookies for the year goal and a gingerbread man running for the finish for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    },
+    {
+      "id": "star",
+      "version": "2.1",
+      "api": 1,
+      "name": "Star",
+      "description": "A wishing star over a sleeping village for the rings: the star's points light with your pages, more stars come out and windows glow with your minutes and the star shines when both are done. Stars filling with gold for the days, stacks of stars for the bar charts, an advent calendar of doors for the year goal and a shooting star crossing the sky for the challenge.",
+      "author": "BrownTigerz",
+      "files": [
+        "style.lua",
+        "draw.lua"
+      ]
+    }
+  ]
+}
