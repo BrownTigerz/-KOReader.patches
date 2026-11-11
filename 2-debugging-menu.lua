@@ -1,10 +1,20 @@
 --[[
 2-debugging-menu.lua
-Version 1.3.6
+Version 1.4.5
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
 
+  • Turn Off All Debug: every diagnostic off (from the next restart), plus
+    the debug switches inside patches and plugins: OrbitShelf's
+    Diagnostics, and any patch that lists its
+    own in package.loaded.debug_switches (debug switch contract v1:
+    [id] = { label, is_on(), off() }). Those go off at once. With the Test
+    Mode patch on, it asks first whether to switch that off too.
+  • Test Mode (2-zz-test-mode.lua), when it's there, gets its own switch in
+    a section at the bottom, moved like a diagnostic. Not part of All on/off;
+    Turn Off All Debug asks about it. While that patch is running (1.0.2+),
+    its menu sits at the top of this one.
   • One toggle for all diagnostics, plus one checkbox per diagnostic.
   • All diagnostics write to one shared log: koreader/diagnostics.log.
     Each line is tagged with the diagnostic's short name, so a full test
@@ -34,6 +44,31 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.4.5  Pill Colour Trace is no longer a switch here: BookOrbit Tweaks 2.15.18
+       moved it into the BookOrbit diagnostic, which Turn Off All Debug
+       already switches off. A Pill Colour Trace setting left saved by an
+       older BookOrbit Tweaks no longer counts as "on".
+1.4.4  Test Mode's menu (on/off, Reset Test Books) sits at the top while
+       the Test Mode patch is running (Test Mode 1.0.2 moves it here from
+       Add-ons); not there when the patch is off. Turn Off All Debug always
+       asks to restart when it switched a patch off (it said "restart to
+       apply" after the first time), and after the Test Mode question closes.
+1.4.3  Test Mode is now a patch switch like the diagnostics, in its own
+       section at the bottom: the checkbox moves 2-zz-test-mode.lua between
+       patches/ and patches/debug/ (applies after a restart). Its own menu
+       is no longer copied in here (1.4.1). Turn Off All Debug with that
+       patch on asks whether to switch it off too; yes also turns Test Mode
+       itself off first (its Reset Test Books question comes up).
+1.4.2  Turn Off All Debug with Test Mode on asks first: Turn Off Test Mode
+       Too (everything off; Test Mode then offers to reset its books) or
+       Keep Test Mode (debug off, Test Mode stays on). Test Mode off: no
+       question. The item says when Test Mode is on.
+1.4.1  Test Mode (2-zz-test-mode.lua) shows in its own section at the bottom,
+       the same menu as in Add-ons. Turn Off All Debug leaves it alone.
+1.4.0  Turn Off All Debug at the top: switches every diagnostic off and
+       the debug switches inside patches and plugins (Pill Colour Trace,
+       OrbitShelf Diagnostics, and any patch that registers one). Shows
+       how many are on; one note says what went off.
 1.3.6  Wording only, no behavior change: "Combine Logs" (was "Combine
        Crash And Diagnostics Log For Review"), "No diagnostics found"
        (was "No Diagnostics Found In Patches/"), and plainer
@@ -80,7 +115,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.3.6"
+local VERSION = "1.4.5"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -352,6 +387,10 @@ end
 -- What was switched on when KOReader started (to mark pending changes).
 local loaded = {}
 for _i, d in ipairs(scan()) do loaded[d.base] = d.on end
+do
+    local on_t, path_t = locate("2-zz-test-mode")
+    if path_t then loaded["2-zz-test-mode"] = on_t end
+end
 
 -- Shared notification contract v1: user-facing status notes use one style,
 -- resolved in priority order: Network Tweaks' banner/corner note if
@@ -381,8 +420,8 @@ local function notify(text)
 end
 
 local asked_restart = false
-local function changed()
-    if asked_restart then
+local function changed(always)
+    if asked_restart and not always then
         notify("Debugging: restart KOReader to apply")
         return
     end
@@ -620,9 +659,193 @@ end
 -- Menu
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Debug switches inside patches and plugins
+-- ---------------------------------------------------------------------------
+-- Debug switch contract v1: a patch lists its own in package.loaded.debug_switches,
+-- [id] = { label = "...", is_on = function, off = function }. One is known here
+-- too: OrbitShelf's Diagnostics (plugin setting, live through its core module).
+local function settingSwitch(key, field, label)
+    return {
+        label = label,
+        is_on = function()
+            local t = G_reader_settings:readSetting(key)
+            return type(t) == "table" and t[field] == true
+        end,
+        off = function()
+            local t = G_reader_settings:readSetting(key)
+            if type(t) ~= "table" then return end
+            t[field] = false
+            G_reader_settings:saveSetting(key, t)
+        end,
+    }
+end
+
+local function debugSwitches()
+    local list, seen = {}, {}
+    local reg = package.loaded.debug_switches
+    if type(reg) == "table" then
+        for id, sw in pairs(reg) do
+            if type(sw) == "table" and type(sw.is_on) == "function" and type(sw.off) == "function" then
+                list[#list + 1] = { id = id, label = tostring(sw.label or id), is_on = sw.is_on, off = sw.off }
+                seen[id] = true
+            end
+        end
+    end
+    if not seen.orbitshelf_diagnostics then
+        local O = package.loaded["orbitshelf_core"]
+        if type(O) == "table" and type(O.cfg) == "table" then
+            list[#list + 1] = { id = "orbitshelf_diagnostics", label = "OrbitShelf Diagnostics",
+                is_on = function() return O.cfg.diagnostics == true end,
+                off = function()
+                    O.cfg.diagnostics = false
+                    if type(O.saveConfig) == "function" then O.saveConfig() end
+                end }
+        else
+            local sw = settingSwitch("orbitshelf_tweaks", "diagnostics", "OrbitShelf Diagnostics")
+            sw.id = "orbitshelf_diagnostics"
+            list[#list + 1] = sw
+        end
+    end
+    table.sort(list, function(a, b) return a.label < b.label end)
+    return list
+end
+
+local function debugOnCount()
+    local n = 0
+    for _i, d in ipairs(scan()) do if d.on then n = n + 1 end end
+    for _i, sw in ipairs(debugSwitches()) do
+        local ok, on = pcall(sw.is_on)
+        if ok and on then n = n + 1 end
+    end
+    return n
+end
+
+local function turnOffAllDebug(tm)
+    local names, moved = {}, 0
+    migrate()
+    for _i, d in ipairs(scan()) do
+        if d.on and setOn(d, false) then moved = moved + 1 end
+    end
+    for _i, sw in ipairs(debugSwitches()) do
+        local ok, on = pcall(sw.is_on)
+        if ok and on then
+            local okO, err = pcall(sw.off)
+            if okO then
+                names[#names + 1] = sw.label
+            else
+                logger.warn("debugging menu: couldn't turn off", sw.label, err)
+            end
+        end
+    end
+    refresh(tm)
+    if moved == 0 and #names == 0 then
+        notify("Debugging: nothing was on")
+        return
+    end
+    local parts = {}
+    if moved > 0 then
+        parts[#parts + 1] = string.format("%d diagnostic%s", moved, moved == 1 and "" or "s")
+    end
+    for _i, n in ipairs(names) do parts[#parts + 1] = n end
+    logger.info("debugging menu: turned off " .. table.concat(parts, ", "))
+    if moved > 0 then
+        notify("Debug off: " .. table.concat(parts, ", "))
+        changed(true)
+    else
+        notify("Debug off: " .. table.concat(parts, ", "))
+    end
+end
+
+-- Test Mode (2-zz-test-mode.lua): a patch switched like a diagnostic, kept apart
+-- from them. Switching it off while Test Mode itself is on turns that off first,
+-- through its own toggle, so its Reset Test Books question still comes.
+local TEST_BASE = "2-zz-test-mode"
+
+local function testPatch()
+    local on, path = locate(TEST_BASE)
+    if not path then return nil end
+    return { base = TEST_BASE, name = "Test Mode", on = on, path = path }
+end
+
+local function testModeActive()
+    return G_reader_settings:isTrue("test_mode")
+end
+
+local function testModeOff()
+    for _i, mod in ipairs({ "apps/filemanager/filemanager", "apps/reader/readerui" }) do
+        local M = package.loaded[mod]
+        if type(M) == "table" and type(M.onToggleTestMode) == "function" then
+            local ok, err = pcall(M.onToggleTestMode)
+            if not ok then logger.warn("debugging menu: couldn't turn Test Mode off", err) end
+            return
+        end
+    end
+end
+
+-- off: Test Mode itself first (when on), then the patch
+local function setTestPatch(on)
+    local d = testPatch()
+    if not d or d.on == on then return false end
+    if not on and testModeActive() then testModeOff() end
+    return setOn(d, on)
+end
+
 local function buildItems()
     migrate()
     local items = {}
+    -- Test Mode's own menu, while its patch is running and on
+    local tm_menu = package.loaded.test_mode_menu
+    local tp = testPatch()
+    if type(tm_menu) == "function" and tp and tp.on then
+        local ok_m, m = pcall(tm_menu)
+        if ok_m and type(m) == "table" then
+            m.separator = true
+            items[#items + 1] = m
+        end
+    end
+    items[#items + 1] = {
+        text_func = function()
+            local n = debugOnCount()
+            local t = testPatch()
+            return "Turn Off All Debug  ·  " .. (n == 0 and "all off" or (n .. " on"))
+                .. ((t and t.on) and "  ·  Test Mode on" or "")
+        end,
+        help_text = "Switches off every diagnostic (from the next restart) and the debug switches inside your patches and plugins: OrbitShelf Diagnostics and any other patch that lists one. Those go off straight away. With the Test Mode patch on, it asks whether to switch that off too.",
+        keep_menu_open = true,
+        callback = function(tm)
+            local t = testPatch()
+            if not (t and t.on) then
+                turnOffAllDebug(tm)
+                return
+            end
+            local ConfirmBox = require("ui/widget/confirmbox")
+            UIManager:show(ConfirmBox:new{
+                text = "The Test Mode patch is on too. Switch it off as well?",
+                ok_text = "Turn Off Test Mode Too",
+                cancel_text = "Keep Test Mode",
+                -- after the question has closed, so the restart question is on top
+                ok_callback = function()
+                    UIManager:nextTick(function()
+                        local moved = setTestPatch(false)
+                        if moved then
+                            logger.info("debugging menu: Test Mode patch switched off")
+                            -- a restart question even when nothing else moved
+                            local before = asked_restart
+                            turnOffAllDebug(tm)
+                            if asked_restart == before then changed(true) end
+                        else
+                            turnOffAllDebug(tm)
+                        end
+                    end)
+                end,
+                cancel_callback = function()
+                    UIManager:nextTick(function() turnOffAllDebug(tm) end)
+                end,
+            })
+        end,
+        separator = true,
+    }
     local function setAll(on, tm)
         local any = false
         for _i, d in ipairs(scan()) do
@@ -710,6 +933,26 @@ local function buildItems()
         callback = function(tm) clearCrash() refresh(tm) end }
     items[#items + 1] = { text = "Combine Logs", keep_menu_open = true,
         callback = function() combine() end }
+    -- Test Mode patch, on its own (not a diagnostic)
+    if testPatch() then
+        items[#items].separator = true
+        items[#items + 1] = {
+            text_func = function()
+                local t = testPatch()
+                if not t then return "Test Mode  ·  deleted" end
+                local pending = loaded[TEST_BASE] ~= nil and loaded[TEST_BASE] ~= t.on
+                return "Test Mode Patch" .. (pending and "  (after restart)" or "")
+            end,
+            help_text = "Switches the Test Mode patch on or off (after a restart), like a diagnostic. Switching it off while Test Mode is on turns Test Mode off first, so you can reset your test books.",
+            checked_func = function() local t = testPatch() return t and t.on end,
+            enabled_func = function() return testPatch() ~= nil end,
+            keep_menu_open = true,
+            callback = function(tm)
+                local t = testPatch()
+                if t and setTestPatch(not t.on) then refresh(tm) changed() end
+            end,
+        }
+    end
     return items
 end
 
@@ -726,6 +969,7 @@ TM.entries.debugging_menu = {
     order = 900,
     where = "filemanager",
     build = menu,
+    test_mode_home = true, -- Test Mode 1.0.2+ puts its menu here instead of Add-ons
 }
 
 -- Fallback: Tools > Debugging when the Add-ons patch isn't there (or hides us).
