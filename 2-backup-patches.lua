@@ -1,5 +1,5 @@
 --[[
-2-backup-patches.lua                                     3.2.0 (2026-10-31)
+2-backup-patches.lua                                     3.2.1 (2026-11-11)
 KOReader user patch: back up everything your patches are (files, settings,
 icons) in one zip, undo a patch update, per-patch backups, icon cleanup, and
 better device backups with Device Backup & Restore (backup.koplugin).
@@ -121,6 +121,12 @@ Install: koreader/patches/2-backup-patches.lua (Kobo: .adds/koreader/patches/),
 then restart.
 
 Changelog
+  3.2.1  2026-11-11
+    - Update check said "Not Installed" for a main patch switched off
+      in patches/debug/ (Test Mode, via the Debugging Menu's switch):
+      main patches were only looked up in patches/. They now get the
+      same two-folder lookup as diagnostics — the active copy wins,
+      a switched-off copy still shows its version.
   3.2.0  2026-10-31
     - One Backups list: every backup (Everything, each patch or plugin,
       safety backups) and every patch file an update replaced, newest
@@ -385,7 +391,7 @@ Changelog
   1.0.0  Per-target backups with icons, restore, history.
 --]]
 
-local VERSION = "3.2.0"
+local VERSION = "3.2.1"
 
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
@@ -2324,9 +2330,10 @@ installedVersion = function(path)
     return v
 end
 
--- Where a manifest entry lives on this device. A diagnostic can sit in
--- patches/ (active) or patches/debug/ (switched off); the active copy
--- wins, and a stale duplicate is reported for cleanup on update.
+-- Where a manifest entry lives on this device. Any patch can sit in
+-- patches/ (active) or patches/debug/ (switched off — the Debugging
+-- Menu's Test Mode switch moves main patches there too); the active
+-- copy wins, and a stale duplicate is reported for cleanup on update.
 -- Returns the chosen path (or nil), plus a stale duplicate path or nil.
 -- Files that aren't patches and live elsewhere on the device. The first
 -- folder is where a fresh install goes.
@@ -2336,8 +2343,7 @@ local EXTRA_DIRS = {
 
 local function localInstall(repo_path)
     local filename = repo_path:match("[^/]+$")
-    local is_debug = repo_path:sub(1, 6) == "debug/"
-    local dirs = EXTRA_DIRS[repo_path] or (is_debug and { PATCH_DIR, DEBUG_DIR } or { PATCH_DIR })
+    local dirs = EXTRA_DIRS[repo_path] or { PATCH_DIR, DEBUG_DIR }
     local found = {}
     for i, d in ipairs(dirs) do
         if lfs.attributes(d .. "/" .. filename, "mode") == "file" then
