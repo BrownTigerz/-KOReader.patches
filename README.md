@@ -28,7 +28,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.0 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.4.5 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.1 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.20 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.12.0 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
@@ -286,7 +286,7 @@ A failed Wi-Fi connect always shows a note at the top; tap it to choose a networ
 
 ![Shelfsync Tweaks](images/shelfsync-tweaks.png)
 
-Checked against ShelfSync 1.8.1; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Notifications match Network Tweaks or ReadMastery Notify if you have one installed.
+Checked against ShelfSync 1.8.2; the bundled Goodreads login code is a goodreadskosync 1.15.0 snapshot (MIT, license in the file). Notifications match Network Tweaks or ReadMastery Notify if you have one installed.
 
 - **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
 - **Remember login** for Goodreads and StoryGraph: tap "Log In As…" to sign in with the saved login, long-press to edit, "Forget Saved Login" to remove it.
@@ -298,8 +298,10 @@ Checked against ShelfSync 1.8.1; the bundled Goodreads login code is a goodreads
 - **Link & Update:** every enabled provider's Link Book and Update Status in one menu, with three gesture actions that jump straight to them (Link & Update Menu, Link Book (All Providers), Update Status (All Providers)).
 - **ShelfSync All: Update Progress** (gesture), turns Wi-Fi on if needed, syncs every linked, enabled provider that tracks reading progress (one retry each — LibraryThing doesn't track progress, so it's skipped), lists providers still unlinked, then BookOrbit syncs the same book if it's installed, then turns Wi-Fi back off if it turned it on. ShelfSync's built-in "Update progress for all linked books" also turns Wi-Fi on first, chains BookOrbit the same way, and off after.
   A sync can't hold Wi-Fi on forever: a 2-minute safety net (60 s for the BookOrbit step) ends it. Going to sleep ends a sync that's still running: its timers stop and it's wrapped up right there (sleep turns Wi-Fi off itself), so nothing waits through sleep and nothing turns Wi-Fi off after you wake.
+- **Progress updates a tap can't cancel** (1.12.0): ShelfSync runs each Goodreads and StoryGraph request in a background task that any tap cancels, so turning pages right after opening a book could kill the security-token fetch and the progress update failed. Those requests now finish however much you tap (still in the background, still with ShelfSync's own network timeouts). If an update still has no token it's retried once straight away with a fresh one; only if that fails too a popup says so (it goes with the next sync).
 - **Autolink retry on connect:** books opened offline get linked when Wi-Fi connects.
 - **Auto re-login:** if a saved-login session expires, it signs in again and sends the open book's progress again, at most once per provider per 30 minutes. You'll still be asked for a Goodreads verification code or captcha.
+- **Quiet crash.log:** the routine Goodreads lines (search fallback, token retries) only show in the ShelfSync diagnostic (`debug/2-zz-shelfsync-tweaks-diagnostics.lua` 1.2.0+) while it's logging.
 - **Security:** logins stay on the device (`koreader/settings/shelfsync_*_login.lua`), encrypted with a device-local key. That protects against casual browsing, not full device access.
 
 ---
