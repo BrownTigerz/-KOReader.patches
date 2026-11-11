@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.8.1
+Version: 2.9.2
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -32,6 +32,9 @@ Version: 2.8.1
                      BookOrbit everything is stock.
   Fine Tuning        Full Screen, Bottom Space, Move Tab Row, Swipe Between
                      Tabs (off by default).
+  Change Style Each  Reading Log's style follows the month (a list to start
+  Month              from, each month changeable; missing styles download
+                     with Wi-Fi on). Off by default.
   Book Tap Opens     Compact Detail (the Side Panel's window, default with
                      Side Panel 1.0.26+) | BookOrbit | Reading Log's Own,
                      for every book cover. Continue always opens the book.
@@ -68,6 +71,51 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.9.2  2026-11-11  New, on by default: Keep My Card Looks (Styles menu): a
+                     look picked by hand in a card's own settings (Year in
+                     covers: Plain, the rings' shape...) stays when the style
+                     changes; the style changes the rest. Forget My Card
+                     Looks lets the styles decide again. Keep My Colours and
+                     Keep My Card Looks work together in one style change.
+  2.9.1  2026-11-11  Book Club Picks on Both: the picks chooser lists only the
+                     books in the club's BookOrbit collections (ticked in Book
+                     Club Collections, or the card's own Collection), on this
+                     device or not, instead of your whole BookOrbit library;
+                     with no BookOrbit collection, none. Their lists are saved
+                     here and refreshed in the background with Wi-Fi already
+                     on (when the collections change, or every 6 hours), so
+                     a BookOrbit collection's books on this device count on
+                     the card even before its Side Panel view was opened. A
+                     downloaded pick from those collections isn't put into a
+                     KOReader collection; with several collections ticked, it
+                     goes into the first KOReader one, never a made-up one.
+                     New, on by default: Keep My Colours (Styles menu): a
+                     style change changes only how the cards look; your
+                     colour theme and accents stay. Dark Academia's Pocket
+                     watch rings are drawn as the Brass dial for now: the
+                     Pocket watch crashed KOReader now and then while being
+                     drawn (your setting stays Pocket watch). The Smart
+                     cards no longer draw their unused page dots a few
+                     pixels past the card's edge. Change Style Each Month
+                     moved into the new Styles menu.
+  2.9.0  2026-11-11  Move Tab Row on Reading Log 1.5: the moved tab row now
+                     has what 1.5 added to it: a downloaded style's own tab
+                     bar (Gothic, Christmas, Forest, Ocean, Space, Honey,
+                     Winter), the plate behind the tabs over a wallpaper, the
+                     full-screen Dashboard's close button at the row's end,
+                     and the Yearly page's year switcher. New, off by
+                     default: Change Style Each Month. A style for each
+                     month (a ready-made list: January Winter, February Cute,
+                     March Forest, April-May Honey, June-July Ocean, August
+                     Space, September Forest, October Gothic, November Dark
+                     Academia, December Christmas; every month can be changed
+                     or set to Keep Current), put on with Reading Log's own
+                     style switch on the first Dashboard draw of a new month
+                     (no timers). Styles not on the device yet are downloaded
+                     in the background with Reading Log's own style
+                     downloads, only the ones the months use, only with
+                     Wi-Fi already on, at most once a day; that month waits
+                     for its style. The last few loops named _ are renamed.
   2.8.1  2026-11-07  SimpleUI 3.0.3: the critter's bubble counts the pixel
                       style's new shadow when it sizes the text, and the
                       critter gets SimpleUI's ground shadow like the home
@@ -96,9 +144,9 @@ Changelog:
                      BookOrbit menu: Stock, BookOrbit or Both for Random
                      pick, Collecting Dust, Book Club picks and Discover, or
                      Use BookOrbit In Every Card; without BookOrbit every
-                     card is stock. Book Club picks can be BookOrbit books
-                     (compact window: download, read, remove; downloaded,
-                     it joins the book club collection). Clean Up Cache:
+                     card is stock. Book Club picks can be books from the
+                     club's BookOrbit collections (compact window: download,
+                     read, remove; downloaded, it's that book). Clean Up Cache:
                      old covers (the newest of each book kept, at most 600),
                      half-finished cover downloads, deleted Side Panel
                      downloads and unused old settings.
@@ -301,7 +349,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.8.1"
+local PATCH_VERSION = "2.9.2"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -359,7 +407,7 @@ local function critterNews()
     local okD, Device = pcall(require, "device")
     local function isA(w, class)
         local mt = getmetatable(w)
-        for _ = 1, 8 do
+        for _loop = 1, 8 do
             if mt == nil then return false end
             if mt == class then return true end
             mt = getmetatable(mt)
@@ -1851,7 +1899,7 @@ local function critterKit(...)
         if k and k.Deck and type(k.Deck.pick) == "function" then
             -- the whole pool goes to the deck, so its cycle stays whole; the
             -- one on show now is dealt past once
-            for _ = 1, 2 do
+            for _loop = 1, 2 do
                 local ok, id = pcall(k.Deck.pick, DECK_KEY .. kind, ids)
                 if not ok or not id then break end
                 if id ~= skip or #ids == 1 then return id end
@@ -3726,7 +3774,7 @@ local function apply(A)
                         w / 2, ch / 2, { anchor = "c", valign = "mid", max_w = w - 20 })
                 end
                 c:region(name .. "|", 0, 0, w, ch)
-                if n > 1 then
+                if n > 1 and dots_h > 0 then -- (2.9.1: no room for dots, none drawn past the card's edge)
                     local page_bg, page_fg = A.dashPage()
                     local r = max(3, floor(dots_h * 0.24))
                     local step = r * 5
@@ -4348,10 +4396,23 @@ local function apply(A)
                 local id = boCollId(name)
                 if id ~= nil then
                     local ok, books = pcall(boShare().books, id)
-                    local out = {}
+                    local out, seen = {}, {}
                     if ok and type(books) == "table" then
                         for _loop, b in ipairs(books) do
-                            if type(b.path) == "string" then out[#out + 1] = b.path end
+                            if type(b.path) == "string" and not seen[b.path] then
+                                seen[b.path] = true; out[#out + 1] = b.path
+                            end
+                        end
+                    end
+                    -- 2.9.1: and the Book Club's own saved list of it (on this
+                    -- device only), for when its Side Panel view wasn't opened
+                    local extra = A.state.rlt_bo_club_paths
+                    if type(extra) == "function" then
+                        local okE, paths = pcall(extra, id)
+                        if okE and type(paths) == "table" then
+                            for _loop, p in ipairs(paths) do
+                                if not seen[p] then seen[p] = true; out[#out + 1] = p end
+                            end
                         end
                     end
                     return out
@@ -4705,6 +4766,11 @@ local function apply(A)
         local dc = A.get("rlt_bo_discover", nil)
         for _loop, b in ipairs(type(dc) == "table" and type(dc.books) == "table" and dc.books or {}) do
             if tonumber(b.id) == id then return b end
+        end
+        local club = A.state.rlt_bo_club_entry -- 2.9.1: the club's collections
+        if type(club) == "function" then
+            local ok, b = pcall(club, id)
+            if ok and type(b) == "table" then return b end
         end
         return nil
     end
@@ -5141,8 +5207,8 @@ local function apply(A)
         end
         -- a thin grey film on top, settled dust over it
         c:rect(x, y, w, max(2, floor(band * 0.45)), light)
-        for _ = 1, max(6, floor(w / 2.5)) do speck(y, band, max(1.5, w / 45), 0.45) end
-        for _ = 1, max(8, floor(w * h / 420)) do speck(y + band, h - band, max(1, w / 60), 0.35) end
+        for _loop = 1, max(6, floor(w / 2.5)) do speck(y, band, max(1.5, w / 45), 0.45) end
+        for _loop = 1, max(8, floor(w * h / 420)) do speck(y + band, h - band, max(1, w / 60), 0.35) end
     end
 
     -- A titled row of covers; `list` from `start`, wrapping. Returns the
@@ -5386,11 +5452,131 @@ local function apply(A)
     -- ════════════════════════════════════════════════════════════════════════
     -- Book Club picks from BookOrbit (2.8.0)
     -- ════════════════════════════════════════════════════════════════════════
-    -- With BookOrbit, the month's picks chooser lists BookOrbit's books after
-    -- the collection's ("BookOrbit · title"). A BookOrbit pick shows its cover
-    -- and opens the compact window (Download, Read, Remove From Device);
-    -- downloaded, it's added to the book club collection too, and from then
-    -- on it's that book.
+    -- With BookOrbit, the month's picks chooser lists the books of the
+    -- BookOrbit collections the club uses (Book Club Collections, or the
+    -- card's own Collection) after the collection's books, on this device or
+    -- not ("BookOrbit · title"). 2.9.1: only those collections' books, not the
+    -- whole BookOrbit library; with no BookOrbit collection, none. A BookOrbit
+    -- pick shows its cover and opens the compact window (Download, Read,
+    -- Remove From Device); downloaded, it's that book from then on (and goes
+    -- into the club's KOReader collection when it uses one).
+
+    -- The club's BookOrbit collections, as ids (2.9.1)
+    local function clubBoIds(env)
+        local names = clubColls()
+        if #names == 0 and env then
+            local okC, n = pcall(P.bookclub.collection, env)
+            if okC and type(n) == "string" and n ~= CLUB_MULTI then names = { n } end
+        end
+        local ids = {}
+        for _loop, n in ipairs(names) do
+            local id = boCollId(n)
+            if id ~= nil then ids[#ids + 1] = tostring(id) end
+        end
+        table.sort(ids)
+        return ids
+    end
+    -- Their books, saved here so nothing waits on the server: refreshed in
+    -- the background with Wi-Fi already on, when the collections change or
+    -- the list is 6 hours old (a failed try waits 30 minutes)
+    local function clubBoCache()
+        local c = A.get("rlt_bo_club", nil)
+        return type(c) == "table" and type(c.colls) == "table" and c or nil
+    end
+    local club_busy, club_try, club_try_sig = false, 0, nil
+    local function refreshClubBo(ids)
+        if club_busy or #ids == 0 then return end
+        local sig = table.concat(ids, ",")
+        local c = clubBoCache()
+        if c and c.sig == sig and os.time() - (tonumber(c.at) or 0) < 6 * 3600 then return end
+        if club_try_sig == sig and os.time() - club_try < 1800 then return end
+        local okN, NM = pcall(require, "ui/network/manager")
+        if not (okN and type(NM) == "table" and NM:isConnected()) then return end
+        local client = boClient()
+        if not client then return end
+        club_busy, club_try, club_try_sig = true, os.time(), sig
+        require("ui/trapper"):wrap(function()
+            local ok_run, completed, result = pcall(client.runInSubprocess, client, function()
+                local colls = {}
+                for _loop, id in ipairs(ids) do
+                    local out, got = {}, false
+                    for page = 1, 3 do
+                        local body = client:catalogBooks({ collectionId = tonumber(id) or id, page = page, size = 100 })
+                        local items = type(body) == "table" and (body.items or body.books) or nil
+                        if type(items) ~= "table" then break end
+                        got = true
+                        for _loop2, b in ipairs(items) do
+                            if type(b) == "table" and b.id then
+                                local cv = tostring(b.updatedAt or ""):gsub("%D", "")
+                                if #cv > 32 then cv = cv:sub(1, 16) .. cv:sub(-16) end
+                                out[#out + 1] = { id = b.id, title = b.title, authors = b.authors,
+                                    cv = cv ~= "" and cv or "0" }
+                            end
+                        end
+                        if #items < 100 then break end
+                    end
+                    if not got then return nil end -- all or nothing
+                    colls[id] = out
+                end
+                return colls
+            end)
+            club_busy = false
+            local colls = ok_run and completed and type(result) == "table" and result.body or nil
+            if type(colls) == "table" then
+                A.set("rlt_bo_club", { at = os.time(), sig = sig, colls = colls })
+                pcall(D.invalidate)
+                redrawAll()
+            end
+        end)
+    end
+    -- one collection's saved books: the Side Panel's list and the Book
+    -- Club's own, by BookOrbit id
+    local function clubBoBooks(ids)
+        local out, seen = {}, {}
+        local function add(b)
+            local id = type(b) == "table" and tonumber(b.id)
+            if id and not seen[id] then seen[id] = true; out[#out + 1] = b end
+        end
+        local c = clubBoCache()
+        local share = boShare()
+        for _loop, id in ipairs(ids) do
+            for _loop2, b in ipairs(c and type(c.colls[id]) == "table" and c.colls[id] or {}) do add(b) end
+            if share then
+                local okB, list = pcall(share.books, tonumber(id) or id)
+                if okB and type(list) == "table" then
+                    for _loop2, b in ipairs(list) do
+                        if type(b) == "table" then
+                            add({ id = b.id, title = b.title, authors = b.authors, cv = b.cv })
+                        end
+                    end
+                end
+            end
+        end
+        return out
+    end
+    -- for the collection reader above: the saved books on this device
+    A.state.rlt_bo_club_paths = function(id)
+        local c = clubBoCache()
+        local list = c and c.colls[tostring(id)]
+        if type(list) ~= "table" then return {} end
+        local here, out = boLocalMap(), {}
+        local lfs = require("libs/libkoreader-lfs")
+        for _loop, b in ipairs(list) do
+            local p = tonumber(b.id) and here[tonumber(b.id)]
+            if type(p) == "string" and lfs.attributes(p, "mode") == "file" then out[#out + 1] = p end
+        end
+        return out
+    end
+    A.state.rlt_bo_club_entry = function(id)
+        local c = clubBoCache()
+        for _loop, list in pairs(c and c.colls or {}) do
+            for _loop2, b in ipairs(type(list) == "table" and list or {}) do
+                if tonumber(b.id) == id then return b end
+            end
+        end
+        return nil
+    end
+
     if type(P.bookclub) == "table" and type(P.bookclub.state) == "function" and not P.bookclub._rlt_bo then
         P.bookclub._rlt_bo = true
         local orig_state = P.bookclub.state
@@ -5423,7 +5609,7 @@ local function apply(A)
                                     finished = status == "finished"
                                 end
                             end
-                            picks[#picks + 1] = { fp = fp, title = e.title or "", author = joinAuthors(e.authors),
+                            picks[#picks + 1] = { fp = fp, title = e.title or "", author = type(e.authors) == "table" and joinAuthors(e.authors) or tostring(e.authors or ""),
                                 pct = finished and 1 or pct, finished = finished, started = pct > 0 and not finished }
                         end
                     elseif in_coll[fp] then
@@ -5432,19 +5618,20 @@ local function apply(A)
                 end
                 if any_bo and #picks > 0 then st.picks, st.auto = picks, false end
             end
-            -- for the chooser: BookOrbit's books not already in the collection
-            refreshBoLib()
-            local lib = boLib()
-            if lib then
-                local have = {}
-                for _loop, b in ipairs(st.books) do have[tostring(b.title or ""):lower()] = true end
-                for _loop, b in ipairs(lib.books) do
-                    local id = tonumber(b.id)
-                    local p = id and here[id]
-                    if id and not (p and in_coll[p]) and not have[tostring(b.title or ""):lower()] then
-                        st.books[#st.books + 1] = { fp = "bookorbit:" .. id, title = "BookOrbit \xC2\xB7 " .. (b.title or ""),
-                            author = joinAuthors(b.authors), pct = 0, finished = false, started = false }
-                    end
+            -- for the chooser: the club's BookOrbit collections' books not
+            -- already listed (2.9.1: not the whole library)
+            local ids = clubBoIds(env)
+            refreshClubBo(ids)
+            local have = {}
+            for _loop, b in ipairs(st.books) do have[tostring(b.title or ""):lower()] = true end
+            for _loop, b in ipairs(clubBoBooks(ids)) do
+                local id = tonumber(b.id)
+                local p = id and here[id]
+                if id and not (p and in_coll[p]) and not have[tostring(b.title or ""):lower()] then
+                    have[tostring(b.title or ""):lower()] = true
+                    local authors = type(b.authors) == "table" and joinAuthors(b.authors) or tostring(b.authors or "")
+                    st.books[#st.books + 1] = { fp = "bookorbit:" .. id, title = "BookOrbit \xC2\xB7 " .. (b.title or ""),
+                        author = authors, pct = 0, finished = false, started = false }
                 end
             end
             return st
@@ -5459,9 +5646,23 @@ local function apply(A)
                 if boPseudo(fp) == id then want = true end
             end
             if not want then return end
+            -- 2.9.1: a book from the club's BookOrbit collections shows
+            -- through them; otherwise it goes into the club's first
+            -- KOReader collection (never a BookOrbit one, or the joined list)
+            for _loop, b in ipairs(clubBoBooks(clubBoIds(club_env))) do
+                if tonumber(b.id) == id then pcall(D.invalidate); return end
+            end
             local coll = P.bookclub.collection(club_env)
+            if coll == CLUB_MULTI then
+                coll = nil
+                for _loop, n in ipairs(clubColls()) do
+                    if n:sub(1, #BO_PREFIX) ~= BO_PREFIX then coll = n; break end
+                end
+            elseif type(coll) == "string" and coll:sub(1, #BO_PREFIX) == BO_PREFIX then
+                coll = nil
+            end
             local path = boLocal(id)
-            if not (coll and path) then return end
+            if not (coll and path) then pcall(D.invalidate); return end
             local okR, RC = pcall(require, "readcollection")
             if not (okR and type(RC) == "table" and type(RC.addItem) == "function") then return end
             if type(RC.isFileInCollection) == "function" then
@@ -5699,12 +5900,273 @@ local function apply(A)
         end,
     })
 
+    -- ─── Change Style Each Month (2.9.0, off by default) ─────────────────────
+    -- A style for each month (Reading Log's own Styles: Default, Cute, Cyber,
+    -- Dark Academia, or a downloaded one), switched with Reading Log's own
+    -- A.setStyle on the first Dashboard draw of a new month: no timers. A
+    -- month on Keep Current leaves whatever style is on. A downloaded style
+    -- that isn't on the device yet is fetched in the background with Reading
+    -- Log's own A.packs, only when Wi-Fi is already on (never turns it on), at
+    -- most once a day, and the month waits for it.
+    local MONTH_NAMES = { "January", "February", "March", "April", "May", "June", "July",
+        "August", "September", "October", "November", "December" }
+    local MONTH_DEFAULTS = { "pack:winter", "cute", "pack:forest", "pack:honey", "pack:honey", "pack:ocean",
+        "pack:ocean", "pack:space", "pack:forest", "pack:gothic", "academia", "pack:christmas" }
+    -- the downloadable styles (reading-log-styles), for the month lists before
+    -- any is on the device
+    local PACK_NAMES = { christmas = "Christmas", gothic = "Gothic", forest = "Forest", ocean = "Ocean",
+        space = "Space", honey = "Honey", winter = "Winter" }
+    local PACK_ORDER = { "christmas", "forest", "gothic", "honey", "ocean", "space", "winter" }
+    local function monthStyleOn() return A.get("rlt_month_style", false) == true end
+    local function monthStyleOf(m)
+        local t = A.get("rlt_month_styles", nil)
+        local v = type(t) == "table" and t[tostring(m)] or nil
+        if v == nil then v = MONTH_DEFAULTS[m] end
+        return v
+    end
+    local function setMonthStyle(m, v)
+        local t = A.get("rlt_month_styles", nil)
+        local copy = {}
+        if type(t) == "table" then for k, x in pairs(t) do copy[k] = x end end
+        copy[tostring(m)] = (v ~= MONTH_DEFAULTS[m]) and v or nil
+        A.set("rlt_month_styles", next(copy) and copy or nil)
+    end
+    local function packIdOf(v) return type(v) == "string" and v:match("^pack:([a-z0-9_]+)$") or nil end
+    local function packInstalled(id)
+        return A.packs and type(A.packs.get) == "function" and A.packs.get(id) ~= nil
+    end
+    local function styleName(v)
+        if v == "keep" then return "Keep Current" end
+        local id = packIdOf(v)
+        if id then
+            local p = A.packs and type(A.packs.get) == "function" and A.packs.get(id)
+            return (p and p.name) or PACK_NAMES[id] or id
+        end
+        return ({ default = "Default", cute = "Cute", cyber = "Cyber", academia = "Dark Academia" })[v] or tostring(v)
+    end
+    local function thisMonth() return os.date("%Y-%m"), tonumber(os.date("%m")) end
+    local function noteQuiet(msg)
+        if require("device").screen_saver_mode then return end
+        local NM = package.loaded["ui/network/manager"]
+        local shown = false
+        if type(NM) == "table" and type(NM.__network_tweaks_note) == "function" then
+            local ok, handled = pcall(NM.__network_tweaks_note, msg, msg, 3)
+            shown = ok and handled
+        end
+        if not shown then pcall(function() require("ui/widget/notification"):notify(msg) end) end
+    end
+    -- this month's style, if it's due and can be put on now. Returns true when
+    -- it changed the style.
+    local function applyMonthStyle(force)
+        if not monthStyleOn() or type(A.setStyle) ~= "function" then return false end
+        local key, m = thisMonth()
+        if not force and A.get("rlt_month_style_done", nil) == key then return false end
+        local v = monthStyleOf(m)
+        if v == "keep" or v == nil then A.set("rlt_month_style_done", key) return false end
+        local id = packIdOf(v)
+        if id and not packInstalled(id) then return false end -- waits for the download
+        local now = type(A.styleNow) == "function" and A.styleNow() or nil
+        A.set("rlt_month_style_done", key)
+        if now == v then return false end
+        local ok, err = pcall(A.setStyle, v)
+        if not ok then warn("Change Style Each Month:", tostring(err)) return false end
+        noteQuiet(T("Reading Log style for ") .. MONTH_NAMES[m] .. ": " .. styleName(v))
+        return true
+    end
+    -- the downloaded styles the months are set to that aren't on the device
+    local function missingPacks()
+        local need, seen = {}, {}
+        for m = 1, 12 do
+            local id = packIdOf(monthStyleOf(m))
+            if id and not seen[id] and not packInstalled(id) then seen[id] = true; need[#need + 1] = id end
+        end
+        return need
+    end
+    local fetching = false
+    local function fetchMonthStyles(manual, after)
+        if fetching or not (A.packs and A.packs.fetchIndex and A.packs.download and A.packs.place) then return end
+        local need = missingPacks()
+        if #need == 0 then
+            if manual then noteQuiet(T("Every month's style is on the device")) end
+            return
+        end
+        local okN, NM = pcall(require, "ui/network/manager")
+        local online = okN and type(NM) == "table" and NM.isConnected and NM:isConnected()
+        if not online then
+            if manual then noteQuiet(T("Turn on Wi-Fi to download the styles")) end
+            return
+        end
+        if not manual then
+            local today = os.date("%Y-%m-%d")
+            if A.get("rlt_month_style_fetch", nil) == today then return end
+            A.set("rlt_month_style_fetch", today)
+        end
+        fetching = true
+        local wanted = {}
+        for _loop, id in ipairs(need) do wanted[id] = true end
+        local function work()
+            local r = A.packs.fetchIndex()
+            if type(r) ~= "table" or r.error then return { error = r and r.error or "?" } end
+            local got = {}
+            for _loop, e in ipairs(r.styles or {}) do
+                if wanted[e.id] and not e.builtin then
+                    local ok, tmp = A.packs.download(e)
+                    got[#got + 1] = { entry = e, tmp = ok and tmp or nil, error = (not ok) and tmp or nil }
+                end
+            end
+            return { got = got }
+        end
+        local function done(r)
+            fetching = false
+            if type(r) ~= "table" then return end
+            if r.error then warn("Change Style Each Month: style list:", tostring(r.error)) return end
+            local placed, failed = 0, 0
+            for _loop, g in ipairs(r.got or {}) do
+                local ok, err = false, g.error
+                if g.tmp then ok, err = A.packs.place(g.entry, g.tmp) end
+                if ok then placed = placed + 1 else
+                    failed = failed + 1
+                    warn("Change Style Each Month: couldn't install", tostring(g.entry.id), tostring(err))
+                end
+            end
+            if placed > 0 then
+                noteQuiet(A.plural(placed, "style", "styles") .. T(" downloaded for Change Style Each Month"))
+            elseif failed > 0 and manual then
+                noteQuiet(T("The styles couldn't be downloaded"))
+            end
+            if applyMonthStyle(false) then redrawAll() end
+            if after then pcall(after) end
+        end
+        local ok_t, Trapper = pcall(require, "ui/trapper")
+        if not (ok_t and Trapper and Trapper.wrap and Trapper.dismissableRunInSubprocess) then
+            local ok, r = pcall(work)
+            done(ok and r or { error = r })
+            return
+        end
+        Trapper:wrap(function()
+            local completed, r = Trapper:dismissableRunInSubprocess(work, true)
+            if completed then done(r) else fetching = false end
+        end)
+    end
+
+    -- Keep My Colours, Keep My Card Looks and the Pocket watch guard: one
+    -- local for the menu (apply() is near Lua's local-variable limit)
+    local styleKeep = {}
+    do
+    -- ─── Keep My Colours (2.9.1, on) ───────────────────────────────────────
+    -- Cyber, Dark Academia and most downloaded styles bring colours of their
+    -- own: Reading Log puts their theme on and clears your accents. With this
+    -- on, a style change (by hand or Change Style Each Month) puts your theme
+    -- and both accents back right after, so only the looks change. Reading
+    -- Log lets a style's colours be swapped like this (it's still the same
+    -- style). Your colours: the ones on before the change, or, when a style's
+    -- own colours were on, the ones Reading Log kept from before that style.
+    local function keepColoursOn() return A.get("rlt_keep_colours", true) ~= false end
+    local function styleThemeId(id)
+        if id == "cyber" or id == "academia" then return true end
+        local th = type(A.THEMES) == "table" and id and A.THEMES[id]
+        return type(th) == "table" and th.pack ~= nil
+    end
+    local function yourColours()
+        local theme, a1, a2 = A.get("theme", nil), A.get("accent", nil), A.get("accent2", nil)
+        if styleThemeId(theme) then
+            local b = A.get("style_before", nil)
+            if type(b) == "table" then return b.theme or nil, b.accent or nil, b.accent2 or nil end
+            return nil, nil, nil
+        end
+        return theme, a1, a2
+    end
+    -- ─── Keep My Card Looks (2.9.2, on) ────────────────────────────────────
+    -- A look you pick by hand in a card's settings (Year in covers: Plain,
+    -- the rings' shape...) is remembered, and put back after every style
+    -- change, so a style (by hand or Change Style Each Month) changes the
+    -- rest but not those. Forget My Card Looks lets the styles decide again.
+    local function keepLooksOn() return A.get("rlt_keep_looks", true) ~= false end
+    local function isLookKey(k)
+        return type(k) == "string" and (k:match("_look$") ~= nil or k == "ring_shape" or k == "challenge_style")
+    end
+    local in_style = false
+    local function myLooks()
+        local t = A.get("rlt_my_looks", nil)
+        return type(t) == "table" and t or {}
+    end
+    if type(A.set) == "function" and not A._rlt_my_looks then
+        A._rlt_my_looks = true
+        local orig_set = A.set
+        A.set = function(k, v, ...)
+            if not in_style and isLookKey(k) and keepLooksOn() then
+                local t = {}
+                for kk, vv in pairs(myLooks()) do t[kk] = vv end
+                if v == nil then t[k] = false else t[k] = v end -- false: the card's own default
+                orig_set("rlt_my_looks", t)
+            end
+            return orig_set(k, v, ...)
+        end
+    end
+
+    if type(A.setStyle) == "function" and not A._rlt_keep_colours then
+        A._rlt_keep_colours = true
+        local orig_set_style = A.setStyle
+        A.setStyle = function(v, ...)
+            local keep_c = keepColoursOn()
+            local theme, a1, a2 = yourColours()
+            in_style = true
+            local res = (function(...) return { n = select("#", ...), ... } end)(pcall(orig_set_style, v, ...))
+            if keep_c then
+                A.set("theme", theme)
+                A.set("accent", a1)
+                A.set("accent2", a2)
+                A.set("style_before", nil) -- nothing of a style's left to put back later
+            end
+            if keepLooksOn() then
+                for k, lv in pairs(myLooks()) do
+                    if isLookKey(k) then A.set(k, lv ~= false and lv or nil) end
+                end
+            end
+            in_style = false
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2, res.n)
+        end
+    end
+
+    -- ─── Pocket watch drawn as Brass dial (2.9.1) ──────────────────────────
+    -- Dark Academia's Pocket watch rings (Activity, Week and Month rings)
+    -- crashed KOReader now and then while being drawn (a segfault in the
+    -- middle of painting the watch, never with Brass dial). Until Reading Log
+    -- fixes it, a Pocket watch is drawn as the Brass dial. Your setting stays
+    -- Pocket watch, so it comes back by itself once this is taken out.
+    if type(A.academia) == "function" and not A._rlt_no_watch then
+        A._rlt_no_watch = true
+        local orig_ac = A.academia
+        A.academia = function(...)
+            local AC = orig_ac(...)
+            if type(AC) == "table" and not AC._rlt_no_watch and type(AC.dial) == "function"
+                    and type(AC.watchRing) == "function" then
+                AC._rlt_no_watch = true
+                AC.watchRing = function(c, cx, cy, R, t, frac, track, fill, tone)
+                    return AC.dial(c, cx, cy, R, t, frac, track, fill, tone)
+                end
+            end
+            return AC
+        end
+    end
+    styleKeep.coloursOn, styleKeep.looksOn, styleKeep.myLooks = keepColoursOn, keepLooksOn, myLooks
+    end
+
     -- ─── the Dashboard: its ctx while drawing, critter taps ─────────────────
     local Dash = A.Dashboard
     local orig_render, orig_tap = Dash.render, Dash.on_tap
     if type(orig_render) == "function" then
         Dash.render = function(ctx)
             want_rebuild = false   -- being rebuilt now: nothing waiting
+            -- Change Style Each Month: a new month's style goes on before this
+            -- draw, so the Dashboard comes up in it (the rest of the home page
+            -- follows on the next tick)
+            if monthStyleOn() then
+                local okm, changed = pcall(applyMonthStyle, false)
+                if okm and changed then UIManager:nextTick(redrawAll) end
+                if #missingPacks() > 0 then UIManager:nextTick(function() pcall(fetchMonthStyles, false) end) end
+            end
             CUR_CTX = ctx
             local ok, c = pcall(function()
                 if tabsMoved and tabsMoved() and renderLayout then
@@ -5840,12 +6302,13 @@ local function apply(A)
     end
 
     local function buildDashboardLayout(ctx, w, h)
-        local page_bg, page_fg, dark, _, page_look = A.dashPage()
+        local page_bg, page_fg, dark, _, page_look = A.dashPage(ctx and ctx.close_button)
         -- A theme with its own page colour: paint it, out to the edges of the
         -- cell. Over a Simple UI wallpaper with this module's Background Opacity
         -- below Solid, leave the page unpainted so the wallpaper shows between
         -- the cards (the cards and the tab bar stay solid, to stay readable).
-        local see = ctx and H.seeThrough(ctx.pfx, ctx.mod_id) or false
+        -- (full screen there's no wallpaper behind: always paint the page)
+        local see = ctx and not ctx.close_button and H.seeThrough(ctx.pfx, ctx.mod_id) or false
         local c = A.canvas{ w = w, h = h, plain = true, bleed = page_look ~= nil and not see,
             fill = (page_look and not see) and page_bg or nil }
         local th = A.theme()
@@ -5867,14 +6330,21 @@ local function apply(A)
         local grow = min(max(0, _tab_grow or 0), floor(h * 0.3))
         local h_lay = h - grow
 
-        -- tab bar
+        -- tab bar (and, on Reading Log 1.5's full-screen dashboard, a close
+        -- button at its end)
         local body_h = h_lay
         local head_from = h_lay -- what the heading's size comes from (not the tab bar's position)
-        if #tabs > 1 then
+        local closeb = ctx and ctx.close_button
+        if #tabs > 1 or closeb then
+            -- over a wallpaper the tabs sit on a plate: the style's colours
+            -- (Reading Log 1.5's A.plateColours)
+            local page_bg, page_fg, dark = page_bg, page_fg, dark
+            if see and type(A.plateColours) == "function" then page_bg, page_fg, dark = A.plateColours() end
             local bar_h = A.clamp(floor(h_lay * 0.056 + 0.5), 40, 110)
-            local bar_w = min(w, max(floor(w * 0.72), #tabs * floor(bar_h * 2.3)))
+            local x_w = closeb and (bar_h + gap) or 0
+            local bar_w = min(w - x_w, max(floor(w * 0.72), #tabs * floor(bar_h * 2.3)))
             local base_by = oy + h_lay - bar_h
-            local bx, by = ox + floor((w - bar_w) / 2), base_by
+            local bx, by = ox + floor((w - x_w - bar_w) / 2), base_by
             -- Move Tab Row. Down (+): the row drops, first into the margin and
             -- (Full Screen) the room under the dashboard, then the cards get
             -- shorter, so the space between the cards and the row grows by
@@ -5892,9 +6362,26 @@ local function apply(A)
             local CYT = A.cutTheme()
             -- the Dark Academia theme: the tab names alone, the open one underlined in brass
             local ACT = not CYT and A.academiaTheme()
+            if closeb then
+                -- a round button with an X, the tab bar's height (on the moved row)
+                local cx0 = ox + w - bar_h
+                local ring = A.mix(page_fg, page_bg, 0.15)
+                c:frame(cx0, by, bar_h, bar_h, CYT and 0 or bar_h / 2, bw_, ring, page_bg, see and A.BEHIND or page_bg)
+                local k = floor(bar_h * 0.2)
+                local lw = max(2, floor(bar_h * 0.07 + 0.5))
+                c:polyline({ cx0 + k * 1.5, by + k * 1.5, cx0 + bar_h - k * 1.5, by + bar_h - k * 1.5 }, lw, ring, page_bg)
+                c:polyline({ cx0 + bar_h - k * 1.5, by + k * 1.5, cx0 + k * 1.5, by + bar_h - k * 1.5 }, lw, ring, page_bg)
+                c:region("close", cx0, by, bar_h, bar_h)
+            end
+            -- a downloaded style can draw the tab bar its own way (Reading Log 1.5)
+            local styled = #tabs > 0 and type(A.packTabs) == "function" and A.packTabs(c, ox, by, w - x_w, bar_h, tabs, page_i,
+                max(10, floor(bar_h * 0.36 * ts + 0.5)),
+                { bg = page_bg, fg = page_fg, dark = dark, accent = A.shown(dark and th.gold or th.wine),
+                  accent2 = A.shown(dark and (th.gold2 or th.gold) or (th.wine2 or th.wine)), plate = see })
+            if not styled then
             if CYT or ACT then
                 -- the Cyber theme: a row of square tabs, the open one filled
-                bar_w, bx = w, ox
+                bar_w, bx = w - x_w, ox
             else
                 c:frame(bx, by, bar_w, bar_h, bar_h / 2, bw_, page_fg, page_bg, see and A.BEHIND or page_bg)
             end
@@ -5906,7 +6393,7 @@ local function apply(A)
             if CYT then size = max(10, floor(size * 0.86)) end
             -- longer tab names (another language, a name of your own) get a
             -- smaller size that fits, instead of being cut short
-            for _ = 1, 6 do
+            for _loop = 1, 6 do
                 local widest = 0
                 for _loop, tab in ipairs(tabs) do
                     widest = max(widest, c:text(tab.label, size, { bold = true, caps = caps }).w)
@@ -5945,6 +6432,7 @@ local function apply(A)
                 end
                 c:put(t_tab, cx, by + bar_h / 2, "c", "mid")
                 c:region("tab:" .. i, cx - cell / 2, by, cell, bar_h)
+            end
             end
             head_from = h_lay - bar_h - gap
             if move > 0 then
@@ -5989,7 +6477,15 @@ local function apply(A)
             local refresh = ctx.refresh
             local st = D.stats(refresh)
             local dot = "  \xE2\x80\xA2  "
-            if page.kicker == "year" then
+            A.state.nav_for = page.kicker
+            if page.kicker == "year" and type(A.viewYear) == "function" and type(D.yearOf) == "function" then
+                -- "2026 · 29 books", and (Reading Log 1.5) the switcher that
+                -- steps back through the years gone by
+                local vy, current = A.viewYear()
+                local yr = D.yearOf(refresh, vy)
+                kicker = tostring(vy) .. (yr and (dot .. A.plural(yr.total, "book", "books")) or "")
+                nav = { prev = (tonumber(A.state.year_offset) or 0) > -(D.BACK_YEARS or 0), next = not current, today = not current }
+            elseif page.kicker == "year" then
                 -- "2026 · 29 books"
                 local yr = D.year(refresh)
                 kicker = os.date("%Y") .. (yr and (dot .. A.plural(yr.total, "book", "books")) or "")
@@ -6054,6 +6550,7 @@ local function apply(A)
         if ctx.screen and not _seen_screens[ctx.screen] then
             _seen_screens[ctx.screen] = true
             A.state.month_offset = 0
+            A.state.year_offset = 0
         end
         local c = buildDashboardLayout(ctx, w, h)
         A.state.regions_ok = true
@@ -6506,6 +7003,92 @@ local function apply(A)
         -- 7 Book Tap Opens, 8 Continue Reading: Buttons Only,
         -- 9 Today Page Card, 10 Critter Remarks, 11 About.
         local function plain(it) it.separator = nil; return it end
+        -- Change Style Each Month (2.9.0)
+        local function monthStyleMenu()
+            local items = {
+                {
+                    text = "Change Style Each Month",
+                    help_text = "Reading Log's style changes with the month, on the first Dashboard draw of a new month: no timers. Set a style for each month below (a ready-made list to start from), or Keep Current to leave that month alone. A downloaded style that isn't on the device yet is fetched in the background when Wi-Fi is already on (at most once a day; it never turns Wi-Fi on); that month waits for it. Off by default.",
+                    checked_func = monthStyleOn,
+                    keep_menu_open = true,
+                    callback = function()
+                        A.set("rlt_month_style", (not monthStyleOn()) and true or nil)
+                        if monthStyleOn() then
+                            A.set("rlt_month_style_done", nil)
+                            if applyMonthStyle(false) then redrawAll() end
+                            pcall(fetchMonthStyles, false)
+                        end
+                    end,
+                    separator = true,
+                },
+            }
+            local function options(m)
+                local list = { "keep", "default", "cute", "cyber", "academia" }
+                local seen = {}
+                for _loop, id in ipairs((A.packs and type(A.packs.ids) == "function" and A.packs.ids()) or {}) do
+                    seen[id] = true; list[#list + 1] = "pack:" .. id
+                end
+                for _loop, id in ipairs(PACK_ORDER) do
+                    if not seen[id] then list[#list + 1] = "pack:" .. id end
+                end
+                local sub = {}
+                for i, v in ipairs(list) do
+                    local id = packIdOf(v)
+                    sub[#sub + 1] = {
+                        text_func = function()
+                            return styleName(v) .. ((id and not packInstalled(id)) and " (downloads)" or "")
+                        end,
+                        radio = true, keep_menu_open = true,
+                        checked_func = function() return monthStyleOf(m) == v end,
+                        callback = function()
+                            setMonthStyle(m, v)
+                            if m == tonumber(os.date("%m")) then
+                                A.set("rlt_month_style_done", nil)
+                                if applyMonthStyle(false) then redrawAll() end
+                            end
+                            if id and not packInstalled(id) then pcall(fetchMonthStyles, false) end
+                        end,
+                        separator = (i == 1 or i == 5) or nil,
+                    }
+                end
+                return sub
+            end
+            for m = 1, 12 do
+                items[#items + 1] = {
+                    text_func = function() return MONTH_NAMES[m] .. ": " .. styleName(monthStyleOf(m)) end,
+                    enabled_func = monthStyleOn,
+                    sub_item_table_func = function() return options(m) end,
+                    separator = (m == 12) or nil,
+                }
+            end
+            items[#items + 1] = {
+                text = "Download Styles Now",
+                help_text = "Downloads the styles the months are set to that aren't on the device yet (Wi-Fi on). Only those, not the whole list.",
+                enabled_func = monthStyleOn,
+                keep_menu_open = true,
+                callback = function() pcall(fetchMonthStyles, true) end,
+            }
+            items[#items + 1] = {
+                text = "Put This Month's Style On Now",
+                help_text = "Puts this month's style on again, for instance after you picked another style by hand.",
+                enabled_func = monthStyleOn,
+                keep_menu_open = true,
+                callback = function()
+                    if applyMonthStyle(true) then redrawAll() end
+                end,
+            }
+            items[#items + 1] = {
+                text = "Back To The Ready-Made List",
+                help_text = "Every month back to the suggested style: January Winter, February Cute, March Forest, April-May Honey, June-July Ocean, August Space, September Forest, October Gothic, November Dark Academia, December Christmas.",
+                enabled_func = function() return A.get("rlt_month_styles", nil) ~= nil end,
+                keep_menu_open = true,
+                callback = function(tmi)
+                    A.set("rlt_month_styles", nil)
+                    if tmi and tmi.updateItems then pcall(tmi.updateItems, tmi) end
+                end,
+            }
+            return items
+        end
         local grouped = {
             {
                 text = "Smart Cards On Today And Monthly",
@@ -6633,7 +7216,7 @@ local function apply(A)
                 },
                 srcMenu("pick", "Random Pick", "Stock: books on this device. BookOrbit: books in your BookOrbit library you haven't started, downloaded or not (not when the pick is limited to a collection or genres). Both: either. A BookOrbit book opens the compact window: Download, Read, BookOrbit.", { "stock", "bookorbit", "both" }),
                 srcMenu("dust", "Collecting Dust", "Stock: books on this device you haven't started. BookOrbit: books in your BookOrbit library you haven't started, downloaded or not. Both: in turn, the dustiest of each first.", { "stock", "bookorbit", "both" }),
-                srcMenu("club", "Book Club Picks", "Both: the month's picks chooser lists your BookOrbit books after the collection's. A BookOrbit pick opens the compact window (Download, Read, Remove From Device); downloaded, it's added to the book club collection. Stock: the collection only.", { "stock", "both" }),
+                srcMenu("club", "Book Club Picks", "Both: the month's picks chooser lists the books in the club's BookOrbit collections (ticked in Book Club Collections), on this device or not, after the collection's; with no BookOrbit collection, none. A BookOrbit pick opens the compact window (Download, Read, Remove From Device); downloaded, it's that book (and goes into the club's KOReader collection when it uses one). Stock: the collection only.", { "stock", "both" }),
                 srcMenu("discover", "Discover", "BookOrbit: BookOrbit's Discover (refreshed in the background with Wi-Fi on, at most every 6 hours). Stock: from this device, as set in Books > Discover Without BookOrbit.", { "stock", "bookorbit" }),
             }
             bo_items[#bo_items].separator = true
@@ -6719,7 +7302,7 @@ local function apply(A)
                                 if A.get(k, nil) ~= nil then A.set(k, nil); res.keys = res.keys + 1 end
                             end
                             -- the BookOrbit lists: kept, refreshed next time with Wi-Fi on
-                            for _loop, k in ipairs({ "rlt_bo_lib", "rlt_bo_discover" }) do
+                            for _loop, k in ipairs({ "rlt_bo_lib", "rlt_bo_discover", "rlt_bo_club" }) do
                                 local c = A.get(k, nil)
                                 if type(c) == "table" and c.at then
                                     local copy = {}
@@ -6762,6 +7345,32 @@ local function apply(A)
             grouped[#grouped].separator = true
         end
         grouped[#grouped + 1] = out[10]
+        grouped[#grouped + 1] = { text = "Styles", sub_item_table = {
+            {
+                text = "Keep My Colours",
+                help_text = "A style change (by hand, or Change Style Each Month) changes only how the cards look: your colour theme and accents stay, instead of the style's own colours. On by default. Off: a style with colours of its own brings them, as Reading Log does it.",
+                checked_func = function() return styleKeep.coloursOn() end,
+                keep_menu_open = true,
+                callback = function() A.set("rlt_keep_colours", (not styleKeep.coloursOn()) and true or false) end,
+            },
+            {
+                text = "Keep My Card Looks",
+                help_text = "A look you pick by hand in a card's own settings (Year in covers: Plain, the rings' shape, the Book Club's look...) stays when the style changes, by hand or Change Style Each Month; the style changes the rest. On by default. Off: a style sets every look, as Reading Log does it.",
+                checked_func = function() return styleKeep.looksOn() end,
+                keep_menu_open = true,
+                callback = function() A.set("rlt_keep_looks", (not styleKeep.looksOn()) and true or false) end,
+            },
+            {
+                text = "Forget My Card Looks",
+                help_text = "Lets the styles set every look again (the looks on now stay until the next style change).",
+                enabled_func = function() return next(styleKeep.myLooks()) ~= nil end,
+                keep_menu_open = true,
+                callback = function() A.set("rlt_my_looks", nil) end,
+                separator = true,
+            },
+            { text = "Change Style Each Month", sub_item_table_func = monthStyleMenu,
+              help_text = "Reading Log's style changes with the month (off by default)." },
+        } }
         grouped[#grouped + 1] = plain(out[1])
         grouped[#grouped].separator = true
         grouped[#grouped + 1] = out[11]
