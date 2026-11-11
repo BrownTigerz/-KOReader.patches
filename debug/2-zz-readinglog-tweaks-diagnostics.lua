@@ -1,8 +1,29 @@
 --[[
 2-zz-readinglog-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.0.1
+Version 1.1.4
 
 Changelog:
+  1.1.4 - Lighter: one line before each of the Activity card's drawing
+          steps and no shape or text lines, so it paints at close to normal
+          speed (1.1.3 slowed it so much the crash stopped coming).
+  1.1.3 - The Activity card in Dark Academia, one drawing step at a time:
+          each step with where in Reading Log's code it was asked for, and
+          inside a Dark Academia step each shape and text it paints (text:
+          where, on how big an image, colour ink, whether it was freed).
+          For the Pocket watch crash.
+  1.1.2 - Dark Academia step by step: while it's on, each card's build
+          and each card's paint is logged as it starts and ends ("A:"
+          lines). After a crash, the last start with no end names the card.
+  1.1.1 - Colours: each style change logs your theme and both accents
+          before and after, and a theme or accent changed any other way is
+          logged with what changed it. The window snapshot shows them too.
+  1.1.0 - Crash hunt: logs drawing that reaches past its canvas, each big
+          canvas (the Dashboard) painted onto the screen image (and when
+          it's done), pixels Reading Log caught past the edge, where a
+          downloaded style draws the tab bar, and every style change. Lines
+          are written straight away, so the last ones before a crash stay.
+          The window snapshot adds the style, Move Tab Row and Change Style
+          Each Month.
   1.0.1 - Logs each card's source (Stock / BookOrbit / Both), Switch Cards
           By and the paired cards (Reading Log Tweaks 2.8.0).
   1.0.0 - First version.
@@ -36,6 +57,15 @@ It changes nothing in the patch or Reading Log. It records:
   • Shared perf core: Reading Log Tweaks timers that hold the screen 80 ms+,
     flashes it asks for, its warnings and errors, timers left waiting when
     the device sleeps (should be none), and a once-a-minute perf line.
+  • Crash hunt (1.1.0): drawing that reaches past its canvas ("outside"),
+    each Dashboard painted onto the screen image ("paint" ... "paint end";
+    a "paint" with no "end" is where KOReader died), pixels Reading Log
+    caught past the edge ("clipped"), where a downloaded style draws the
+    tab bar, and every style change.
+  • Dark Academia step by step (1.1.2): while it's on, "A:" lines for each
+    card's build and paint, start and end.
+  • Colours (1.1.1): your theme and accents before and after each style
+    change, and any other change to them with what made it.
   • A summary with hints when the window closes.
 
 Battery safety (in case you forget to delete it):
@@ -69,7 +99,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.0.1"
+local DIAG_VERSION = "1.1.4"
 local DIAG_TAG = "readinglog-tweaks"   -- = the filename stem (Debugging Menu)
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/" .. DIAG_TAG .. "-diagnostics.state"
@@ -219,6 +249,83 @@ local stats = {
 }
 local A_ref -- Reading Log's kit, once found
 
+-- crash hunt (1.1.0): its counters and helpers (see "Crash hunt" below)
+local HUNT_MAX = 60          -- "outside" lines per window (then only counted)
+local PAINT_LOG_MAX = 300    -- "paint" lines per window
+local BIG_PX = 150000        -- a canvas this big is a page, not a small card
+local hunt = { outside = 0, outside_logged = 0, paints = 0, clipped = 0, paint_clipped = 0, seen = {} }
+
+local function caller(skip)
+    for lvl = skip or 3, 14 do
+        local info = debug.getinfo(lvl, "Sl")
+        if not info then break end
+        local src = tostring(info.short_src or info.source or "?")
+        if not src:find("init%.lua$") and not src:find("diagnostics%.lua$") then
+            return (src:match("[^/]+/[^/]+$") or src) .. ":" .. tostring(info.currentline or "?")
+        end
+    end
+    return "?"
+end
+
+local function styleName(A)
+    local okS, s = pcall(function() return A.styleNow and A.styleNow() end)
+    local okP, pack = pcall(function() return A.get("style_pack", nil) end)
+    pack = okP and pack or nil
+    return tostring(okS and s or "?") .. (pack and (" (pack " .. tostring(pack) .. ")") or "")
+end
+
+-- 1.1.2: Dark Academia on (the style the crashes follow); the step-by-step
+-- lines below are written only then
+local function academiaOn(A)
+    if type(A) ~= "table" then return false end
+    local ok, on = pcall(function()
+        if type(A.academiaTheme) == "function" and A.academiaTheme() then return true end
+        return type(A.styleNow) == "function" and A.styleNow() == "academia"
+    end)
+    return ok and on and true or false
+end
+local SMALL_PX = 20000 -- an unnamed canvas smaller than this isn't logged step by step
+-- 1.1.3: the card the crashes die in, painted one drawing step at a time
+-- (each step: where in Reading Log's code it was asked for), and inside a
+-- Dark Academia step each shape and text it paints
+local STEP_CARDS = { activity = true }
+local SUB_STEPS = false  -- 1.1.3's shape-by-shape lines (off in 1.1.4: they hid the crash)
+local acad_now = false            -- Dark Academia on at the last card build
+local function Blitbuffer_isColour(c)
+    local ok, BB = pcall(require, "ffi/blitbuffer")
+    if not (ok and type(BB) == "table" and type(BB.isColor8) == "function") then return "?" end
+    local ok2, grey = pcall(BB.isColor8, c)
+    return ok2 and not grey or "?"
+end
+local opsrc = setmetatable({}, { __mode = "k" })   -- step -> code that asked for it
+local in_ac_step = false          -- painting a step from academia.lua now
+local sub_n = 0
+
+-- your colours (1.1.1): the theme and both accents as saved, and the theme
+-- in use ("(default)" = nothing saved, Reading Log's default)
+local function colourVal(v)
+    if v == nil or v == false then return "(default)" end
+    if type(v) == "table" then
+        local parts = {}
+        for i = 1, math.min(4, #v) do parts[#parts + 1] = tostring(v[i]) end
+        if #parts > 0 then return "{" .. table.concat(parts, ",") .. "}" end
+        return tostring(v.id or v.name or "table")
+    end
+    return tostring(v)
+end
+local function colours(A)
+    local function g(k)
+        local ok, v = pcall(function() return A.get(k, nil) end)
+        return ok and v or nil
+    end
+    local okT, tid = pcall(function() return A.themeId and A.themeId() end)
+    return string.format("theme %s (in use %s), accent %s, accent2 %s", colourVal(g("theme")),
+        tostring(okT and tid or "?"), colourVal(g("accent")), colourVal(g("accent2")))
+end
+local in_style = false
+
+
+
 local function avg(b) return b.n > 0 and f1(b.us / b.n) or "0.0" end
 
 -- The biggest entries of a name -> bucket table, by total time.
@@ -236,6 +343,8 @@ end
 
 local function summary(why)
     log("---- summary (%s) ----", why)
+    log("crash hunt: %d drawing steps past their canvas (%d logged), %d Dashboard paints, %d pixels clipped",
+        hunt.outside, hunt.outside_logged, hunt.paints, hunt.clipped)
     local cards, card_list = top(stats.cards, 12)
     log("cards drawn (by total time): %s", #cards > 0 and table.concat(cards, " | ") or "none")
     log("pages drawn: %d, avg %s ms, slowest %s ms (up to %d cards)",
@@ -341,6 +450,9 @@ local function snapshot(A)
             q(g("rlt_book_tap", "default")), onOff(g("rlt_enter_side", true) ~= false),
             q(g("rlt_quote_source", "simpleui")), onOff(g("rlt_cover_hold", true) ~= false),
             q(g("rlt_today_card", "default")), q(g("rlt_start_tab", "last")))
+        log("style: %s | Move Tab Row %s | Change Style Each Month %s",
+            styleName(A), q(g("rlt_tabs_move", 0)), onOff(g("rlt_month_style", false) == true))
+        log("colours: %s", colours(A))
         local src = A.state and A.state.rlt_src
         if type(src) == "table" and type(src.of) == "function" then
             local bits = {}
@@ -396,10 +508,16 @@ local function wrapCard(name, def)
             local sample = type(env) == "table" and env.sample
             if depth == 0 and page and us(page.last) >= BURST_GAP_MS * 1000 then closePage() end
             local t = now()
+            local acad = academiaOn(A_ref)
+            acad_now = acad
+            if acad then log("A: card %s build start (%sx%s)", name, q(type(env) == "table" and env.w), q(type(env) == "table" and env.h)) end
             depth = depth + 1
             local res = pk(pcall(orig, env, ...))
             depth = depth - 1
             local took = us(t)
+            -- the card's canvas carries its name, for the paint lines
+            if res[1] and type(res[2]) == "table" then pcall(function() res[2]._rltd_name = name end) end
+            if acad then log("A: card %s build end", name) end
             local key = sample and (name .. " (sample)") or name
             stats.cards[key] = stats.cards[key] or bucket()
             add(stats.cards[key], took)
@@ -507,10 +625,301 @@ local function wrapData(D)
     end
 end
 
+-- --------------------------------------------------------------------------
+-- Crash hunt (1.1.0): where drawing goes outside what it's drawn into
+-- --------------------------------------------------------------------------
+-- Reading Log draws each card on a canvas: the drawing steps are written
+-- down first and painted onto the screen image later. A step that reaches
+-- past the canvas, or a canvas painted past the screen image, is what can
+-- write into memory beside it and crash KOReader a moment later (a
+-- segfault, with no Lua error). Each line is written straight to the file,
+-- so the last ones before a crash are kept.
+--   • "outside": a drawing step reaching past its canvas, with the step,
+--     its numbers, the canvas size and the code that asked for it.
+--   • "paint": each big canvas (the Dashboard) painted onto the screen
+--     image: its size and place, the image's size, the style, and "end"
+--     once it's done. A "paint" with no "end" after it is where it died.
+--   • "clipped": pixels Reading Log itself caught going past the edge
+--     (it skips them).
+--   • "tab bar": where a downloaded style is asked to draw the tab bar.
+--   • "style": every style change, and what changed it.
+local function hookCrashHunt(A)
+    if A._rltd_hunt then return end
+    A._rltd_hunt = true
+    -- pixels Reading Log caught past the edge
+    local prev_oob = A._oob
+    A._oob = function(x, y, bw, bh, ...)
+        if window_open then
+            hunt.clipped = hunt.clipped + 1
+            hunt.paint_clipped = hunt.paint_clipped + 1
+            if hunt.clipped <= 10 then
+                log("clipped: pixel at %s,%s on a %sx%s image, from %s", q(x), q(y), q(bw), q(bh), caller(3))
+            end
+        end
+        if type(prev_oob) == "function" then return prev_oob(x, y, bw, bh, ...) end
+    end
+    -- the canvas class, from the first canvas made
+    local function hookCanvas(C)
+        if type(C) ~= "table" or C._rltd_hunt then return end
+        C._rltd_hunt = true
+        local function outside(self, what, x, y, w, h)
+            if not window_open then return end
+            x, y, w, h = tonumber(x), tonumber(y), tonumber(w) or 0, tonumber(h) or 0
+            if not (x and y) then return end
+            local cw, ch = tonumber(self.w) or 0, tonumber(self.h) or 0
+            if x >= -1 and y >= -1 and x + w <= cw + 1 and y + h <= ch + 1 then return end
+            hunt.outside = hunt.outside + 1
+            local from = caller(4)
+            local key = what .. "@" .. from
+            hunt.seen[key] = (hunt.seen[key] or 0) + 1
+            if hunt.seen[key] > 3 or hunt.outside_logged >= HUNT_MAX then return end
+            hunt.outside_logged = hunt.outside_logged + 1
+            log("outside: %s x=%d y=%d w=%d h=%d on a %dx%d canvas, from %s",
+                what, math.floor(x), math.floor(y), math.floor(w), math.floor(h), cw, ch, from)
+        end
+        -- (x, y, w, h, ...) steps
+        for _i, name in ipairs({ "rect", "rrect", "frame" }) do
+            local orig = C[name]
+            if type(orig) == "function" then
+                C[name] = function(self, x, y, w, h, ...)
+                    outside(self, name, x, y, w, h)
+                    return orig(self, x, y, w, h, ...)
+                end
+            end
+        end
+        -- (file, x, y, w, h, ...) steps
+        for _i, name in ipairs({ "image", "cover" }) do
+            local orig = C[name]
+            if type(orig) == "function" then
+                C[name] = function(self, fp, x, y, w, h, ...)
+                    outside(self, name, x, y, w, h)
+                    return orig(self, fp, x, y, w, h, ...)
+                end
+            end
+        end
+        -- (cx, cy, r, ...) steps
+        for _i, name in ipairs({ "disc", "ring" }) do
+            local orig = C[name]
+            if type(orig) == "function" then
+                C[name] = function(self, cx, cy, r, ...)
+                    local rr = tonumber(r) or 0
+                    if tonumber(cx) and tonumber(cy) then outside(self, name, cx - rr, cy - rr, 2 * rr, 2 * rr) end
+                    return orig(self, cx, cy, r, ...)
+                end
+            end
+        end
+        if type(C.tilted) == "function" then
+            local orig = C.tilted
+            C.tilted = function(self, fp, cx, cy, w, h, ...)
+                if tonumber(cx) and tonumber(cy) and tonumber(w) and tonumber(h) then
+                    local d = math.sqrt(w * w + h * h) / 2 -- turned: its corners reach this far
+                    outside(self, "tilted", cx - d, cy - d, 2 * d, 2 * d)
+                end
+                return orig(self, fp, cx, cy, w, h, ...)
+            end
+        end
+        if type(C.polyline) == "function" then
+            local orig = C.polyline
+            C.polyline = function(self, pts, lw, ...)
+                if window_open and type(pts) == "table" and #pts >= 4 then
+                    local minx, miny, maxx, maxy = math.huge, math.huge, -math.huge, -math.huge
+                    for i = 1, #pts - 1, 2 do
+                        local px, py = tonumber(pts[i]), tonumber(pts[i + 1])
+                        if px and py then
+                            if px < minx then minx = px end
+                            if px > maxx then maxx = px end
+                            if py < miny then miny = py end
+                            if py > maxy then maxy = py end
+                        end
+                    end
+                    local r = (tonumber(lw) or 0) / 2
+                    if minx <= maxx then
+                        outside(self, "polyline", minx - r, miny - r, maxx - minx + 2 * r, maxy - miny + 2 * r)
+                    end
+                end
+                return orig(self, pts, lw, ...)
+            end
+        end
+        if type(C.sub) == "function" then
+            local orig = C.sub
+            C.sub = function(self, child, x, y, ...)
+                if type(child) == "table" then outside(self, "card canvas", x, y, child.w, child.h) end
+                return orig(self, child, x, y, ...)
+            end
+        end
+        -- a big canvas (the Dashboard) painted onto the screen image
+        -- 1.1.3: where each drawing step was asked for (Dark Academia only)
+        if type(C.op) == "function" then
+            local orig = C.op
+            C.op = function(self, fn, ...)
+                if acad_now and window_open and type(fn) == "function" then opsrc[fn] = caller(3) end
+                return orig(self, fn, ...)
+            end
+        end
+        -- inside a Dark Academia step: each shape and text, before it's painted
+        local G = A.G
+        if type(G) == "table" then
+            for _i, nm in ipairs({ "ring", "polyline", "disc", "rect", "rrect", "frame" }) do
+                local origG = G[nm]
+                if type(origG) == "function" then
+                    G[nm] = function(bb, a1, a2, a3, ...)
+                        if in_ac_step then
+                            sub_n = sub_n + 1
+                            if nm == "polyline" then
+                                local pts = type(a1) == "table" and a1 or {}
+                                log("A:     %d %s %d points from %s,%s lw %s", sub_n, nm, math.floor(#pts / 2),
+                                    q(pts[1]), q(pts[2]), q(a2))
+                            else
+                                log("A:     %d %s %s,%s,%s", sub_n, nm, q(a1), q(a2), q(a3))
+                            end
+                        end
+                        return origG(bb, a1, a2, a3, ...)
+                    end
+                end
+            end
+        end
+        local okT, TC = pcall(function() return A.host and A.host.textClass and A.host.textClass() end)
+        if okT and type(TC) == "table" and type(TC.paintTo) == "function" and not TC._rltd_hunt then
+            TC._rltd_hunt = true
+            local origP = TC.paintTo
+            TC.paintTo = function(self, bb, x, y, ...)
+                if in_ac_step then
+                    sub_n = sub_n + 1
+                    local okW, bw = pcall(function() return bb:getWidth() end)
+                    local okH, bh = pcall(function() return bb:getHeight() end)
+                    log("A:     %d text '%s' at %s,%s on a %sx%s image, colour ink %s, freed %s", sub_n,
+                        tostring(self.text), q(x), q(y), okW and q(bw) or "?", okH and q(bh) or "?",
+                        q(type(self.fgcolor) ~= "nil" and Blitbuffer_isColour(self.fgcolor)),
+                        q(self._xtext == nil and self._xshaping == nil))
+                end
+                return origP(self, bb, x, y, ...)
+            end
+        end
+        if type(C.paintTo) == "function" then
+            local orig = C.paintTo
+            C.paintTo = function(self, bb, x, y, nested, ...)
+                local cw, ch = tonumber(self.w) or 0, tonumber(self.h) or 0
+                -- 1.1.2: with Dark Academia on, every card's paint, start and
+                -- end (a start with no end is where KOReader died)
+                if window_open and academiaOn(A) and (self._rltd_name or cw * ch >= SMALL_PX) then
+                    local label = self._rltd_name or string.format("canvas %dx%d", cw, ch)
+                    log("A: paint %s start (%dx%d at %s,%s%s, %d steps, Lua %d KB)", label, cw, ch, q(x), q(y),
+                        nested and ", inside another" or "", type(self.ops) == "table" and #self.ops or -1, math.floor(mem()))
+                    local saved
+                    if STEP_CARDS[label] and type(self.ops) == "table" then
+                        saved = self.ops
+                        local stepped, n = {}, #saved
+                        for i, op in ipairs(saved) do
+                            local src = opsrc[op] or "?"
+                            -- 1.1.4: one line before each step and nothing
+                            -- else, so it paints at close to normal speed (the
+                            -- step-by-step detail of 1.1.3 slowed it enough
+                            -- that the crash didn't come). A step's end is the
+                            -- next step's line, or "paint activity end".
+                            stepped[i] = function(...)
+                                log("A:   step %d/%d %s", i, n, src)
+                                if SUB_STEPS then
+                                    local was = in_ac_step
+                                    in_ac_step = src:find("academia", 1, true) ~= nil
+                                    sub_n = 0
+                                    local r = pk(pcall(op, ...))
+                                    in_ac_step = was
+                                    if not r[1] then error(r[2], 0) end
+                                    return unpack(r, 2, r.n)
+                                end
+                                return op(...)
+                            end
+                        end
+                        self.ops = stepped
+                    end
+                    local res = pk(pcall(orig, self, bb, x, y, nested, ...))
+                    if saved then self.ops = saved end
+                    log("A: paint %s end", label)
+                    if not res[1] then error(res[2], 0) end
+                    return unpack(res, 2, res.n)
+                end
+                if not (window_open and not nested and cw * ch >= BIG_PX and type(bb) == "table") then
+                    return orig(self, bb, x, y, nested, ...)
+                end
+                local okW, bw = pcall(function() return bb:getWidth() end)
+                local okH, bh = pcall(function() return bb:getHeight() end)
+                bw, bh = okW and tonumber(bw) or -1, okH and tonumber(bh) or -1
+                local px, py = tonumber(x) or 0, tonumber(y) or 0
+                local past = bw > 0 and (px < 0 or py < 0 or px + cw > bw or py + ch > bh)
+                hunt.paints = hunt.paints + 1
+                hunt.paint_clipped = 0
+                local logit = past or hunt.paints <= PAINT_LOG_MAX
+                if logit then
+                    log("paint%s: %dx%d canvas at %d,%d onto a %dx%d image, %d steps, style %s, Lua %d KB",
+                        past and " PAST THE IMAGE" or "", cw, ch, px, py, bw, bh,
+                        type(self.ops) == "table" and #self.ops or -1, styleName(A), math.floor(mem()))
+                end
+                local t0 = now()
+                local res = pk(orig(self, bb, x, y, nested, ...))
+                if logit then
+                    log("paint end: %s ms%s", f1(us(t0)),
+                        hunt.paint_clipped > 0 and (", " .. hunt.paint_clipped .. " pixels clipped") or "")
+                end
+                return unpack(res, 1, res.n)
+            end
+        end
+        log("crash hunt: watching Reading Log's drawing")
+    end
+    if type(A.canvas) == "function" then
+        local orig = A.canvas
+        A.canvas = function(o, ...)
+            local c = orig(o, ...)
+            if type(c) == "table" and not hunt.canvas_hooked then
+                hunt.canvas_hooked = true
+                local mt = getmetatable(c)
+                if type(mt) == "table" and rawget(mt, "paintTo") == nil and type(mt.__index) == "table" then mt = mt.__index end
+                local ok, err = pcall(hookCanvas, mt)
+                if not ok then log("crash hunt: couldn't watch the canvas: %s", tostring(err)) end
+            end
+            return c
+        end
+    end
+    -- where a downloaded style is asked to draw the tab bar
+    if type(A.packTabs) == "function" then
+        local orig = A.packTabs
+        A.packTabs = function(c, x, y, w, h, ...)
+            local drew = orig(c, x, y, w, h, ...)
+            if window_open then
+                local cw, ch = type(c) == "table" and c.w, type(c) == "table" and c.h
+                local sig = table.concat({ q(x), q(y), q(w), q(h), q(cw), q(ch), q(drew) }, "|")
+                if not hunt.seen["tabs " .. sig] then
+                    hunt.seen["tabs " .. sig] = true
+                    log("tab bar: style %s, row x=%s y=%s w=%s h=%s on a %sx%s canvas, the style drew it: %s, from %s",
+                        styleName(A), q(x), q(y), q(w), q(h), q(cw), q(ch), drew and "yes" or "no", caller(3))
+                end
+            end
+            return drew
+        end
+    end
+    -- every style change
+    if type(A.setStyle) == "function" then
+        local orig = A.setStyle
+        A.setStyle = function(v, ...)
+            local was, was_c = styleName(A), colours(A)
+            in_style = true
+            local res = pk(pcall(orig, v, ...))
+            in_style = false
+            if window_open then
+                log("style: %s -> %s (asked %s), from %s", was, styleName(A), q(v), caller(3))
+                local now_c = colours(A)
+                log("colours: %s%s", was_c == now_c and "unchanged, " or (was_c .. " -> "), now_c)
+            end
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2, res.n)
+        end
+    end
+end
+
 local function hookKit(A)
     if type(A) ~= "table" or A._rltd_hooked then return end
     A._rltd_hooked = true
     A_ref = A
+    pcall(hookCrashHunt, A)
     local P, D, H = A.panels, A.D, A.host
     if type(P) == "table" then
         for name, def in pairs(P) do pcall(wrapCard, name, def) end
@@ -541,6 +950,11 @@ local function hookKit(A)
         local fn = function(k, v, ...)
             if active() and type(k) == "string" then
                 stats.sets[k] = (stats.sets[k] or 0) + 1
+                -- 1.1.1: your colours changed outside a style change (picked
+                -- by hand, or by something else), with what changed them
+                if (k == "theme" or k == "accent" or k == "accent2") and not in_style then
+                    log("colour setting: %s %s -> %s, from %s", k, colourVal(A.get(k, nil)), colourVal(v), caller(3))
+                end
                 if k == "rlt_bo_lib" then
                     stats.bo_refreshes = stats.bo_refreshes + 1
                     log("BookOrbit list refreshed: %d books", type(v) == "table" and type(v.books) == "table" and #v.books or 0)
