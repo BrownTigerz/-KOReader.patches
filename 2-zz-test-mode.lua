@@ -1,6 +1,6 @@
 --[[
     Test Mode
-    Version: 1.0.1
+    Version: 1.0.2
 
     One switch for trying things out on the device without anything counting:
     open books, turn pages, finish them, and none of it syncs or lands in your
@@ -32,8 +32,9 @@
     So you don't forget it's on: a corner note when a book opens, a note at
     start-up, and it turns itself off after 24 hours (the reset stays on offer).
 
-    Menu: Tools -> Add-ons -> Test Mode (Maintenance), or Tools when the Add-ons
-    patch isn't installed. Gesture: "Toggle Test Mode" (General).
+    Menu: with the Debugging Menu patch, at the top of Add-ons -> Debugging
+    (1.4.4+); otherwise Tools -> Add-ons -> Test Mode (Maintenance), or Tools
+    when the Add-ons patch isn't installed. Gesture: "Toggle Test Mode" (General).
 
     Named 2-zz- so it loads after every other patch and sits on top of their
     hooks (ReadMastery Quests, ShelfSync Tweaks, BookOrbit Tweaks). Anything it
@@ -44,6 +45,9 @@
     Sidecar backups: <koreader>/test-mode/ (removed by the reset).
 
     Changelog
+      1.0.2 2026-11-10  With the Debugging Menu patch (1.4.4+) the Test Mode menu
+                        moves to the top of Add-ons -> Debugging and leaves Add-ons
+                        -> Maintenance and Tools. Without it, nothing changes.
       1.0.1 2026-11-10  Statistics' and BookOrbit's (and Progress sync's) on... handlers
                         weren't held back: KOReader wraps a plugin's event handlers in
                         a callable table, which 1.0.0 took for "not there" (crash.log:
@@ -53,7 +57,7 @@
     https://github.com/BrownTigerz/-KOReader.patches
 ]]
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local ID = "test_mode"
 local TAG = "test mode:"
 local MAX_AGE = 24 * 3600
@@ -582,11 +586,18 @@ local function item()
     }
 end
 
--- Add-ons entry (2-tweaks-menu.lua), library and reader
+-- With the Debugging Menu patch (1.4.4+), the menu lives there, at the top; it
+-- loads before this one (2-debugging-menu.lua). Otherwise: Add-ons entry
+-- (2-tweaks-menu.lua), or the Tools menu.
+package.loaded.test_mode_menu = item
 local TM = package.loaded.tweaks_mods or {}
 package.loaded.tweaks_mods = TM
 TM.entries = TM.entries or {}
-TM.entries[ID] = { text = _("Test Mode"), order = 960, group = "Maintenance", build = item }
+local in_debugging = type(TM.entries.debugging_menu) == "table"
+    and TM.entries.debugging_menu.test_mode_home == true
+if not in_debugging then
+    TM.entries[ID] = { text = _("Test Mode"), order = 960, group = "Maintenance", build = item }
+end
 
 -- Fallback: Tools menu when the Add-ons patch isn't there (or hides it)
 local function addToOrder(order_mod)
@@ -608,7 +619,7 @@ for i, pair in ipairs({
     { "apps/reader/modules/readermenu", "ui/elements/reader_menu_order" },
 }) do
     local ok, M = pcall(require, pair[1])
-    if ok and type(M) == "table" and type(M.setUpdateItemTable) == "function" then
+    if not in_debugging and ok and type(M) == "table" and type(M.setUpdateItemTable) == "function" then
         local orig = M.setUpdateItemTable
         M.setUpdateItemTable = function(self, ...)
             local in_addons = TM.active and (type(TM.shows) ~= "function" or TM.shows(ID))
