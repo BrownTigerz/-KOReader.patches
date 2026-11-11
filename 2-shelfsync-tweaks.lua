@@ -1,7 +1,21 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.11.20
+-- Version 1.12.0
 -- Changelog:
+--   1.12.0   Progress updates that keep failing on and off: ShelfSync runs
+--            each Goodreads / StoryGraph request in a background task that
+--            any tap on the screen cancels, so turning pages while a book
+--            opened killed the security-token fetch ("Could not extract
+--            CSRF token for progress update", then StoryGraph's sign-in
+--            redirect). Those requests now run without being cancelled by
+--            taps (still in the background, still with ShelfSync's own
+--            10-15 s network timeouts); a request ShelfSync shows its own
+--            message for is unchanged. If a progress update still fails
+--            for want of a token it's retried once at once with a fresh
+--            one, and only if that fails too a popup says so. The routine
+--            Goodreads lines (search fallback, token retry) moved from
+--            crash.log to the ShelfSync diagnostic (1.2.0+); a leftover
+--            comment above the Amazon sign-in code is gone.
 --   1.11.20  Clean-up: the vendored Goodreads storage module (never
 --            required by anything), unused
 --            requires and two empty checks left from the tracer are gone.
@@ -90,7 +104,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.11.20"
+local PATCH_VERSION = "1.12.0"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -721,6 +735,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         end
     end
 
+    -- The ShelfSync diagnostic (1.2.0+) sets package.loaded.shelfsync_tweaks_trace
+    -- while it's logging; without it these routine lines go nowhere.
+    local function trace(...)
+        local t = package.loaded.shelfsync_tweaks_trace
+        if type(t) == "function" then pcall(t, ...) end
+    end
+
     -- Goodreads: dodge the WAF-challenged endpoints -----------------------
     local ok_api, GoodreadsApi = pcall(require, "shelfsync/lib/goodreads/api")
     if ok_api and GoodreadsApi and not GoodreadsApi.__ss_waf_patched then
@@ -770,10 +791,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                         }
                     end
                 end
-                logger.info("Goodreads: auto_complete found " .. #results .. " result(s) for '" .. query .. "'")
+                trace("Goodreads: auto_complete found " .. #results .. " result(s)")
                 if #results > 0 then return results end
             else
-                logger.info("Goodreads: auto_complete gave nothing (code=" .. tostring(code) .. "), falling back to /search")
+                trace("Goodreads: auto_complete gave nothing (code=" .. tostring(code) .. "), falling back to /search")
             end
             return orig_findBooks(self, title, author, userId)
         end
@@ -832,15 +853,124 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 -- One more try on the plain page: a tap can cancel the request
                 -- (it runs in a dismissable background task), and the light
                 -- page could in theory lack the token.
-                logger.info("Goodreads: CSRF fetch got no token (code=" .. tostring(code) .. "), retrying once")
+                trace("Goodreads: token fetch got no token (code=" .. tostring(code) .. "), retrying once")
                 csrf, code = fetch("https://www.goodreads.com/review/list")
             end
             if csrf then
                 CACHE.csrf, CACHE.csrf_at = csrf, os.time()
                 return csrf, self.last_user_id
             end
-            logger.info("Goodreads: /review/list CSRF fetch failed (code=" .. tostring(code) .. "), falling back to /")
-            return orig_refreshSession(self)
+            trace("Goodreads: /review/list token fetch failed (code=" .. tostring(code) .. "), falling back to /")
+            local c, u = orig_refreshSession(self)
+            if not c then self.__ss_no_csrf = true end
+            return c, u
+        end
+    end
+
+    -- Requests taps can't cancel + one retry (1.12.0) -------------------------
+    -- ShelfSync runs every request through Trapper:dismissableRunInSubprocess
+    -- with an invisible trap: any tap kills it. Turning pages right after a
+    -- book opens did, so the token fetch for the progress update came back
+    -- empty. For Goodreads / StoryGraph requests the trap is a widget that is
+    -- never shown: still a background task, the UI and taps work as before,
+    -- but a tap no longer cancels it. Only the one call each request makes
+    -- (consumed at once, so nothing else in KOReader is affected).
+    local keep_next = false
+    local ok_tr, Trapper = pcall(require, "ui/trapper")
+    if ok_tr and type(Trapper) == "table" and type(Trapper.dismissableRunInSubprocess) == "function"
+            and not Trapper.__ss_keep_patched then
+        Trapper.__ss_keep_patched = true
+        local orig_drs = Trapper.dismissableRunInSubprocess
+        Trapper.dismissableRunInSubprocess = function(self, task, trap, ...)
+            if keep_next and (trap == true or trap == nil) then
+                keep_next = false
+                trap = {} -- never shown, so no tap reaches it
+            end
+            return orig_drs(self, task, trap, ...)
+        end
+    end
+    local function pack(...) return { n = select("#", ...), ... } end
+    local function keepRequests(Api)
+        if type(Api) ~= "table" or type(Api.request) ~= "function" or Api.__ss_keep_patched then return end
+        Api.__ss_keep_patched = true
+        local orig_req = Api.request
+        Api.request = function(self, ...)
+            keep_next = true
+            local r = pack(orig_req(self, ...))
+            keep_next = false
+            return unpack(r, 1, r.n)
+        end
+    end
+
+    local function missedNote(service)
+        if require("device").screen_saver_mode then return end
+        UIManager:show(InfoMessage:new{
+            text = service .. ": this progress update didn't go through. It goes with the next sync.",
+            icon = "notice-warning",
+            timeout = 5,
+        })
+    end
+
+    if ok_api and type(GoodreadsApi) == "table" then
+        keepRequests(GoodreadsApi)
+        local orig_gr_update = GoodreadsApi.updateProgress
+        if type(orig_gr_update) == "function" and not GoodreadsApi.__ss_retry_patched then
+            GoodreadsApi.__ss_retry_patched = true
+            GoodreadsApi.updateProgress = function(self, ...)
+                self.__ss_no_csrf = nil
+                local r = pack(orig_gr_update(self, ...))
+                -- no token = nothing was posted, so trying again can't double it
+                if r[1] == nil and self.__ss_no_csrf then
+                    trace("Goodreads: progress update had no token, retrying once with a fresh one")
+                    CACHE.csrf, CACHE.csrf_at = nil, 0
+                    self.__ss_no_csrf = nil
+                    r = pack(orig_gr_update(self, ...))
+                    if r[1] == nil and self.__ss_no_csrf then missedNote("Goodreads") end
+                end
+                self.__ss_no_csrf = nil
+                return unpack(r, 1, r.n)
+            end
+        end
+    end
+
+    local ok_sg, StoryGraphApi = pcall(require, "shelfsync/lib/storygraph/api")
+    if ok_sg and type(StoryGraphApi) == "table" then
+        keepRequests(StoryGraphApi)
+        local orig_extract = StoryGraphApi.extract_csrf
+        local orig_sg_update = StoryGraphApi.updatePage
+        if type(orig_extract) == "function" and type(orig_sg_update) == "function"
+                and not StoryGraphApi.__ss_retry_patched then
+            StoryGraphApi.__ss_retry_patched = true
+            StoryGraphApi.extract_csrf = function(self, html, ...)
+                local c = orig_extract(self, html, ...)
+                if self.__ss_in_update and (html == nil or c == nil) then self.__ss_no_csrf = true end
+                return c
+            end
+            local function once(self, ...)
+                self.__ss_no_csrf, self.__ss_in_update = nil, true
+                local r = pack(pcall(orig_sg_update, self, ...))
+                self.__ss_in_update = nil
+                if not r[1] then
+                    -- a cancelled page fetch leaves ShelfSync nothing to read
+                    -- and it stops with an error; that's a missing token too
+                    if self.__ss_no_csrf then return pack(nil) end
+                    error(r[2], 0)
+                end
+                return pack(select(2, unpack(r, 1, r.n)))
+            end
+            StoryGraphApi.updatePage = function(self, ...)
+                local r = once(self, ...)
+                -- without a token StoryGraph only answers with its sign-in
+                -- page and saves nothing, so trying again can't double it
+                if r[1] == nil and self.__ss_no_csrf then
+                    trace("StoryGraph: progress update had no token, retrying once with a fresh one")
+                    self.last_csrf = nil
+                    r = once(self, ...)
+                    if r[1] == nil and self.__ss_no_csrf then missedNote("StoryGraph") end
+                end
+                self.__ss_no_csrf = nil
+                return unpack(r, 1, r.n)
+            end
         end
     end
 
@@ -3010,7 +3140,6 @@ local BAD_CREDENTIALS_MARKERS = {
     "there was a problem with your request",
 }
 
--- A compact, non-secret fingerprint of a page, for diagnostics only.
 function AmazonWeb:new(opts)
     opts = opts or {}
     return setmetatable({
