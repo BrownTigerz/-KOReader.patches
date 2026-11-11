@@ -26,7 +26,7 @@ Purpose:
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Option: Action Colours (Tools > BookOrbit Tweaks): separate colours for
     Continue Reading (hero pill + download circle), Book Detail buttons, and
-    Dialogs / open-book sheets. Optional Pill Colour Trace for crash.log.
+    Dialogs / open-book sheets. (Their trace is in the BookOrbit diagnostic.)
   * Option: keep BookOrbit open through sleep, so it comes back instantly
     instead of reloading after every wake (off by default).
   * Add a separate BookOrbit Tweaks submenu to Tools (or the Add-ons menu
@@ -36,6 +36,56 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.15.19 2026-11-11  Draw BookOrbit Once On Open: the Continue Reading card no
+                      longer shows Download until the whole dashboard redraws.
+                      As soon as BookOrbit knows which books are on the device
+                      (a moment after opening), only that card is rebuilt and
+                      refreshed, with BookOrbit's own one-card refresh (dithered
+                      on a colour screen); the rest still waits for the one
+                      redraw with the fresh dashboard.
+  2.15.18 2026-11-11  Clean-up: Pill Colour Trace and the Troubleshooting menu are
+                      gone; the trace lives in the BookOrbit diagnostic (1.5.4+),
+                      which turns it on while it's logging and writes it to
+                      diagnostics.log. Here only silent calls stay (nothing runs
+                      without the diagnostic). The night card's flag for the
+                      old card check is gone too. A saved Pill Colour Trace
+                      setting is removed once, at the first start (every other
+                      saved setting stays exactly as it was).
+  2.15.17 2026-11-11  Fix: with BookOrbit 2.1's Colour on, switching between day
+                      and night mode with BookOrbit open left its dashboard in
+                      the old mode's colours (BookOrbit doesn't rebuild on the
+                      switch): a day-coloured card showed the night shade (navy
+                      on a brown book) and the other way round. The open
+                      dashboard is now rebuilt right at the switch, in the same
+                      screen update. Colour screens only.
+  2.15.16 2026-11-10  2.15.15's crash.log line for the night colour card is gone:
+                      checking it is the BookOrbit diagnostics patch's job (1.5.2+),
+                      so this patch stays clean. Nothing else changed.
+  2.15.15 2026-11-10  Menu sorted into groups: Opening And Navigation, Redraws And
+                      Flashing, Night Mode, Action Colours, Library Filter,
+                      Collections, Server Management, Troubleshooting. Same
+                      settings, nothing changed. Keep Continue Reading Colour At
+                      Night writes one line to crash.log the first time it draws
+                      (the colour it used and that the card was flipped), to see
+                      why the card didn't show blue on device.
+  2.15.14 2026-11-10  Option: Keep Continue Reading Colour At Night (off by
+                      default). With BookOrbit 2.1's Colour on, night mode turned
+                      the Continue Reading card light (BookOrbit's own night
+                      colours). With this on it stays the same deep cover colour
+                      as in the day (navy for a blue cover), white text, covers
+                      as they are. Pill Colour Trace is listed for the
+                      Debugging menu's Turn Off All Debug.
+  2.15.13 2026-11-10  Option: Draw BookOrbit Once On Open (off by default). Opening
+                      BookOrbit drew its saved dashboard, then again when it knew
+                      which books are on the device, again when the fresh
+                      dashboard came in, and again after every 3 new covers. With
+                      this on it draws the saved dashboard, then once more with
+                      the fresh dashboard and its new covers already in.
+  2.15.12 2026-11-10  Option: Draw New Covers Once (off by default). When the
+                      dashboard is fetching covers it doesn't have yet, BookOrbit
+                      redraws the screen after every 3. With this on it redraws
+                      once, when the last of them is in (or when it stops early).
+                      Only the dashboard; lists and book pages are unchanged.
   2.15.11 2026-11-07  BookOrbit 2.1 (server 3.6): with its Colour setting on, on a
                       colour screen, Continue Reading in night mode is left to
                       BookOrbit. Flipping it again showed its cover colour in the
@@ -141,7 +191,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.11"
+local VERSION = "2.15.19"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -172,7 +222,6 @@ local DEFAULTS = {
     resume_pill_color = "#FFFFFF",  -- Continue reading hero pill / download circle
     detail_pill_color = "#FFFFFF",  -- Book detail Start reading / Read again / Resume
     dialog_pill_color = "#FFFFFF",  -- Bottom sheets / open-book dialog primary pills
-    pill_color_trace = false,       -- log matches to crash.log (diagnose colour)
     after_close = "simpleui",
     library_filter_id = false,
     library_filter_name = "",
@@ -180,6 +229,9 @@ local DEFAULTS = {
     keep_open_sleep = false,   -- keep the catalog through sleep instead of closing it
     buttons_only_open = false, -- dashboard: only the Resume / Download buttons open a book
     collections_row = true,    -- book sheet: Add To Collection
+    covers_once = false,       -- dashboard: one redraw when new covers finish, not one per 3
+    open_once = false,         -- opening: saved dashboard, then one redraw with fresh data + covers
+    hero_night_colour = false, -- BookOrbit Colour on: Continue Reading keeps its day colour at night
 }
 
 local cfg = {}
@@ -198,6 +250,16 @@ do
     end
     -- Menu option removed: always restore SimpleUI home when BookOrbit closes.
     cfg.after_close = "simpleui"
+    -- 2.15.18: Pill Colour Trace moved to the BookOrbit diagnostic. Its saved
+    -- key is dropped once; the saved table is written back without it, every
+    -- other key exactly as it was (not cfg, which also holds defaults).
+    if type(saved) == "table" and saved.pill_color_trace ~= nil and G_reader_settings then
+        local clean = {}
+        for key, value in pairs(saved) do
+            if key ~= "pill_color_trace" then clean[key] = value end
+        end
+        pcall(G_reader_settings.saveSetting, G_reader_settings, SETTINGS_KEY, clean)
+    end
     -- 2.14.9: split colours. Someone who only ever set resume_pill_color
     -- gets it on detail/dialog too, until they pick those themselves. Only
     -- while those were never saved, so a deliberate White sticks.
@@ -529,6 +591,11 @@ local function hookHeroNight()
         bb:paintRect(x + w - radius, y, radius, radius, Blitbuffer.COLOR_WHITE)
         bb:paintRect(x, y + h - radius, radius, radius, Blitbuffer.COLOR_WHITE)
         bb:paintRect(x + w - radius, y + h - radius, radius, radius, Blitbuffer.COLOR_WHITE)
+        if self.corner_fill then
+            -- the day colour, painted for the inverted screen: round corners, no edge
+            pcall(bb.paintRoundedCorner, bb, x, y, w, h, radius, radius, self.corner_fill)
+            return
+        end
         local bw = 2
         if ok_met and type(BoardMetrics) == "table" and type(BoardMetrics.px) == "function" then
             bw = math.max(1, BoardMetrics.px(1.5))
@@ -544,8 +611,46 @@ local function hookHeroNight()
     if not (ok_col and type(BoardColour) == "table" and type(BoardColour.on) == "function") then
         BoardColour = nil
     end
+    local original_tile_ref
+    -- Keep Continue Reading Colour At Night: build the hero with BookOrbit's day
+    -- colours (its colour env with night off), then flip the tile like the B&W
+    -- fix does, so the inverted screen shows the day colours. Covers are put back.
+    local function dayColourHero(ctx, item, w, h)
+        if not (BoardColour and type(BoardColour.env) == "function") then return nil end
+        local ok_env, real = pcall(BoardColour.env)
+        if not ok_env or type(real) ~= "table" then return nil end
+        local saved = BoardColour._env
+        BoardColour._env = { colour = real.colour, eink = real.eink, night = false }
+        local ok_t, result = pcall(original_tile_ref, ctx, item, w, h)
+        local fill
+        if ok_t and type(BoardColour.inkFill) == "function" then
+            local ok_f, f = pcall(BoardColour.inkFill, ctx, "hero")
+            if ok_f then fill = f end
+        end
+        BoardColour._env = saved
+        if not ok_t or type(result) ~= "table" then return nil end
+        local corner
+        if fill and type(fill.getColorRGB32) == "function" and Blitbuffer.ColorRGB32 then
+            local c = fill:getColorRGB32()
+            corner = Blitbuffer.ColorRGB32(255 - c.r, 255 - c.g, 255 - c.b, 0xFF)
+        end
+        return HeroNightWidget:new{
+            dimen = Geom:new{ w = w, h = h },
+            inner = result,
+            corner_fill = corner or Blitbuffer.COLOR_WHITE,
+        }
+    end
     local original_tile = BoardWidgets.tile
+    original_tile_ref = original_tile
     BoardWidgets.tile = function(ctx, item, w, h)
+        if cfg.hero_night_colour and Screen.night_mode and type(item) == "table" and item.type == "hero"
+                and BoardColour then
+            local ok_on, on = pcall(BoardColour.on, ctx)
+            if ok_on and on then
+                local hero = dayColourHero(ctx, item, w, h)
+                if hero then return hero end
+            end
+        end
         local result = original_tile(ctx, item, w, h)
         if type(item) ~= "table" or item.type ~= "hero" or type(result) ~= "table" then
             return result
@@ -1793,7 +1898,7 @@ end
 --   resume_pill_color  Continue reading hero: white text pill + download circle
 --   detail_pill_color  Book detail solid primary (Start reading / Read again)
 --   dialog_pill_color  Bottom sheets / open-book dialog primary pills (MenuUI)
--- Pill Colour Trace logs every match (and near-miss hero sizes) to crash.log.
+-- Every match (and near-miss hero size) can be traced by the BookOrbit diagnostic.
 local PILL_COLORS = {
     { "White", "#FFFFFF" }, { "Silver", "#AAAAAA" }, { "Light grey", "#CCCCCC" },
     { "Blue", "#6FB7E9" }, { "Sky", "#6FB7E9" }, { "Pink", "#E78FB3" },
@@ -1828,10 +1933,14 @@ local function hexActive(hex)
     return type(hex) == "string" and hex:upper() ~= "#FFFFFF"
 end
 
+-- The BookOrbit diagnostic (1.5.4+) sets package.loaded.bookorbit_tweaks_trace
+-- while it's logging; without it these do nothing.
+local function pillTracing()
+    return type(package.loaded.bookorbit_tweaks_trace) == "function"
+end
 local function pillTrace(...)
-    if cfg.pill_color_trace then
-        logger.info(TAG, "pill-color", ...)
-    end
+    local t = package.loaded.bookorbit_tweaks_trace
+    if type(t) == "function" then pcall(t, "pill-color", ...) end
 end
 
 local function hookResumePillColor()
@@ -1914,7 +2023,7 @@ local function hookResumePillColor()
                     "h=" .. tostring(h), "r=" .. tostring(r), "bg=" .. tostring(br))
                 if col then return ditherAfterPaint(original_box(withBg(o, col), child)) end
             -- Near-miss hero (trace only): white, no border, near 40 tall
-            elseif cfg.pill_color_trace and isWhite(o.bg) and border == 0
+            elseif pillTracing() and isWhite(o.bg) and border == 0
                     and type(h) == "number" and h >= BoardMetrics.px(36) and h <= BoardMetrics.px(44) then
                 pillTrace("near-miss hero-pill?",
                     "h=" .. tostring(h) .. " want " .. tostring(BoardMetrics.px(40)),
@@ -1947,7 +2056,7 @@ local function hookResumePillColor()
                 local col = pillColorValue(cfg.resume_pill_color)
                 pillTrace("MATCH hero-circle", "cfg=" .. tostring(cfg.resume_pill_color), "d=" .. tostring(d))
                 if col then return ditherAfterPaint(original_circle(d, withBg(o, col), child)) end
-            elseif cfg.pill_color_trace and type(o) == "table" and type(d) == "number"
+            elseif pillTracing() and type(o) == "table" and type(d) == "number"
                     and d >= BoardMetrics.px(32) and d <= BoardMetrics.px(48) and isWhite(o.bg) then
                 pillTrace("near-miss hero-circle?",
                     "d=" .. tostring(d) .. " want " .. tostring(BoardMetrics.px(40)),
@@ -1992,6 +2101,256 @@ local function hookButtonsOnly()
             return nil
         end
         return action
+    end
+    return true
+end
+
+-- Draw New Covers Once: BookOrbit's cover worker fetches the dashboard's missing
+-- covers 3 at a time and rebuilds the page after each 3 (updateItems(nil, true)
+-- right after marking them on disk). With the option on, while more visible
+-- covers are still queued, that rebuild is held; the last batch draws them all.
+-- If the worker ends another way (a failed batch, the page left), the held
+-- rebuild is done when it stops, unless the page changed (it drew itself).
+local function hookCoversOnce()
+    local ok, Catalog = pcall(require, "bookorbit_catalog")
+    if not ok or type(Catalog) ~= "table" then return false end
+    for _i, name in ipairs({ "invalidateThumbnail", "updateItems", "runThumbnailWorker",
+            "stopThumbnailWorker", "dashboardMode" }) do
+        if type(Catalog[name]) ~= "function" then return false end
+    end
+    if Catalog._bookorbit_tweaks_covers_once then return true end
+    Catalog._bookorbit_tweaks_covers_once = true
+    local UIManager = require("ui/uimanager")
+
+    local function moreQueued(q)
+        return type(q) == "table" and type(q.head) == "number" and type(q.tail) == "number"
+            and q.head <= q.tail
+    end
+    local function flush(self)
+        self._bookorbit_tweaks_cover_held = nil
+        if self.catalog_closed then return end
+        local okD, dash = pcall(self.dashboardMode, self)
+        if okD and dash then self:updateItems(nil, true) end
+    end
+
+    local orig_invalidate = Catalog.invalidateThumbnail
+    Catalog.invalidateThumbnail = function(self, book, exists, ...)
+        local r = orig_invalidate(self, book, exists, ...)
+        -- a cover just landed; the worker's rebuild follows in the same pass
+        if exists == true and cfg.covers_once and not self._bookorbit_tweaks_cover_landed then
+            self._bookorbit_tweaks_cover_landed = true
+            UIManager:nextTick(function() self._bookorbit_tweaks_cover_landed = nil end)
+        end
+        return r
+    end
+
+    local orig_update = Catalog.updateItems
+    Catalog.updateItems = function(self, select_number, no_recalculate_dimen, ...)
+        local landed = self._bookorbit_tweaks_cover_landed
+        self._bookorbit_tweaks_cover_landed = nil
+        if landed and cfg.covers_once and select_number == nil and no_recalculate_dimen == true
+                and self.thumbnail_worker_running and moreQueued(self.thumbnail_queue) then
+            local okD, dash = pcall(self.dashboardMode, self)
+            if okD and dash then
+                self._bookorbit_tweaks_cover_held = self.thumbnail_generation
+                return
+            end
+        end
+        self._bookorbit_tweaks_cover_held = nil
+        return orig_update(self, select_number, no_recalculate_dimen, ...)
+    end
+
+    local orig_run = Catalog.runThumbnailWorker
+    Catalog.runThumbnailWorker = function(self, generation, ...)
+        -- the visible covers are done (the last batch had none to show): draw now
+        -- instead of after the next page's prefetch
+        if self._bookorbit_tweaks_cover_held ~= nil
+                and self._bookorbit_tweaks_cover_held == self.thumbnail_generation
+                and not moreQueued(self.thumbnail_queue) then
+            pcall(flush, self)
+        end
+        return orig_run(self, generation, ...)
+    end
+
+    local orig_stop = Catalog.stopThumbnailWorker
+    Catalog.stopThumbnailWorker = function(self, generation, ...)
+        local held = self._bookorbit_tweaks_cover_held
+        local r = orig_stop(self, generation, ...)
+        if held ~= nil then
+            if held == generation and generation == self.thumbnail_generation then
+                pcall(flush, self)
+            elseif held ~= self.thumbnail_generation then
+                self._bookorbit_tweaks_cover_held = nil
+            end
+        end
+        return r
+    end
+    return true
+end
+
+-- Draw BookOrbit Once On Open: BookOrbit opens on its saved dashboard, then
+-- redraws when its on-device lookup finishes (hydrateOnDeviceMaps), again when
+-- the fresh dashboard arrives (switchTo), and again per batch of new covers.
+-- With the option on, while a fresh dashboard is on its way (only when online),
+-- the on-device and cover redraws are left to it; before it is drawn, its
+-- missing covers are fetched in one go (same BookOrbit download, same cache),
+-- so it draws once with them. Covers that fail are left to BookOrbit's own
+-- worker as before. The page left meanwhile: the fresh one is dropped, as
+-- BookOrbit drops it.
+local OPEN_COVERS_MAX = 30
+local function hookOpenOnce()
+    local ok, Catalog = pcall(require, "bookorbit_catalog")
+    if not ok or type(Catalog) ~= "table" then return false end
+    for _i, name in ipairs({ "refreshDashboardOnOpen", "shouldRefreshDashboardOnOpen", "dashboardRoot",
+            "switchTo", "refreshOnDevice", "updateItems", "invalidateThumbnail",
+            "downloadThumbnailBatch", "cachedThumbnailPath", "dashboardBooks" }) do
+        if Catalog[name] == nil then return false end
+    end
+    if Catalog._bookorbit_tweaks_open_once then return true end
+    Catalog._bookorbit_tweaks_open_once = true
+    local UIManager = require("ui/uimanager")
+    local okT, Trapper = pcall(require, "ui/trapper")
+    local okN, NetworkMgr = pcall(require, "ui/network/manager")
+
+    -- a fresh dashboard is coming: set when the open refresh starts online
+    local orig_open = Catalog.refreshDashboardOnOpen
+    Catalog.refreshDashboardOnOpen = function(self, ...)
+        if cfg.open_once and okN and NetworkMgr:isConnected() then
+            local okS, will = pcall(self.shouldRefreshDashboardOnOpen, self)
+            if okS and will then self._bookorbit_tweaks_fresh_pending = true end
+        end
+        return orig_open(self, ...)
+    end
+
+    -- the fresh dashboard is in hand (switchTo follows in the same pass)
+    local orig_root = Catalog.dashboardRoot
+    Catalog.dashboardRoot = function(self, ...)
+        local items, context = orig_root(self, ...)
+        if self._bookorbit_tweaks_fresh_pending then
+            self._bookorbit_tweaks_fresh_pending = nil
+            self._bookorbit_tweaks_fresh_ready = true
+            UIManager:nextTick(function() self._bookorbit_tweaks_fresh_ready = nil end)
+        end
+        return items, context
+    end
+
+    local orig_switch = Catalog.switchTo
+    Catalog.switchTo = function(self, title, item_table, context, push, ...)
+        local fresh = self._bookorbit_tweaks_fresh_ready
+        self._bookorbit_tweaks_fresh_ready = nil
+        if fresh and cfg.open_once and type(context) == "table" and context.kind == "dashboard"
+                and okT and Trapper:isWrapped() then
+            local missing = {}
+            local okB, books = pcall(self.dashboardBooks, context.dashboard)
+            for _i, book in ipairs(okB and books or {}) do
+                if #missing >= OPEN_COVERS_MAX then break end
+                if type(book) == "table" and book.hasCover and not self:cachedThumbnailPath(book) then
+                    missing[#missing + 1] = book
+                end
+            end
+            if #missing > 0 then
+                local before_ctx = self.current_context
+                local before_gen = self.dashboard_request_generation
+                local okD, results = pcall(self.downloadThumbnailBatch, self, missing, self.thumbnail_generation)
+                if self.catalog_closed or self.current_context ~= before_ctx
+                        or self.dashboard_request_generation ~= before_gen then
+                    return -- the reader moved on meanwhile; BookOrbit would drop it too
+                end
+                if okD and type(results) == "table" then
+                    local got = 0
+                    for _k, v in pairs(results) do if v then got = got + 1 end end
+                    if got > 0 then
+                        self.thumbnail_cache_written = true
+                        self.thumbnail_cache_files = (self.thumbnail_cache_files or 0) + got
+                    end
+                end
+                -- switchTo resets the cover lookups, so the new files are found
+            end
+        end
+        self._bookorbit_tweaks_fresh_pending = nil
+        return orig_switch(self, title, item_table, context, push, ...)
+    end
+
+    -- redraws that the fresh dashboard will do anyway: the on-device lookup and
+    -- covers for the saved one
+    local function mark(self)
+        if not self._bookorbit_tweaks_open_mark then
+            self._bookorbit_tweaks_open_mark = true
+            UIManager:nextTick(function() self._bookorbit_tweaks_open_mark = nil end)
+        end
+    end
+    local orig_ondevice = Catalog.refreshOnDevice
+    Catalog.refreshOnDevice = function(self, ...)
+        if self._bookorbit_tweaks_fresh_pending then
+            mark(self)
+            self._bookorbit_tweaks_ondevice_mark = true
+        end
+        return orig_ondevice(self, ...)
+    end
+    -- 2.15.19: the on-device lookup decides Resume vs Download on the Continue
+    -- Reading card. While the rest waits, that one card is refreshed now.
+    local function refreshHeroOnly(self)
+        if type(self.boardRefreshTile) ~= "function" then return end
+        for _i, entry in ipairs(self._board_tiles or {}) do
+            if type(entry) == "table" and type(entry.item) == "table" and entry.item.type == "hero"
+                    and type(entry.tile) == "table" and type(entry.tile.dimen) == "table"
+                    and entry.tile.dimen.x then
+                pcall(self.boardRefreshTile, self, entry)
+                return
+            end
+        end
+    end
+    local orig_invalidate = Catalog.invalidateThumbnail
+    Catalog.invalidateThumbnail = function(self, book, exists, ...)
+        if exists == true and self._bookorbit_tweaks_fresh_pending then mark(self) end
+        return orig_invalidate(self, book, exists, ...)
+    end
+    local orig_update = Catalog.updateItems
+    Catalog.updateItems = function(self, select_number, no_recalculate_dimen, ...)
+        local marked = self._bookorbit_tweaks_open_mark
+        self._bookorbit_tweaks_open_mark = nil
+        local ondevice = self._bookorbit_tweaks_ondevice_mark
+        self._bookorbit_tweaks_ondevice_mark = nil
+        if marked and cfg.open_once and self._bookorbit_tweaks_fresh_pending
+                and select_number == nil and no_recalculate_dimen == true then
+            if ondevice then refreshHeroOnly(self) end
+            return
+        end
+        return orig_update(self, select_number, no_recalculate_dimen, ...)
+    end
+    return true
+end
+
+-- Day/night switch (2.15.17): BookOrbit picks its board colours when it builds
+-- a page and doesn't rebuild on a night mode switch, so an open dashboard kept
+-- the old mode's colours. Rebuilt right after the switch, before KOReader's
+-- full refresh paints it, so it costs no extra screen update. Colour screens
+-- only (on B&W nothing depends on the mode at build time).
+local function hookNightRebuild()
+    local ok_u, UIManager = pcall(require, "ui/uimanager")
+    if not ok_u or type(UIManager) ~= "table" or type(UIManager.ToggleNightMode) ~= "function" then
+        return false
+    end
+    if UIManager._bookorbit_tweaks_night_rebuild then return true end
+    UIManager._bookorbit_tweaks_night_rebuild = true
+    local orig = UIManager.ToggleNightMode
+    UIManager.ToggleNightMode = function(self, ...)
+        local r = orig(self, ...)
+        pcall(function()
+            local Colour = package.loaded["bookorbit_board_colour"]
+            if type(Colour) ~= "table" or type(Colour.env) ~= "function" then return end
+            local env = Colour.env()
+            if not (type(env) == "table" and env.colour) then return end
+            for _i, item in ipairs(self._window_stack or {}) do
+                local w = item.widget
+                if type(w) == "table" and not w.catalog_closed and type(w.updateItems) == "function"
+                        and type(w.dashboardMode) == "function" and isBookOrbitRelated(w) then
+                    local ok_d, dash = pcall(w.dashboardMode, w)
+                    if ok_d and dash then pcall(w.updateItems, w, nil, true) end
+                end
+            end
+        end)
+        return r
     end
     return true
 end
@@ -3235,6 +3594,7 @@ end
 hookCatalogWidgets()
 hookBoardCover()
 hookHeroNight()
+hookNightRebuild()
 hookCatalogFlash()
 hookSignInPage()
 hookSettingsPage()
@@ -3243,6 +3603,8 @@ hookCatalogSwipeClose()
 hookSettingsFlash()
 hookResumePillColor()
 hookButtonsOnly()
+hookCoversOnce()
+hookOpenOnce()
 hookCollectionsRow()
 hookCatalogLibraryFilter()
 hookDispatcherOpen()
@@ -3276,6 +3638,12 @@ do
             hookSettingsFlash()
             hookResumePillColor()
             hookButtonsOnly()
+            if not hookCoversOnce() then
+                logger.warn(TAG, "BookOrbit loaded but cover worker was not found for Draw New Covers Once")
+            end
+            if not hookOpenOnce() then
+                logger.warn(TAG, "BookOrbit loaded but dashboard refresh was not found for Draw BookOrbit Once On Open")
+            end
             hookCollectionsRow()
             hookCatalogLibraryFilter()
             hookDispatcherOpen()
@@ -3519,7 +3887,7 @@ end
 
 
 local function buildMenu()
-    return {
+    local all = {
         {
             text = _("Keep Covers Original In Night Mode"),
             checked_func = isEnabled,
@@ -3560,6 +3928,33 @@ local function buildMenu()
                         end
                     end
                 end
+            end,
+        },
+        {
+            text = _("Draw New Covers Once"),
+            help_text = _("When the dashboard is fetching covers it doesn't have yet, BookOrbit redraws the screen after every 3, so it flashes a few times. On: it redraws once, when they're all in. Off by default."),
+            checked_func = function() return cfg.covers_once == true end,
+            callback = function()
+                cfg.covers_once = not (cfg.covers_once == true)
+                saveConfig()
+            end,
+        },
+        {
+            text = _("Keep Continue Reading Colour At Night"),
+            help_text = _("With BookOrbit's Colour setting on (colour screens), night mode turns the Continue Reading card light. On: it keeps the same colour as in the day (the deep shade of the book's cover, white text). Off by default."),
+            checked_func = function() return cfg.hero_night_colour == true end,
+            callback = function()
+                cfg.hero_night_colour = not (cfg.hero_night_colour == true)
+                saveConfig()
+            end,
+        },
+        {
+            text = _("Draw BookOrbit Once On Open"),
+            help_text = _("Opening BookOrbit shows your saved dashboard straight away, then redraws a few times as the fresh dashboard, the books on this device and new covers come in. On: it redraws once, when all of that is in (a few seconds). Until then you see the saved dashboard. Off by default."),
+            checked_func = function() return cfg.open_once == true end,
+            callback = function()
+                cfg.open_once = not (cfg.open_once == true)
+                saveConfig()
             end,
         },
         {
@@ -3663,15 +4058,6 @@ local function buildMenu()
                             return colorMenu(_("Bottom sheets / open-book dialog"), "dialog_pill_color")
                         end,
                     },
-                    {
-                        text = _("Pill Colour Trace (crash.log)"),
-                        help_text = _("When on, every colour match and near-miss is written to crash.log so you can see why Continue Reading did or did not pick up Blue."),
-                        checked_func = function() return cfg.pill_color_trace == true end,
-                        callback = function()
-                            cfg.pill_color_trace = not (cfg.pill_color_trace == true)
-                            saveConfig()
-                        end,
-                    },
                 }
             end,
         },
@@ -3772,6 +4158,50 @@ local function buildMenu()
             sub_item_table_func = buildServerMenu,
         },
     }
+    -- Grouped (2.15.15). Each setting is the same item as before, only placed.
+    local by = {}
+    for _i, item in ipairs(all) do
+        item.separator = nil
+        if item.text then by[item.text] = item end
+    end
+    local function pick(...)
+        local out = {}
+        for _i, t in ipairs({ ... }) do
+            if by[t] then out[#out + 1] = by[t] end
+        end
+        return out
+    end
+    local function group(title, help, ...)
+        local items = pick(...)
+        return { text = title, help_text = help, sub_item_table = items }
+    end
+    local menu = {
+        group(_("Opening And Navigation"), _("How BookOrbit opens, reopens and moves between pages."),
+            _("Reopen BookOrbit At"),
+            _("Keep BookOrbit Open Through Sleep"),
+            _("Open Book Only From Buttons"),
+            _("Loop Pages (Swipe Past Last → First)"),
+            _("Second Swipe Opens Tools Menu")),
+        group(_("Redraws And Flashing"), _("How often the screen redraws and flashes."),
+            _("Draw BookOrbit Once On Open"),
+            _("Draw New Covers Once"),
+            _("Flash To Reduce Ghosting")),
+        group(_("Night Mode"), nil,
+            _("Keep Covers Original In Night Mode"),
+            _("Keep Continue Reading Colour At Night")),
+        by[_("Action Colours")],
+        by[_("Library Filter")],
+        group(_("Collections"), _("Add To Collection and the password it saves."),
+            _("Add To Collection In Book Menu"),
+            _("Forget Saved BookOrbit Password"),
+            _("About The Saved Password")),
+        by[_("Server Management")],
+    }
+    local out = {}
+    for _i, item in ipairs(menu) do
+        if item and (item.sub_item_table == nil or #item.sub_item_table > 0) then out[#out + 1] = item end
+    end
+    return out
 end
 
 local function lazyMenu()
