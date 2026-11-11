@@ -21,7 +21,9 @@ Purpose:
   * Option: loop catalog pages (swipe past last page → first, past first → last).
     When looping is off, a swipe at either end is a no-op and does not flash.
   * Saved servers: snapshot the current BookOrbit login and switch between
-    them later (from Tweaks menu, Sign-in, or Settings → Account → Server).
+    them later (from Tweaks menu, Sign-in, or Settings → Account → Server);
+    an open BookOrbit reopens fresh on the new server. Option: pick the
+    server by Wi-Fi network (home Wi-Fi → home server, else away server).
   * Loop also wraps the dashboard board pages (Home / Insights / Library / Decor).
   * Persistent library filter: choose which BookOrbit library is shown (e.g. Books, not Comics).
   * Option: Action Colours (Tools > BookOrbit Tweaks): separate colours for
@@ -36,6 +38,22 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.16.0  2026-11-11  Switching saved servers is clean: with BookOrbit open, it
+                      closes and opens again fresh on the new server (from the
+                      sign-in page, Settings → Account → Server or the Tweaks
+                      menu), so nothing from the old server is left on screen
+                      and no reopen or restart is needed. The Tweaks menu switch
+                      also tells the running BookOrbit, not only the saved
+                      settings. New, off by default: Pick Server By Wi-Fi
+                      (Server Management): on your home Wi-Fi BookOrbit opens on
+                      the home server, on any other network on the away one
+                      (e.g. Tailscale). Checked when BookOrbit opens, and
+                      quietly before BookOrbit's background sync and
+                      OrbitShelf's browsing and downloads (at most every 30 s,
+                      never while BookOrbit is open).
+                      An unused wrapper on the sign-in page is gone, and the
+                      server switch lines moved from crash.log to the BookOrbit
+                      diagnostic (as "server: …", not under Action Colours).
   2.15.19 2026-11-11  Draw BookOrbit Once On Open: the Continue Reading card no
                       longer shows Download until the whole dashboard redraws.
                       As soon as BookOrbit knows which books are on the device
@@ -191,7 +209,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.15.19"
+local VERSION = "2.16.0"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -232,6 +250,10 @@ local DEFAULTS = {
     covers_once = false,       -- dashboard: one redraw when new covers finish, not one per 3
     open_once = false,         -- opening: saved dashboard, then one redraw with fresh data + covers
     hero_night_colour = false, -- BookOrbit Colour on: Continue Reading keeps its day colour at night
+    auto_server = false,       -- pick the saved server by Wi-Fi network when BookOrbit opens
+    home_ssid = "",            -- the home Wi-Fi network's name
+    home_server = "",          -- saved server for the home Wi-Fi (server_url .. "|" .. username)
+    away_server = "",          -- saved server for any other network
 }
 
 local cfg = {}
@@ -302,7 +324,7 @@ end
 -- ---- Saved BookOrbit servers (multi-profile) ---------------------------------------
 -- Stores named snapshots of bookorbit credentials so you can switch between
 -- servers without re-typing. Switching writes into the real "bookorbit"
--- settings key; reopen BookOrbit (or restart KOReader) to apply.
+-- settings key; an open BookOrbit closes and reopens fresh on the new one.
 local SERVERS_KEY = "bookorbit_tweaks_servers"
 
 local function loadServers()
@@ -353,6 +375,20 @@ local function serverLabel(entry)
     if host == "" then host = "?" end
     if user ~= "" then return host .. "  (" .. user .. ")" end
     return host
+end
+
+-- How Pick Server By Wi-Fi remembers a saved server.
+local function serverKey(entry)
+    if type(entry) ~= "table" or not entry.server_url then return "" end
+    return tostring(entry.server_url) .. "|" .. tostring(entry.username or "")
+end
+
+local function serverByKey(key)
+    if type(key) ~= "string" or key == "" then return nil end
+    for _i, entry in ipairs(loadServers()) do
+        if serverKey(entry) == key then return entry end
+    end
+    return nil
 end
 
 local function isEnabled()
@@ -847,9 +883,8 @@ local function sleepWipe(phase, reason)
     return closeAllBookOrbitCatalogs(reason)
 end
 
--- Nuclear open: close any leftover catalog, then open fresh via the live plugin.
-local function forceOpenBookOrbit(reason)
-    closeAllBookOrbitCatalogs(reason or "force-open")
+-- The running BookOrbit plugin (file browser first, then the reader).
+local function livePlugin()
     local FM = package.loaded["apps/filemanager/filemanager"]
     local fm = type(FM) == "table" and FM.instance
     local plugin = type(fm) == "table" and (fm.bookorbit or fm.BookOrbit)
@@ -858,6 +893,13 @@ local function forceOpenBookOrbit(reason)
         local reader = type(RUI) == "table" and RUI.instance
         plugin = type(reader) == "table" and (reader.bookorbit or reader.BookOrbit)
     end
+    return type(plugin) == "table" and plugin or nil
+end
+
+-- Nuclear open: close any leftover catalog, then open fresh via the live plugin.
+local function forceOpenBookOrbit(reason)
+    closeAllBookOrbitCatalogs(reason or "force-open")
+    local plugin = livePlugin()
     if type(plugin) ~= "table" then
         logger.warn(TAG, "forceOpenBookOrbit: no plugin instance")
         return false
@@ -929,8 +971,13 @@ local function raiseKeptCatalog(reason)
     return true, widget
 end
 
+local autoPickServer -- Pick Server By Wi-Fi (further down)
+
 local function openOrRaise(reason)
-    if cfg.keep_open_sleep and raiseKeptCatalog(reason) then return true end
+    -- a kept catalog on the wrong server for this Wi-Fi opens fresh instead
+    if cfg.keep_open_sleep and not (autoPickServer and autoPickServer(livePlugin())) and raiseKeptCatalog(reason) then
+        return true
+    end
     return forceOpenBookOrbit(reason)
 end
 
@@ -1942,6 +1989,11 @@ local function pillTrace(...)
     local t = package.loaded.bookorbit_tweaks_trace
     if type(t) == "function" then pcall(t, "pill-color", ...) end
 end
+-- Same hook, without the Action Colours label (server switches).
+local function tweaksTrace(...)
+    local t = package.loaded.bookorbit_tweaks_trace
+    if type(t) == "function" then pcall(t, ...) end
+end
 
 local function hookResumePillColor()
     if package.loaded["bookorbit_tweaks_pill_color"] then return true end
@@ -2452,7 +2504,31 @@ local function switchToSavedServer(plugin, entry)
         pcall(plugin.refreshActiveCatalogApi, plugin, false)
     end
 
-    logger.info(TAG, "switched saved server to", serverLabel(entry))
+    tweaksTrace("server: switched to", serverLabel(entry))
+    return true
+end
+
+-- After a switch: BookOrbit on screen (catalog, settings or sign-in page)
+-- closes and opens again fresh on the new server, on the next tick so the
+-- tap that chose it has finished. One left underneath something else (the
+-- Tools menu) is just closed, so its next open is fresh. Returns false
+-- unless it reopened; the caller then carries on as before.
+local function reopenAfterSwitch(label)
+    if not findCatalogOnStack(nil) then return false end
+    local UIManager = require("ui/uimanager")
+    local stack = UIManager._window_stack or {}
+    local top = stack[#stack] and stack[#stack].widget
+    if not isBookOrbitRelated(top) then
+        closeAllBookOrbitCatalogs("server-switch")
+        return false
+    end
+    UIManager:nextTick(function()
+        forceOpenBookOrbit("server-switch")
+        UIManager:show(require("ui/widget/infomessage"):new{
+            text = _("Switched To") .. "\n" .. label,
+            timeout = 2,
+        })
+    end)
     return true
 end
 
@@ -2481,6 +2557,7 @@ local function showSavedServerPicker(plugin, page)
                     if dialog then UIManager:close(dialog) end
                     local ok_switch, err = pcall(switchToSavedServer, plugin, entry)
                     if not ok_switch then logger.warn(TAG, "server switch failed:", err) end
+                    if ok_switch and err and reopenAfterSwitch(label) then return end
                     if page and type(page.close) == "function" then
                         pcall(page.close, page)
                     elseif page then
@@ -2539,21 +2616,6 @@ local function hookSignInPage()
             return true
         end
 
-        -- Wrap build to insert a "Saved servers" pill when any are stored.
-        local original_build = page.build
-        if type(original_build) == "function" then
-            page.build = function(p, sw, sh)
-                local root = original_build(p, sw, sh)
-                local list = loadServers()
-                if #list == 0 then return root end
-                -- Best-effort: we cannot easily rewrite the custom BoardUI tree,
-                -- so we rely on the action hook + a long-press / menu alternative.
-                -- The picker is also reachable from the server field via a
-                -- secondary entry point below.
-                return root
-            end
-        end
-
         -- Offer the picker immediately when the page opens if servers exist,
         -- via a small toast with a hint (non-blocking). User can also open it
         -- from Tweaks. Additionally, intercept edit of "server" when servers
@@ -2575,6 +2637,7 @@ local function hookSignInPage()
                                 if dlg then pcall(UIManager.close, UIManager, dlg) end
                                 local ok_switch, err = pcall(switchToSavedServer, plugin, entry)
                                 if not ok_switch then logger.warn(TAG, "server switch failed:", err) end
+                                if ok_switch and err and reopenAfterSwitch(label) then return end
                                 if p then
                                     pcall(UIManager.close, UIManager, p)
                                     if p.on_signed_in then pcall(p.on_signed_in) end
@@ -2664,6 +2727,7 @@ local function showServerChooser(plugin, on_enter_new, on_switched)
                 if not ok_switch then
                     logger.warn(TAG, "server switch failed:", err)
                 end
+                if ok_switch and err and reopenAfterSwitch(label) then return end
                 if on_switched then pcall(on_switched, entry) end
                 local InfoMessage = require("ui/widget/infomessage")
                 UIManager:show(InfoMessage:new{
@@ -3095,6 +3159,79 @@ end
 local function failure(text)
     local UIManager = require("ui/uimanager")
     UIManager:show(require("ui/widget/infomessage"):new{ text = text })
+end
+
+-- ---- Pick Server By Wi-Fi (2.16.0, off by default) ---------------------------
+-- When BookOrbit opens: on the home Wi-Fi the home server, on any other
+-- network the away one. Needs Wi-Fi connected (otherwise nothing changes)
+-- and both servers saved. Returns true when it switched.
+local function currentSSID()
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if not ok or type(NetworkMgr) ~= "table" then return nil end
+    local okc, connected = pcall(NetworkMgr.isConnected, NetworkMgr)
+    if not (okc and connected) then return nil end
+    local okn, nw = pcall(NetworkMgr.getCurrentNetwork, NetworkMgr)
+    local ssid = okn and type(nw) == "table" and nw.ssid
+    if type(ssid) == "string" and ssid ~= "" then return ssid end
+    return nil
+end
+
+autoPickServer = function(plugin, quiet)
+    if not cfg.auto_server or cfg.home_ssid == "" then return false end
+    local ssid = currentSSID()
+    if not ssid then return false end
+    local target = serverByKey(ssid == cfg.home_ssid and cfg.home_server or cfg.away_server)
+    if not target then return false end
+    local cur = currentBookOrbitCreds()
+    if cur and serverKey(cur) == serverKey(target) then return false end
+    local ok_s, switched = pcall(switchToSavedServer, plugin, target)
+    if not ok_s then logger.warn(TAG, "server switch by Wi-Fi failed:", switched) end
+    if not (ok_s and switched) then return false end
+    tweaksTrace("server: picked by Wi-Fi", serverLabel(target), quiet and "(in the background)" or "")
+    if quiet then return true end
+    local label = serverLabel(target)
+    require("ui/uimanager"):nextTick(function()
+        note(_("BookOrbit on ") .. label, label)
+    end)
+    return true
+end
+
+-- Every way BookOrbit opens ends in openCatalogBrowser; a new catalog takes
+-- the plugin's server settings, so switching just before it is enough.
+-- Everything else that talks to the server (BookOrbit's background sync,
+-- OrbitShelf's browsing and downloads) asks apiOpts for the server first:
+-- checked there too, quietly, at most every 30 s, and never while
+-- BookOrbit is open (its pages stay on the server they were opened on).
+local AUTO_RECHECK_S = 30
+local function hookAutoServer(plugin)
+    if type(plugin) ~= "table" or type(plugin.openCatalogBrowser) ~= "function" or plugin._tw_auto_server then return end
+    plugin._tw_auto_server = true
+    local checked_at, picking = nil, false
+    local orig = plugin.openCatalogBrowser
+    plugin.openCatalogBrowser = function(self, ...)
+        if self.catalog_browser == nil and cfg.auto_server and not picking then
+            picking = true
+            pcall(autoPickServer, self)
+            picking = false
+            checked_at = os.time()
+        end
+        return orig(self, ...)
+    end
+    if type(plugin.apiOpts) == "function" then
+        local orig_opts = plugin.apiOpts
+        plugin.apiOpts = function(self, ...)
+            if cfg.auto_server and not picking and self.catalog_browser == nil then
+                local now = os.time()
+                if not checked_at or now - checked_at >= AUTO_RECHECK_S or now < checked_at then
+                    checked_at = now
+                    picking = true
+                    pcall(autoPickServer, self, true)
+                    picking = false
+                end
+            end
+            return orig_opts(self, ...)
+        end
+    end
 end
 
 -- Shown before the password is first asked for, and from the menu.
@@ -3648,6 +3785,7 @@ do
             hookCatalogLibraryFilter()
             hookDispatcherOpen()
             hookPluginServerAddress(plugin)
+            hookAutoServer(plugin)
             hookBookSyncMark(plugin)
         end
         userpatch.registerPatchPluginFunc("bookorbit", onPlugin)
@@ -3703,6 +3841,70 @@ local function buildServerMenu()
         end,
     })
 
+    local function pickItem(key, title)
+        return {
+            text_func = function()
+                local e = serverByKey(cfg[key])
+                return title .. ": " .. (e and serverLabel(e) or _("Not Set"))
+            end,
+            enabled_func = function() return #loadServers() > 0 end,
+            sub_item_table_func = function()
+                local sub = {}
+                for _i, e in ipairs(loadServers()) do
+                    local k = serverKey(e)
+                    sub[#sub + 1] = {
+                        text = serverLabel(e),
+                        radio = true,
+                        checked_func = function() return cfg[key] == k end,
+                        callback = function()
+                            cfg[key] = k
+                            saveConfig()
+                        end,
+                    }
+                end
+                return sub
+            end,
+        }
+    end
+    table.insert(items, {
+        text = _("Pick Server By Wi-Fi"),
+        sub_item_table = {
+            {
+                text = _("Pick Server By Wi-Fi"),
+                help_text = _("When BookOrbit opens: on your home Wi-Fi it uses the home server, on any other network the away one. Wi-Fi has to be connected; otherwise nothing changes."),
+                checked_func = function() return cfg.auto_server == true end,
+                callback = function()
+                    cfg.auto_server = not cfg.auto_server
+                    saveConfig()
+                end,
+            },
+            {
+                text_func = function()
+                    return _("Home Wi-Fi") .. ": " .. (cfg.home_ssid ~= "" and cfg.home_ssid or _("Not Set"))
+                end,
+                help_text = _("Tap to use the Wi-Fi you're connected to now. Hold to clear."),
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    local ssid = currentSSID()
+                    if not ssid then
+                        failure(_("Connect to your home Wi-Fi first, then tap this again."))
+                        return
+                    end
+                    cfg.home_ssid = ssid
+                    saveConfig()
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+                hold_callback = function(touchmenu_instance)
+                    cfg.home_ssid = ""
+                    saveConfig()
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            },
+            pickItem("home_server", _("Home Server")),
+            pickItem("away_server", _("Away Server")),
+        },
+    })
+
     table.insert(items, {
         text = _("Save Current Server"),
         enabled_func = function() return current ~= nil end,
@@ -3722,7 +3924,7 @@ local function buildServerMenu()
                 table.insert(list2, creds)
             end
             saveServers(list2)
-            logger.info(TAG, "saved server", serverLabel(creds))
+            tweaksTrace("server: saved", serverLabel(creds))
             local InfoMessage = require("ui/widget/infomessage")
             local UIManager = require("ui/uimanager")
             UIManager:show(InfoMessage:new{
@@ -3750,8 +3952,11 @@ local function buildServerMenu()
             table.insert(items, {
                 text = (is_active and "✓ " or "") .. label,
                 callback = function()
-                    if applyBookOrbitCreds(entry) then
-                        logger.info(TAG, "switched to", label)
+                    -- the running BookOrbit too, not only the saved settings
+                    local ok_switch, switched = pcall(switchToSavedServer, livePlugin(), entry)
+                    if not ok_switch then logger.warn(TAG, "server switch failed:", switched) end
+                    if ok_switch and switched then
+                        if reopenAfterSwitch(label) then return end
                         local InfoMessage = require("ui/widget/infomessage")
                         local UIManager = require("ui/uimanager")
                         UIManager:show(InfoMessage:new{
@@ -3823,6 +4028,15 @@ local function buildServerMenu()
                                                         return
                                                     end
                                                     local list2 = loadServers()
+                                                    -- Pick Server By Wi-Fi follows the edit
+                                                    local old_key = serverKey(entry)
+                                                    local new_key = url .. "|" .. user
+                                                    if old_key ~= new_key then
+                                                        local moved = false
+                                                        if cfg.home_server == old_key then cfg.home_server = new_key; moved = true end
+                                                        if cfg.away_server == old_key then cfg.away_server = new_key; moved = true end
+                                                        if moved then saveConfig() end
+                                                    end
                                                     for i, e in ipairs(list2) do
                                                         if e.server_url == entry.server_url
                                                                 and e.username == entry.username then
