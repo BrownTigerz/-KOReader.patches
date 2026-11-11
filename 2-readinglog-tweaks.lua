@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.9.4
+Version: 2.9.6
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -71,6 +71,25 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.9.6  2026-11-11  Monthly Styles download themselves: the set's own 24
+                     styles come from the -KOReader.patches repo
+                     (readinglog-styles/), Steven's from his, in the
+                     background when Wi-Fi is already on (at most once a
+                     day, no timers) or from Download Styles Now. Styles
+                     from that repo also update themselves when its
+                     index.json has a newer version (never downgrades).
+                     Month lists offer the 24 before they're on the device.
+  2.9.5  2026-11-11  Square corners: a downloaded style that asks for square
+                     corners (as Cyber and Dark Academia have) keeps them
+                     with Keep My Colours on: your theme takes the style's
+                     square corners while it's on and goes back to round
+                     with a round style; cards on their own on the home
+                     screen are framed by Reading Log meanwhile, as with
+                     Cyber. Monthly Sets: BrownTigerz Monthly Styles is now
+                     Monthly Styles: the 17 hand-copied styles with
+                     Steven's 7 (January Northern
+                     Lights and Winter ... December Christmas and
+                     Fireworks). Saved month picks are unchanged.
   2.9.4  2026-11-11  Change Style Each Month: two styles a month. Each
                      month has a 1st half (1st-15th) and a 2nd half (16th to
                      the end, or Same As 1st Half); the 2nd style goes on at
@@ -378,7 +397,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.9.4"
+local PATCH_VERSION = "2.9.6"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -5980,21 +5999,38 @@ local function apply(A)
     -- any is on the device
     local PACK_NAMES = { christmas = "Christmas", gothic = "Gothic", forest = "Forest", ocean = "Ocean",
         space = "Space", honey = "Honey", winter = "Winter",
-        -- 2.9.4: BrownTigerz's 24 (copied by hand, not downloadable), for the
-        -- month lists before they're on the device
+        -- the 24 Monthly Styles styles (-KOReader.patches), for the month
+        -- lists before they're on the device
         northern_lights = "Northern Lights", fireworks = "Fireworks", candy_hearts = "Candy Hearts",
-        lanterns = "Lanterns", maple = "Maple", first_thaw = "First Thaw", rain = "Rain",
-        blossom = "Blossom", garden = "Garden", meadow = "Meadow", solstice = "Solstice",
-        campfire = "Campfire", lake = "Lake", fair = "Fair", sunflower = "Sunflower",
-        golden_wheat = "Golden Wheat", autumn_leaves = "Autumn Leaves", library = "Library",
-        pumpkin = "Pumpkin", ravens = "Ravens", poppy = "Poppy", hearth = "Hearth",
-        gingerbread = "Gingerbread", star = "Star" }
+        lanterns = "Lanterns", maple = "Maple", rain = "Rain", blossom = "Blossom", garden = "Garden",
+        solstice = "Solstice", campfire = "Campfire", lake = "Lake", fair = "Fair", sunflower = "Sunflower",
+        library = "Library", pumpkin = "Pumpkin", poppy = "Poppy", hearth = "Hearth",
+        first_thaw = "First Thaw", meadow = "Meadow", golden_wheat = "Golden Wheat",
+        autumn_leaves = "Autumn Leaves", ravens = "Ravens", gingerbread = "Gingerbread", star = "Star" }
     local PACK_ORDER = { "christmas", "forest", "gothic", "honey", "ocean", "space", "winter" }
     -- 2.9.4: two styles a month (1st-15th, 16th-end), in order or a random
     -- order each month, and Monthly Sets. One table: apply() is near
     -- Lua's local-variable limit.
-    local MS = { fetchable = {} }
+    local MS = { fetchable = {}, mine = {} }
     for _loop, id in ipairs(PACK_ORDER) do MS.fetchable[id] = true end
+    -- 2.9.6: the Monthly Styles' own 24 download from the -KOReader.patches
+    -- repo (readinglog-styles/, Steven's layout), the rest from Steven's.
+    MS.MINE_URL = "https://raw.githubusercontent.com/BrownTigerz/-KOReader.patches/main/readinglog-styles/"
+    MS.MINE_ORDER = { "northern_lights", "candy_hearts", "lanterns", "maple", "rain", "blossom", "garden",
+        "solstice", "campfire", "lake", "sunflower", "library", "fair", "pumpkin", "poppy", "hearth",
+        "fireworks", "first_thaw", "meadow", "golden_wheat", "autumn_leaves", "ravens", "gingerbread", "star" }
+    for _loop, id in ipairs(MS.MINE_ORDER) do MS.fetchable[id] = true; MS.mine[id] = true end
+    -- "2.10" > "2.9": compare dotted versions number by number
+    function MS.newer(a, b)
+        local pa, pb = {}, {}
+        for n in tostring(a or ""):gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
+        for n in tostring(b or ""):gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
+        for i = 1, math.max(#pa, #pb) do
+            local x, y = pa[i] or 0, pb[i] or 0
+            if x ~= y then return x > y end
+        end
+        return false
+    end
     local function monthStyleOn() return A.get("rlt_month_style", false) == true end
     local function monthStyleOf(m)
         local t = A.get("rlt_month_styles", nil)
@@ -6052,15 +6088,15 @@ local function apply(A)
     end
     -- Monthly Sets: { name, help, { {1st, 2nd} x12 } } (2nd nil = same)
     MS.presets = {
-        { name = "BrownTigerz Monthly Styles",
-          help = "Two of BrownTigerz's 24 styles a month: January Northern Lights and Fireworks, February Candy Hearts and Lanterns, March Maple and First Thaw, April Rain and Blossom, May Garden and Meadow, June Solstice and Campfire, July Lake and Fair, August Sunflower and Golden Wheat, September Autumn Leaves and Library, October Pumpkin and Ravens, November Poppy and Hearth, December Gingerbread and Star. They aren't downloadable: copy them onto the device by hand.",
+        { name = "Monthly Styles",
+          help = "17 styles from the -KOReader.patches repo with Steven's 7, two a month: January Northern Lights and Winter, February Candy Hearts and Lanterns, March Maple and Forest, April Rain and Blossom, May Garden and Honey, June Solstice and Campfire, July Lake and Ocean, August Sunflower and Space, September Library and Fair, October Pumpkin and Gothic, November Poppy and Hearth, December Christmas and Fireworks. They download in the background when Wi-Fi is on: these from the -KOReader.patches repo, Steven's from his.",
           months = {
-            { "pack:northern_lights", "pack:fireworks" }, { "pack:candy_hearts", "pack:lanterns" },
-            { "pack:maple", "pack:first_thaw" }, { "pack:rain", "pack:blossom" },
-            { "pack:garden", "pack:meadow" }, { "pack:solstice", "pack:campfire" },
-            { "pack:lake", "pack:fair" }, { "pack:sunflower", "pack:golden_wheat" },
-            { "pack:autumn_leaves", "pack:library" }, { "pack:pumpkin", "pack:ravens" },
-            { "pack:poppy", "pack:hearth" }, { "pack:gingerbread", "pack:star" } } },
+            { "pack:northern_lights", "pack:winter" }, { "pack:candy_hearts", "pack:lanterns" },
+            { "pack:maple", "pack:forest" }, { "pack:rain", "pack:blossom" },
+            { "pack:garden", "pack:honey" }, { "pack:solstice", "pack:campfire" },
+            { "pack:lake", "pack:ocean" }, { "pack:sunflower", "pack:space" },
+            { "pack:library", "pack:fair" }, { "pack:pumpkin", "pack:gothic" },
+            { "pack:poppy", "pack:hearth" }, { "pack:christmas", "pack:fireworks" } } },
         { name = "Downloadable Styles, Two A Month",
           help = "Reading Log's downloadable styles and its own, two a month: January Winter and Space, February Cute and Winter, March Forest and Honey, April Honey and Forest, May Honey and Ocean, June Ocean and Honey, July Ocean and Space, August Space and Honey, September Forest and Dark Academia, October Gothic and Dark Academia, November Dark Academia and Gothic, December Christmas and Winter. Downloaded in the background when Wi-Fi is on.",
           months = {
@@ -6142,7 +6178,7 @@ local function apply(A)
         return true
     end
     -- the downloadable styles the months are set to that aren't on the
-    -- device (BrownTigerz's are copied by hand: never asked for)
+    -- device (from either repo)
     local function missingPacks()
         local need, seen = {}, {}
         for m = 1, 12 do
@@ -6156,10 +6192,24 @@ local function apply(A)
         return need
     end
     local fetching = false
+    -- the 24 Monthly Styles styles on the device, with their versions
+    local function mineInstalled()
+        local have = {}
+        for id in pairs(MS.mine) do
+            local p = A.packs and type(A.packs.get) == "function" and A.packs.get(id)
+            if type(p) == "table" then have[id] = p.version or "" end
+        end
+        return have
+    end
+    -- Downloads the styles the months need that aren't on the device (from
+    -- the -KOReader.patches repo for its 24, Steven's for his), and newer
+    -- versions of the 24 that are on it. Wi-Fi already on only; in the
+    -- background at most once a day, or now from Download Styles Now.
     local function fetchMonthStyles(manual, after)
         if fetching or not (A.packs and A.packs.fetchIndex and A.packs.download and A.packs.place) then return end
         local need = missingPacks()
-        if #need == 0 then
+        local have = mineInstalled()
+        if #need == 0 and next(have) == nil then
             if manual then noteQuiet(T("Every month's style is on the device")) end
             return
         end
@@ -6175,39 +6225,75 @@ local function apply(A)
             A.set("rlt_month_style_fetch", today)
         end
         fetching = true
-        local wanted = {}
-        for _loop, id in ipairs(need) do wanted[id] = true end
+        local wanted, mine_wanted = {}, false
+        for _loop, id in ipairs(need) do
+            wanted[id] = true
+            if MS.mine[id] then mine_wanted = true end
+        end
+        local K = A.packs
         local function work()
-            local r = A.packs.fetchIndex()
-            if type(r) ~= "table" or r.error then return { error = r and r.error or "?" } end
-            local got = {}
-            for _loop, e in ipairs(r.styles or {}) do
-                if wanted[e.id] and not e.builtin then
-                    local ok, tmp = A.packs.download(e)
-                    got[#got + 1] = { entry = e, tmp = ok and tmp or nil, error = (not ok) and tmp or nil }
+            local got, errs = {}, {}
+            local orig_index, orig_files = K.INDEX_URL, K.FILES_URL
+            local function from(index_url, files_url, pick)
+                K.INDEX_URL, K.FILES_URL = index_url, files_url
+                local okf, r = pcall(K.fetchIndex)
+                if not okf or type(r) ~= "table" or r.error then
+                    errs[#errs + 1] = okf and type(r) == "table" and r.error or tostring(r)
+                    return
+                end
+                for _loop, e in ipairs(r.styles or {}) do
+                    local why = (not e.builtin) and pick(e)
+                    if why then
+                        local okd, ok, tmp = pcall(K.download, e)
+                        got[#got + 1] = { entry = e, why = why, tmp = okd and ok and tmp or nil,
+                            error = (not (okd and ok)) and tostring(okd and tmp or ok) or nil }
+                    end
                 end
             end
-            return { got = got }
+            -- the 24: missing ones the months need, and newer versions
+            if mine_wanted or next(have) ~= nil then
+                from(MS.MINE_URL .. "index.json", MS.MINE_URL, function(e)
+                    if not MS.mine[e.id] then return nil end
+                    if wanted[e.id] then return "new" end
+                    if have[e.id] and MS.newer(e.version, have[e.id]) then return "update" end
+                end)
+            end
+            -- Steven's: only missing ones the months need
+            local steven = false
+            for id in pairs(wanted) do if not MS.mine[id] then steven = true end end
+            if steven then
+                from(orig_index, orig_files, function(e)
+                    if wanted[e.id] and not MS.mine[e.id] then return "new" end
+                end)
+            end
+            K.INDEX_URL, K.FILES_URL = orig_index, orig_files
+            return { got = got, error = (#got == 0 and #errs > 0) and errs[1] or nil }
         end
         local function done(r)
             fetching = false
             if type(r) ~= "table" then return end
-            if r.error then warn("Change Style Each Month: style list:", tostring(r.error)) return end
-            local placed, failed = 0, 0
+            if r.error then warn("Change Style Each Month: style list:", tostring(r.error)) end
+            local placed, updated, failed = 0, 0, 0
             for _loop, g in ipairs(r.got or {}) do
                 local ok, err = false, g.error
-                if g.tmp then ok, err = A.packs.place(g.entry, g.tmp) end
-                if ok then placed = placed + 1 else
+                if g.tmp then ok, err = K.place(g.entry, g.tmp) end
+                if ok then
+                    if g.why == "update" then updated = updated + 1 else placed = placed + 1 end
+                else
                     failed = failed + 1
                     warn("Change Style Each Month: couldn't install", tostring(g.entry.id), tostring(err))
                 end
             end
             if placed > 0 then
                 noteQuiet(A.plural(placed, "style", "styles") .. T(" downloaded for Change Style Each Month"))
-            elseif failed > 0 and manual then
-                noteQuiet(T("The styles couldn't be downloaded"))
+            elseif updated > 0 then
+                noteQuiet(A.plural(updated, "style", "styles") .. T(" updated"))
+            elseif manual then
+                if failed > 0 or r.error then noteQuiet(T("The styles couldn't be downloaded"))
+                else noteQuiet(T("Every month's style is on the device and up to date")) end
             end
-            if applyMonthStyle(false) then redrawAll() end
+            if (placed > 0 or updated > 0) and applyMonthStyle(false) then redrawAll() end
+            if updated > 0 then redrawAll() end
             if after then pcall(after) end
         end
         local ok_t, Trapper = pcall(require, "ui/trapper")
@@ -6302,7 +6388,56 @@ local function apply(A)
         end
     end
 
+    -- ─── A style's square corners under Keep My Colours (2.9.5) ────────────
+    -- A downloaded style can ask for square corners (theme.square, the way
+    -- Cyber and Dark Academia are). Keep My Colours puts your theme back,
+    -- and the corners went with it. Now your theme takes the style's square
+    -- corners while that style is on and goes back to its own when the
+    -- style changes; and, as with Cyber, cards on their own on the home
+    -- screen are framed by Reading Log (Simple UI's own frame is round).
+    local sq_orig = {}
+    local function packSquare()
+        local p = A.packs and type(A.packs.active) == "function" and A.packs.active()
+        local th = type(p) == "table" and p.theme_id and type(A.THEMES) == "table" and A.THEMES[p.theme_id]
+        return type(th) == "table" and th.square == true
+    end
+    local square_lent = false
+    local function syncSquare()
+        if type(A.THEMES) ~= "table" then return end
+        local want = keepColoursOn() and packSquare()
+        local cur = type(A.themeId) == "function" and A.themeId() or nil
+        square_lent = false
+        for id, th in pairs(A.THEMES) do
+            if type(th) == "table" and th.pack == nil then
+                if sq_orig[id] == nil then sq_orig[id] = th.square and true or false end
+                local lend = want and id == cur and not sq_orig[id]
+                if lend then square_lent = true end
+                th.square = (sq_orig[id] or lend) and true or nil
+            end
+        end
+    end
+    if type(A.standaloneNative) == "function" and not A._rlt_square_native then
+        A._rlt_square_native = true
+        local orig_native = A.standaloneNative
+        A.standaloneNative = function(...)
+            if square_lent then return false end
+            return orig_native(...)
+        end
+    end
+    if A._rlt_keep_colours and type(A.setStyle) == "function" and not A._rlt_square_style then
+        A._rlt_square_style = true
+        local keep_set_style = A.setStyle
+        A.setStyle = function(...)
+            local res = (function(...) return { n = select("#", ...), ... } end)(pcall(keep_set_style, ...))
+            pcall(syncSquare)
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2, res.n)
+        end
+    end
+    pcall(syncSquare)
+
     styleKeep.coloursOn, styleKeep.looksOn, styleKeep.myLooks = keepColoursOn, keepLooksOn, myLooks
+    styleKeep.syncSquare = syncSquare
     end
 
     -- ─── Quote cards: a bigger name, a fuller card, a divider (2.9.3, on) ──
@@ -6645,10 +6780,19 @@ local function apply(A)
             -- Change Style Each Month: a new month's style goes on before this
             -- draw, so the Dashboard comes up in it (the rest of the home page
             -- follows on the next tick)
+            -- 2.9.5: a style's square corners, once the styles are loaded
+            if not styleKeep.square_synced and styleKeep.syncSquare then
+                styleKeep.square_synced = true
+                pcall(styleKeep.syncSquare)
+            end
             if monthStyleOn() then
                 local okm, changed = pcall(applyMonthStyle, false)
                 if okm and changed then UIManager:nextTick(redrawAll) end
-                if #missingPacks() > 0 then UIManager:nextTick(function() pcall(fetchMonthStyles, false) end) end
+                -- a missing style, or the day's check for newer versions (both
+                -- only go ahead with Wi-Fi already on)
+                if #missingPacks() > 0 or A.get("rlt_month_style_fetch", nil) ~= os.date("%Y-%m-%d") then
+                    UIManager:nextTick(function() pcall(fetchMonthStyles, false) end)
+                end
             end
             CUR_CTX = ctx
             local ok, c = pcall(function()
@@ -7491,7 +7635,7 @@ local function apply(A)
             local items = {
                 {
                     text = "Change Style Each Month",
-                    help_text = "Reading Log's style changes with the month, on the first Dashboard draw of a new month and, for a month with two styles, again on the 16th: no timers. Pick one of the Monthly Sets, or set each month's 1st half and 2nd half below, or Keep Current to leave it alone. A downloaded style that isn't on the device yet is fetched in the background when Wi-Fi is already on (at most once a day; it never turns Wi-Fi on); that month waits for it. Off by default.",
+                    help_text = "Reading Log's style changes with the month, on the first Dashboard draw of a new month and, for a month with two styles, again on the 16th: no timers. Pick one of the Monthly Sets, or set each month's 1st half and 2nd half below, or Keep Current to leave it alone. A downloaded style that isn't on the device yet is fetched in the background when Wi-Fi is already on (at most once a day; it never turns Wi-Fi on); that month waits for it. The Monthly Styles' own 24 also update themselves when a newer version is out. Off by default.",
                     checked_func = monthStyleOn,
                     keep_menu_open = true,
                     callback = function()
@@ -7515,6 +7659,9 @@ local function apply(A)
                     seen[id] = true; list[#list + 1] = "pack:" .. id
                 end
                 for _loop, id in ipairs(PACK_ORDER) do
+                    if not seen[id] then seen[id] = true; list[#list + 1] = "pack:" .. id end
+                end
+                for _loop, id in ipairs(MS.MINE_ORDER) do
                     if not seen[id] then list[#list + 1] = "pack:" .. id end
                 end
                 local cut = (h == 2) and 6 or 5
@@ -7609,7 +7756,7 @@ local function apply(A)
             end
             items[#items + 1] = {
                 text = "Download Styles Now",
-                help_text = "Downloads the styles the months are set to that aren't on the device yet (Wi-Fi on). Only those, not the whole list. BrownTigerz's styles aren't downloadable: copy them by hand.",
+                help_text = "Downloads the styles the months are set to that aren't on the device yet, and newer versions of the Monthly Styles' own 24 that are (Wi-Fi on). Only those, not the whole list. In the background this happens at most once a day, when Wi-Fi is already on.",
                 enabled_func = monthStyleOn,
                 keep_menu_open = true,
                 callback = function() pcall(fetchMonthStyles, true) end,
@@ -7884,10 +8031,14 @@ local function apply(A)
         grouped[#grouped + 1] = { text = "Styles", sub_item_table = {
             {
                 text = "Keep My Colours",
-                help_text = "A style change (by hand, or Change Style Each Month) changes only how the cards look: your colour theme and accents stay, instead of the style's own colours. On by default. Off: a style with colours of its own brings them, as Reading Log does it.",
+                help_text = "A style change (by hand, or Change Style Each Month) changes only how the cards look: your colour theme and accents stay, instead of the style's own colours. A style with square corners keeps them on your theme, and cards on their own on the home screen are framed by Reading Log while it's on, as with Cyber. On by default. Off: a style with colours of its own brings them, as Reading Log does it.",
                 checked_func = function() return styleKeep.coloursOn() end,
                 keep_menu_open = true,
-                callback = function() A.set("rlt_keep_colours", (not styleKeep.coloursOn()) and true or false) end,
+                callback = function()
+                    A.set("rlt_keep_colours", (not styleKeep.coloursOn()) and true or false)
+                    if styleKeep.syncSquare then pcall(styleKeep.syncSquare) end
+                    redrawAll()
+                end,
             },
             {
                 text = "Keep My Card Looks",
