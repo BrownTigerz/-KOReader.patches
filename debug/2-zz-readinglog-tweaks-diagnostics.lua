@@ -1,8 +1,13 @@
 --[[
 2-zz-readinglog-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.4
+Version 1.1.5
 
 Changelog:
+  1.1.5 - This year's finished books, once per window (the first time Year
+          in covers is drawn): finish day, reading days in the statistics
+          (and how many on or before the finish day), on the device or not,
+          and the total shown. For "Nothing finished this year yet" next to
+          "5 finished".
   1.1.4 - Lighter: one line before each of the Activity card's drawing
           steps and no shape or text lines, so it paints at close to normal
           speed (1.1.3 slowed it so much the crash stopped coming).
@@ -99,7 +104,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.4"
+local DIAG_VERSION = "1.1.5"
 local DIAG_TAG = "readinglog-tweaks"   -- = the filename stem (Debugging Menu)
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/" .. DIAG_TAG .. "-diagnostics.state"
@@ -498,6 +503,45 @@ local function closePage()
     end
 end
 
+-- 1.1.5: this year's finished books, once per window (the first time the
+-- Yearly page's covers are drawn): why the cards' counts differ. Year in
+-- covers counts every finished book plus any added by hand; Longest reads and
+-- Finish speed only list books with reading statistics up to their finish day.
+local year_dumped = false
+local function dumpYear(A)
+    if year_dumped or type(A) ~= "table" or type(A.D) ~= "table" then return end
+    local D = A.D
+    local okY, yr = pcall(D.year, nil)
+    if not (okY and type(yr) == "table" and type(yr.list) == "table") then return end
+    year_dumped = true
+    local okF, F = pcall(function() return D.finishFixer and D.finishFixer() end)
+    F = okF and F or nil
+    log("year %s: %d finished books listed, total shown %s (the difference: added by hand or left out)",
+        q(yr.year), #yr.list, q(yr.total))
+    for _i, it in ipairs(yr.list) do
+        local days = F and type(F.days) == "function" and select(2, pcall(F.days, it.fp)) or nil
+        local n, before = 0, 0
+        local fin = string.format("%04d-%02d-%02d", tonumber(it.year or yr.year) or 0, tonumber(it.month) or 0, tonumber(it.day) or 0)
+        if type(days) == "table" then
+            for _j, d in ipairs(days) do
+                n = n + 1
+                if type(d) == "table" and type(d.ymd) == "string" and d.ymd <= fin then before = before + 1 end
+            end
+        end
+        local onDevice = "?"
+        if type(D.fileExists) == "function" then
+            local okE, e = pcall(D.fileExists, it.fp)
+            if okE then onDevice = e and "yes" or "no" end
+        end
+        local first = type(days) == "table" and days[1] and days[1].ymd or "-"
+        local last = type(days) == "table" and days[#days] and days[#days].ymd or "-"
+        log("  finished %s: \"%s\" | reading days in the statistics %d (on or before the finish day %d, first %s, last %s) | on device %s",
+            fin, tostring(it.title or "?"), n, before, first, last,
+            onDevice)
+    end
+    if F and type(F.close) == "function" then pcall(F.close) end
+end
+
 local function wrapCard(name, def)
     if type(def) ~= "table" then return end
     if type(def.build) == "function" and wrapped[def.build] == nil then
@@ -518,6 +562,7 @@ local function wrapCard(name, def)
             -- the card's canvas carries its name, for the paint lines
             if res[1] and type(res[2]) == "table" then pcall(function() res[2]._rltd_name = name end) end
             if acad then log("A: card %s build end", name) end
+            if name == "year_covers" and not year_dumped then pcall(dumpYear, A_ref) end
             local key = sample and (name .. " (sample)") or name
             stats.cards[key] = stats.cards[key] or bucket()
             add(stats.cards[key], took)
