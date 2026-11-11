@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.9.2
+Version: 2.9.4
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -71,6 +71,35 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.9.4  2026-11-11  Change Style Each Month: two styles a month. Each
+                     month has a 1st half (1st-15th) and a 2nd half (16th to
+                     the end, or Same As 1st Half); the 2nd style goes on at
+                     the first Dashboard draw on or after the 16th, no
+                     timers. New, off by default: Random Order Each Month (a
+                     coin flip at the start of the month picks which of the
+                     two goes first; saved, and you always get both). New:
+                     Monthly Sets, all 12 months in one tap: BrownTigerz
+                     Monthly Styles (the 24 hand-copied styles, never sent
+                     for download), Downloadable Styles Two A Month, Reading
+                     Log's Own Styles, and Ready-Made One A Month (replaces
+                     Back To The Ready-Made List). Saved month picks are
+                     unchanged: a month with one style works as before.
+  2.9.3  2026-11-11  Pocket watch back: the crash was this patch's, not
+                     Reading Log's (Reading Log's own page never crashed). A
+                     Smart card now hosts its card the way Reading Log's page
+                     does (the card keeps its own drawing cache, the Smart
+                     card none), and the Pocket watch is drawn again instead
+                     of the Brass dial. The critter's suggestions work out
+                     the unread list once and skip authors and genres with
+                     nothing unread (half the Random pick work after a
+                     restart, same suggestions). New, on by default: Quote
+                     Card Extras (Styles menu): every quote card, every look,
+                     shows the name under the quote bigger and in the accent
+                     (always smaller than the quote); a short quote is drawn
+                     bigger in the middle of the card; and Plain and
+                     Manuscript get a small divider between them, its mark
+                     from the style (a diamond; a snowflake for Winter and
+                     Christmas; a star for Space).
   2.9.2  2026-11-11  New, on by default: Keep My Card Looks (Styles menu): a
                      look picked by hand in a card's own settings (Year in
                      covers: Plain, the rings' shape...) stays when the style
@@ -349,7 +378,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.9.2"
+local PATCH_VERSION = "2.9.4"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -584,6 +613,29 @@ local function critterKit(...)
         local books = lib.books or {}
         local sug = {}
         recent = recent or {}
+        -- 2.9.3: the whole unread list worked out once (it was asked for
+        -- up to five times), and an author or genre is only searched when
+        -- it has an unread book at all (most searches came back empty)
+        local all_unread
+        local function anyUnread()
+            if not all_unread then all_unread = D.pickCandidates(books, {}) or {} end
+            return all_unread
+        end
+        local unread_auth, unread_genre = {}, {}
+        for _loop, b in ipairs(books) do
+            if b.status == "unread" then
+                for _loop2, a in ipairs(b.authors or {}) do unread_auth[a:lower()] = true end
+                for _loop2, g in ipairs(b.genres or {}) do unread_genre[g:lower()] = true end
+            end
+        end
+        for _loop, c in ipairs(anyUnread()) do
+            -- BookOrbit's unread books join the author searches (not genres)
+            if type(c.fp) == "string" and c.fp:match("^bookorbit:") then
+                for _loop2, a in ipairs(type(c.authors) == "table" and c.authors or {}) do
+                    if type(a) == "string" then unread_auth[a:lower()] = true end
+                end
+            end
+        end
         local by_fp = {}
         for _loop, b in ipairs(books) do by_fp[b.fp] = b end
         -- the next in a series you finished a book of in the last 60 days
@@ -593,7 +645,7 @@ local function critterKit(...)
             local b = by_fp[r.fp]
             if b and b.series then
                 local key = b.series:lower()
-                for _loop, c in ipairs(D.pickCandidates(books, {})) do
+                for _loop, c in ipairs(anyUnread()) do
                     if c.series and c.series:lower() == key then
                         sug.series_next = { done = r.title or b.title, name = b.series, book = c }
                         break
@@ -620,7 +672,7 @@ local function critterKit(...)
                 for _loop, g in ipairs(tally(books, "genres")) do
                     if g.name:lower() ~= ck then
                         local cands = {}
-                        for _loop, c in ipairs(D.pickCandidates(books, { genres = { g.name } })) do
+                        for _loop, c in ipairs(unread_genre[g.name:lower()] and D.pickCandidates(books, { genres = { g.name } }) or {}) do
                             local same = false
                             for _loop, h in ipairs(c.genres or {}) do if h:lower() == ck then same = true end end
                             if not same then cands[#cands + 1] = c end
@@ -647,7 +699,7 @@ local function critterKit(...)
         if n >= 3 then sug.discover = n end
         -- an author you finish, with a book of theirs not started yet
         for _loop, a in ipairs(tally(books, "authors")) do
-            local cands = D.pickCandidates(books, { authors = { a.name } })
+            local cands = unread_auth[a.name:lower()] and D.pickCandidates(books, { authors = { a.name } }) or {}
             if #cands > 0 then
                 sug.author = { name = a.name, n = a.n, book = dayIndex(cands, "author" .. a.name) }
                 break
@@ -659,7 +711,7 @@ local function critterKit(...)
             if b.status == "finished" and b.series then done_series[b.series:lower()] = b.series end
         end
         local next_in = {}
-        for _loop, c in ipairs(D.pickCandidates(books, {})) do
+        for _loop, c in ipairs(anyUnread()) do
             if c.series and done_series[c.series:lower()] then next_in[#next_in + 1] = c end
         end
         if #next_in > 0 then
@@ -669,7 +721,7 @@ local function critterKit(...)
         -- a genre you finish, with a book in it not started yet
         for _loop, g in ipairs(tally(books, "genres")) do
             if g.n >= 2 then
-                local cands = D.pickCandidates(books, { genres = { g.name } })
+                local cands = unread_genre[g.name:lower()] and D.pickCandidates(books, { genres = { g.name } }) or {}
                 if #cands > 0 then
                     sug.genre = { name = g.name, n = g.n, book = dayIndex(cands, "genre" .. g.name) }
                     break
@@ -685,7 +737,7 @@ local function critterKit(...)
             sug.hold = { book = b, pct = tonumber(pct) }
         end
         -- anything not started yet
-        local any = D.pickCandidates(books, {})
+        local any = anyUnread()
         if #any > 0 then sug.pick = { book = dayIndex(any, "pick") } end
         return sug
     end
@@ -3759,6 +3811,17 @@ local function apply(A)
                 local dots_h = 0
                 local ch = h - dots_h
                 local c = A.canvas{ w = w, h = h, plain = true, page = env.page }
+                -- 2.9.3: the Smart card keeps no drawing cache of its own (the
+                -- page would give it one): the card inside keeps its own,
+                -- the way it does on Reading Log's own page. Drawn inside a
+                -- cached Smart card instead, Dark Academia's Pocket watch
+                -- crashed KOReader now and then; on Reading Log's page it
+                -- never did.
+                local base_paint = c.paintTo
+                c.paintTo = function(self, ...)
+                    self.cache_me = nil
+                    return base_paint(self, ...)
+                end
                 if n == 0 then return c end
                 local i = smartIndex(def, cards, env)
                 local name = cards[i]
@@ -3767,6 +3830,7 @@ local function apply(A)
                 ienv.sample = env.sample
                 local ok, child = pcall(P[name].build, ienv)
                 if ok and child then
+                    if type(child) == "table" and not ienv.sample then child.cache_me = not P[name].tick end
                     c:sub(child, 0, 0, name .. "|")
                 else
                     warn("smart card", tostring(name), "failed:", tostring(child))
@@ -5915,8 +5979,22 @@ local function apply(A)
     -- the downloadable styles (reading-log-styles), for the month lists before
     -- any is on the device
     local PACK_NAMES = { christmas = "Christmas", gothic = "Gothic", forest = "Forest", ocean = "Ocean",
-        space = "Space", honey = "Honey", winter = "Winter" }
+        space = "Space", honey = "Honey", winter = "Winter",
+        -- 2.9.4: BrownTigerz's 24 (copied by hand, not downloadable), for the
+        -- month lists before they're on the device
+        northern_lights = "Northern Lights", fireworks = "Fireworks", candy_hearts = "Candy Hearts",
+        lanterns = "Lanterns", maple = "Maple", first_thaw = "First Thaw", rain = "Rain",
+        blossom = "Blossom", garden = "Garden", meadow = "Meadow", solstice = "Solstice",
+        campfire = "Campfire", lake = "Lake", fair = "Fair", sunflower = "Sunflower",
+        golden_wheat = "Golden Wheat", autumn_leaves = "Autumn Leaves", library = "Library",
+        pumpkin = "Pumpkin", ravens = "Ravens", poppy = "Poppy", hearth = "Hearth",
+        gingerbread = "Gingerbread", star = "Star" }
     local PACK_ORDER = { "christmas", "forest", "gothic", "honey", "ocean", "space", "winter" }
+    -- 2.9.4: two styles a month (1st-15th, 16th-end), in order or a random
+    -- order each month, and Monthly Sets. One table: apply() is near
+    -- Lua's local-variable limit.
+    local MS = { fetchable = {} }
+    for _loop, id in ipairs(PACK_ORDER) do MS.fetchable[id] = true end
     local function monthStyleOn() return A.get("rlt_month_style", false) == true end
     local function monthStyleOf(m)
         local t = A.get("rlt_month_styles", nil)
@@ -5931,6 +6009,94 @@ local function apply(A)
         copy[tostring(m)] = (v ~= MONTH_DEFAULTS[m]) and v or nil
         A.set("rlt_month_styles", next(copy) and copy or nil)
     end
+    -- the 2nd half (16th-end): nil = Same As 1st Half (no change on the 16th)
+    function MS.second(m)
+        local t = A.get("rlt_month_styles2", nil)
+        local v = type(t) == "table" and t[tostring(m)] or nil
+        if v == monthStyleOf(m) then v = nil end
+        return v
+    end
+    function MS.setSecond(m, v)
+        local t = A.get("rlt_month_styles2", nil)
+        local copy = {}
+        if type(t) == "table" then for k, x in pairs(t) do copy[k] = x end end
+        if v == "same" then v = nil end
+        copy[tostring(m)] = v
+        A.set("rlt_month_styles2", next(copy) and copy or nil)
+    end
+    function MS.randomOn() return A.get("rlt_month_order", nil) == "random" end
+    function MS.half() return (tonumber(os.date("%d")) or 1) >= 16 and 2 or 1 end
+    -- Random Order: one coin flip a month, saved, so a restart doesn't
+    -- flip it again. true = the 2nd-half style goes first this month.
+    function MS.swapped(key)
+        if not MS.randomOn() then return false end
+        local f = A.get("rlt_month_flip", nil)
+        if type(f) == "string" and f:sub(1, #key + 1) == key .. ":" then return f:sub(-1) == "1" end
+        local flip = ((os.time() + math.random(1000)) % 2) == 1
+        A.set("rlt_month_flip", key .. ":" .. (flip and "1" or "0"))
+        return flip
+    end
+    -- the style for this half of the month: v (nil = leave it), done key,
+    -- and a label for the note
+    function MS.current()
+        local key, m = os.date("%Y-%m"), tonumber(os.date("%m"))
+        local h = MS.half()
+        local a, b = monthStyleOf(m), MS.second(m)
+        if b == nil then
+            if h == 1 then return a, key, MONTH_NAMES[m] end
+            return nil, key .. "-b", MONTH_NAMES[m]
+        end
+        if MS.swapped(key) then a, b = b, a end
+        if h == 1 then return a, key, MONTH_NAMES[m] end
+        return b, key .. "-b", T("late ") .. MONTH_NAMES[m]
+    end
+    -- Monthly Sets: { name, help, { {1st, 2nd} x12 } } (2nd nil = same)
+    MS.presets = {
+        { name = "BrownTigerz Monthly Styles",
+          help = "Two of BrownTigerz's 24 styles a month: January Northern Lights and Fireworks, February Candy Hearts and Lanterns, March Maple and First Thaw, April Rain and Blossom, May Garden and Meadow, June Solstice and Campfire, July Lake and Fair, August Sunflower and Golden Wheat, September Autumn Leaves and Library, October Pumpkin and Ravens, November Poppy and Hearth, December Gingerbread and Star. They aren't downloadable: copy them onto the device by hand.",
+          months = {
+            { "pack:northern_lights", "pack:fireworks" }, { "pack:candy_hearts", "pack:lanterns" },
+            { "pack:maple", "pack:first_thaw" }, { "pack:rain", "pack:blossom" },
+            { "pack:garden", "pack:meadow" }, { "pack:solstice", "pack:campfire" },
+            { "pack:lake", "pack:fair" }, { "pack:sunflower", "pack:golden_wheat" },
+            { "pack:autumn_leaves", "pack:library" }, { "pack:pumpkin", "pack:ravens" },
+            { "pack:poppy", "pack:hearth" }, { "pack:gingerbread", "pack:star" } } },
+        { name = "Downloadable Styles, Two A Month",
+          help = "Reading Log's downloadable styles and its own, two a month: January Winter and Space, February Cute and Winter, March Forest and Honey, April Honey and Forest, May Honey and Ocean, June Ocean and Honey, July Ocean and Space, August Space and Honey, September Forest and Dark Academia, October Gothic and Dark Academia, November Dark Academia and Gothic, December Christmas and Winter. Downloaded in the background when Wi-Fi is on.",
+          months = {
+            { "pack:winter", "pack:space" }, { "cute", "pack:winter" }, { "pack:forest", "pack:honey" },
+            { "pack:honey", "pack:forest" }, { "pack:honey", "pack:ocean" }, { "pack:ocean", "pack:honey" },
+            { "pack:ocean", "pack:space" }, { "pack:space", "pack:honey" }, { "pack:forest", "academia" },
+            { "pack:gothic", "academia" }, { "academia", "pack:gothic" }, { "pack:christmas", "pack:winter" } } },
+        { name = "Reading Log's Own Styles",
+          help = "Only the styles that come with Reading Log, nothing to download: January Cyber and Default, February Cute and Default, March Default and Cute, April Cute and Default, May Default and Cute, June Cute and Cyber, July Default and Cyber, August Cyber and Cute, September Dark Academia and Default, October Dark Academia and Cyber, November Dark Academia and Cute, December Cute and Dark Academia.",
+          months = {
+            { "cyber", "default" }, { "cute", "default" }, { "default", "cute" }, { "cute", "default" },
+            { "default", "cute" }, { "cute", "cyber" }, { "default", "cyber" }, { "cyber", "cute" },
+            { "academia", "default" }, { "academia", "cyber" }, { "academia", "cute" }, { "cute", "academia" } } },
+        { name = "Ready-Made, One A Month",
+          help = "One style a month, as 2.9.0 started: January Winter, February Cute, March Forest, April-May Honey, June-July Ocean, August Space, September Forest, October Gothic, November Dark Academia, December Christmas.",
+          months = {} },
+    }
+    function MS.presetIs(p)
+        for m = 1, 12 do
+            local pm = p.months[m] or { MONTH_DEFAULTS[m] }
+            local b = pm[2]
+            if b == pm[1] then b = nil end
+            if monthStyleOf(m) ~= pm[1] or MS.second(m) ~= b then return false end
+        end
+        return true
+    end
+    function MS.usePreset(p)
+        local t1, t2 = {}, {}
+        for m = 1, 12 do
+            local pm = p.months[m] or { MONTH_DEFAULTS[m] }
+            if pm[1] ~= MONTH_DEFAULTS[m] then t1[tostring(m)] = pm[1] end
+            if pm[2] and pm[2] ~= pm[1] then t2[tostring(m)] = pm[2] end
+        end
+        A.set("rlt_month_styles", next(t1) and t1 or nil)
+        A.set("rlt_month_styles2", next(t2) and t2 or nil)
+    end
     local function packIdOf(v) return type(v) == "string" and v:match("^pack:([a-z0-9_]+)$") or nil end
     local function packInstalled(id)
         return A.packs and type(A.packs.get) == "function" and A.packs.get(id) ~= nil
@@ -5944,7 +6110,6 @@ local function apply(A)
         end
         return ({ default = "Default", cute = "Cute", cyber = "Cyber", academia = "Dark Academia" })[v] or tostring(v)
     end
-    local function thisMonth() return os.date("%Y-%m"), tonumber(os.date("%m")) end
     local function noteQuiet(msg)
         if require("device").screen_saver_mode then return end
         local NM = package.loaded["ui/network/manager"]
@@ -5959,9 +6124,12 @@ local function apply(A)
     -- it changed the style.
     local function applyMonthStyle(force)
         if not monthStyleOn() or type(A.setStyle) ~= "function" then return false end
-        local key, m = thisMonth()
+        -- 2.9.4: this half of the month (a month with one style changes on
+        -- the 1st only; "-b" marks the 2nd half done)
+        local v, key, label = MS.current()
         if not force and A.get("rlt_month_style_done", nil) == key then return false end
-        local v = monthStyleOf(m)
+        -- Put This Month's Style On Now in a one-style month's 2nd half
+        if force and v == nil then v = monthStyleOf(tonumber(os.date("%m"))) end
         if v == "keep" or v == nil then A.set("rlt_month_style_done", key) return false end
         local id = packIdOf(v)
         if id and not packInstalled(id) then return false end -- waits for the download
@@ -5970,15 +6138,20 @@ local function apply(A)
         if now == v then return false end
         local ok, err = pcall(A.setStyle, v)
         if not ok then warn("Change Style Each Month:", tostring(err)) return false end
-        noteQuiet(T("Reading Log style for ") .. MONTH_NAMES[m] .. ": " .. styleName(v))
+        noteQuiet(T("Reading Log style for ") .. label .. ": " .. styleName(v))
         return true
     end
-    -- the downloaded styles the months are set to that aren't on the device
+    -- the downloadable styles the months are set to that aren't on the
+    -- device (BrownTigerz's are copied by hand: never asked for)
     local function missingPacks()
         local need, seen = {}, {}
         for m = 1, 12 do
-            local id = packIdOf(monthStyleOf(m))
-            if id and not seen[id] and not packInstalled(id) then seen[id] = true; need[#need + 1] = id end
+            for h = 1, 2 do
+                local id = packIdOf(h == 1 and monthStyleOf(m) or MS.second(m))
+                if id and MS.fetchable[id] and not seen[id] and not packInstalled(id) then
+                    seen[id] = true; need[#need + 1] = id
+                end
+            end
         end
         return need
     end
@@ -6049,7 +6222,7 @@ local function apply(A)
         end)
     end
 
-    -- Keep My Colours, Keep My Card Looks and the Pocket watch guard: one
+    -- Keep My Colours and Keep My Card Looks: one
     -- local for the menu (apply() is near Lua's local-variable limit)
     local styleKeep = {}
     do
@@ -6129,28 +6302,338 @@ local function apply(A)
         end
     end
 
-    -- ─── Pocket watch drawn as Brass dial (2.9.1) ──────────────────────────
-    -- Dark Academia's Pocket watch rings (Activity, Week and Month rings)
-    -- crashed KOReader now and then while being drawn (a segfault in the
-    -- middle of painting the watch, never with Brass dial). Until Reading Log
-    -- fixes it, a Pocket watch is drawn as the Brass dial. Your setting stays
-    -- Pocket watch, so it comes back by itself once this is taken out.
-    if type(A.academia) == "function" and not A._rlt_no_watch then
-        A._rlt_no_watch = true
-        local orig_ac = A.academia
-        A.academia = function(...)
-            local AC = orig_ac(...)
-            if type(AC) == "table" and not AC._rlt_no_watch and type(AC.dial) == "function"
-                    and type(AC.watchRing) == "function" then
-                AC._rlt_no_watch = true
-                AC.watchRing = function(c, cx, cy, R, t, frac, track, fill, tone)
-                    return AC.dial(c, cx, cy, R, t, frac, track, fill, tone)
+    styleKeep.coloursOn, styleKeep.looksOn, styleKeep.myLooks = keepColoursOn, keepLooksOn, myLooks
+    end
+
+    -- ─── Quote cards: a bigger name, a fuller card, a divider (2.9.3, on) ──
+    -- Every quote card (Quote of the day and 2-4), every look: the name under
+    -- the quote is bigger and in the accent, but always smaller than the
+    -- quote; a short quote is drawn bigger and sits in the middle of the
+    -- card; and (Plain and Manuscript) a small divider between them, its
+    -- mark from the style (a diamond, a snowflake for Winter and Christmas,
+    -- a star for Space). Reading Log's own drawing with Quote Card Extras
+    -- off, and whenever its quote code isn't what this was written for.
+    do
+    local floor, max, min = math.floor, math.max, math.min
+    local function upvalueOf(fn, want)
+        if type(fn) ~= "function" then return nil end
+        for i = 1, 255 do
+            local name, val = debug.getupvalue(fn, i)
+            if name == nil then return nil end
+            if name == want then return val, i end
+        end
+        return nil
+    end
+    local function quotesOn() return A.get("rlt_quote_extras", true) ~= false end
+    styleKeep.quotesOn = quotesOn
+    local build = type(P.quote) == "table" and P.quote.build or nil
+    local orig_draw, draw_i = upvalueOf(build, "drawQuote")
+    local U = {}
+    if type(orig_draw) == "function" then
+        for _loop, nm in ipairs({ "scaler", "paperOn", "paperLook", "cyLook", "acLook", "fitQuote",
+                                   "terminalQuote", "manuscriptQuote" }) do
+            U[nm] = upvalueOf(orig_draw, nm)
+        end
+        U.termWindow = upvalueOf(U.terminalQuote, "termWindow")
+    end
+    local ready = draw_i and type(U.scaler) == "function" and type(U.paperOn) == "function"
+        and type(U.paperLook) == "function" and type(U.cyLook) == "function" and type(U.acLook) == "function"
+        and type(U.fitQuote) == "function" and type(U.termWindow) == "function" and type(A.academia) == "function"
+    if draw_i and not ready then warn("Quote Card Extras: Reading Log's quote drawing has changed; its own is used") end
+    if ready and not A._rlt_quote_extras then
+        A._rlt_quote_extras = true
+        local T = type(A._) == "function" and A._ or function(s) return s end
+
+        -- which mark the divider gets
+        local function markKind(look)
+            local okP, pack = pcall(A.get, "style_pack", nil)
+            pack = okP and pack or nil
+            if pack == "winter" or pack == "christmas" then return "snow" end
+            if pack == "space" then return "star" end
+            if look == "paper" then return "dots" end
+            return "diamond"
+        end
+        -- a short rule each side of a small mark, centred on cx
+        local function divider(c, cx, cy, half, s, col, kind)
+            local lw = max(1, floor(s * 0.16 + 0.5))
+            local gap = s * 1.9
+            if half > gap + 2 then
+                c:rect(floor(cx - half), floor(cy - lw / 2), floor(half - gap), lw, col)
+                c:rect(floor(cx + gap), floor(cy - lw / 2), floor(half - gap), lw, col)
+            end
+            if kind == "dots" then
+                for k = -1, 1 do c:disc(cx + k * s * 0.9, cy, max(1.5, s * 0.22), col) end
+            elseif kind == "snow" then
+                for k = 0, 2 do
+                    local a = k * math.pi / 3
+                    local dx, dy = math.cos(a) * s, math.sin(a) * s
+                    c:polyline({ cx - dx, cy - dy, cx + dx, cy + dy }, max(1, lw), col)
+                end
+            elseif kind == "star" then
+                local r1, r2, pts = s, s * 0.35, {}
+                for k = 0, 8 do
+                    local a = k * math.pi / 4 - math.pi / 2
+                    local r = (k % 2 == 0) and r1 or r2
+                    pts[#pts + 1] = cx + math.cos(a) * r
+                    pts[#pts + 1] = cy + math.sin(a) * r
+                end
+                c:polyline(pts, max(1, lw), col)
+            else
+                c:polyline({ cx, cy - s * 0.75, cx + s * 0.75, cy, cx, cy + s * 0.75, cx - s * 0.75, cy, cx, cy - s * 0.75 },
+                    max(1, lw), col)
+                c:disc(cx, cy, max(1.5, s * 0.22), col)
+            end
+        end
+
+        -- Manuscript (Dark Academia, Gothic): Reading Log's own, with the name
+        -- bigger and in the accent, a short quote bigger and centred on the
+        -- page, and the divider over the name
+        local function manuscriptQuote(env, c, AC, o, px, fpx, x, top, W, bottom)
+            local tone = env.tone
+            local H = bottom - top
+            if H < px(40) or W < px(80) then return end
+            local sheet = A.mix(tone.bg, { 255, 250, 236 }, tone.dark and 0.12 or 0.55)
+            local ink = tone.dark and tone.fg or { 43, 33, 24 }
+            c:frame(x, top, W, H, 0, 1, A.mix(tone.bg, tone.fg, 0.25), sheet)
+            local ins = max(4, px(8))
+            c:frame(x + ins, top + ins, W - 2 * ins, H - 2 * ins, 0, 1, A.mix(sheet, AC.brass(tone), 0.7), sheet)
+            local ix, iw = x + ins + px(14), W - 2 * ins - px(28)
+            local iy, ib = top + ins + px(12), top + H - ins - px(10)
+            if not o.text then
+                if o.waiting then
+                    c:label(o.waiting, fpx(22), x + W / 2, top + H / 2, { serif = true, italic = true, anchor = "c", valign = "mid",
+                        color = tone.muted, max_w = iw })
+                end
+                return
+            end
+            local src_col = tone.accent
+            local name_px = fpx(24)
+            local div_h = fpx(20)
+            local t_src = c:text("\xE2\x80\x94 " .. (o.source or ""), name_px, { serif = true, italic = true, bold = true,
+                color = src_col, max_w = iw - px(40) })
+            local text = (o.text:gsub("^%s+", ""))
+            local first = text:match("^[%z\1-\127\194-\244][\128-\191]*") or ""
+            local rest = (text:sub(#first + 1):gsub("^%s+", " "))
+            local room = ib - iy - t_src.h - div_h - px(6)
+            local size, cap, qw, probe = fpx(40), nil, nil, nil
+            for _loop = 1, 16 do
+                cap = c:text(first, floor(size * 2.3), { serif = true, bold = true, color = tone.accent })
+                qw = iw - cap.w - px(10)
+                probe = c:textbox(rest, size, qw, nil, { serif = true })
+                if probe.h <= room or size <= fpx(16) then break end
+                size = max(fpx(16), floor(size * 0.9))
+            end
+            local lines = max(1, floor(room / floor(size * 1.18 + 0.5)))
+            local t_q = c:textbox(rest, size, qw, lines, { serif = true, color = ink })
+            -- the name always smaller than the words
+            if name_px >= size then
+                t_src = c:text("\xE2\x80\x94 " .. (o.source or ""), max(fpx(12), floor(size * 0.8)), { serif = true, italic = true,
+                    bold = true, color = src_col, max_w = iw - px(40) })
+            end
+            -- a short quote sits in the middle of the page
+            local block = max(floor(cap.h * 0.88), t_q.h)
+            local off = max(0, floor((room - block) / 2))
+            c:put(cap, ix, iy + off - floor(cap.h * 0.12))
+            c:put(t_q, ix + cap.w + px(10), iy + off)
+            local half = min(floor(iw * 0.22), px(130))
+            divider(c, ix + iw - half, ib - t_src.h - floor(div_h / 2) - px(2), half, max(3, floor(div_h * 0.32)),
+                A.mix(sheet, AC.brass(tone), 0.85), markKind("manuscript"))
+            c:put(t_src, ix + iw, ib - t_src.h, "r")
+            local sr = floor(fpx(13))
+            if H > px(110) and ix + sr * 2 < ix + iw - t_src.w - px(10) then AC.seal(c, ix + sr, ib - sr, sr, tone.accent) end
+        end
+
+        -- Terminal (Cyber): Reading Log's own, with the name a size up but
+        -- always smaller than the words
+        local function terminalQuote(env, c, CY, o, px, fpx, x, top, W, bottom)
+            local H = bottom - top
+            if H < px(40) or W < px(80) then return end
+            local S = U.termWindow(env, c, CY, px, fpx, x, top, W, H)
+            local neon, neon2, screen, ink, dim = S.neon, S.neon2, S.screen, S.ink, S.dim
+            local ix, iw = S.ix, S.iw
+            local y, ibottom = S.y, S.bottom
+            local f = S.f
+            local line_h = S.line_h
+            local room = ibottom - y
+            local t_src = o.text and c:text(">> " .. A.upper(o.source or ""), fpx(21), { mono = true, color = neon2, max_w = iw }) or nil
+            local q_probe = o.text and c:textbox(o.text, fpx(21), iw, nil, { mono = true }) or nil
+            local spare = room - (q_probe and q_probe.h or 0) - (t_src and t_src.h + px(4) or 0)
+            local function room_for(cost)
+                if spare < cost then return false end
+                spare = spare - cost
+                return true
+            end
+            local show_head = room_for(line_h + px(14))
+            local show_cmd = room_for(line_h + px(4))
+            local show_bar = show_cmd and room_for(line_h + px(6))
+            local show_last = room_for(line_h + px(4))
+            if show_head then y = S.head(y, "NET://HIGHLIGHTS") end
+            local prompt = S.prompt
+            if not o.text then
+                local pw = prompt(y)
+                if o.waiting then
+                    c:label(o.waiting, f, ix + pw, y, { mono = true, color = dim, max_w = iw - pw })
+                end
+                return
+            end
+            if show_cmd then
+                local pw = prompt(y)
+                c:label("decrypt quote.dat", f, ix + pw, y, { mono = true, color = ink, max_w = iw - pw })
+                y = y + line_h + px(4)
+            end
+            if show_bar then
+                local bh = max(5, floor(line_h * 0.5))
+                local bwid = min(floor(iw * 0.45), px(260))
+                CY.segbar(c, ix, y + floor((line_h - bh) / 2), bwid, bh, 1, 12, neon, A.mix(screen, ink, 0.18))
+                c:label("100% DECRYPTED", fpx(16), ix + bwid + px(12), y + floor(line_h / 2),
+                    { mono = true, color = neon2, valign = "mid", max_w = iw - bwid - px(12) })
+                y = y + line_h + px(6)
+            end
+            local last_h = show_last and (line_h + px(4)) or 0
+            local q_room = ibottom - y - t_src.h - px(4) - last_h
+            local t_q = U.fitQuote(c, o.text, iw, q_room, fpx(30), fpx(16), { fg = ink }, true)
+            c:put(t_q, ix, y)
+            y = y + t_q.h + px(4)
+            local q_px = tonumber(t_q.px) or fpx(21)
+            local cur_w = max(4, floor(f * 0.55))
+            local src_px = min(fpx(21), floor(q_px * 0.85))
+            if src_px ~= fpx(21) or (not show_last and t_src.w + cur_w + px(8) > iw) then
+                t_src = c:text(">> " .. A.upper(o.source or ""), src_px, { mono = true, color = neon2, max_w = iw - cur_w - px(8) })
+            end
+            c:put(t_src, ix, y)
+            local cx, cy, ch
+            if show_last then
+                y = y + t_src.h + px(4)
+                cx, cy, ch = ix + prompt(y), y, line_h
+            else
+                cx, cy, ch = ix + t_src.w + px(8), y, t_src.h
+            end
+            c:rect(cx, cy + floor(ch * 0.16), cur_w, floor(ch * 0.68), neon)
+        end
+
+        -- Plain and Notebook paper: Reading Log's own, with a short quote
+        -- bigger, the name bigger (but smaller than the words) and the
+        -- divider between them
+        local function drawQuote(env, c, s, o)
+            if not quotesOn() then return orig_draw(env, c, s, o) end
+            local w, h, tone = env.w, env.h, env.tone
+            local px, fpx = U.scaler(s, env.ts)
+            local pad = px(38)
+            local left = pad
+            local paper = U.paperOn() and U.paperLook(tone) or nil
+            local CYq = not paper and U.cyLook("quote_look", "terminal")
+            local ACq = not paper and not CYq and U.acLook("quote_look", "manuscript")
+            local sheet = px(14)
+            if paper then
+                c:rrect(sheet, sheet, w - 2 * sheet, h - 2 * sheet, px(6), paper.edge)
+                c:rrect(sheet + 1, sheet + 1, w - 2 * sheet - 2, h - 2 * sheet - 2, px(5), paper.paper)
+                local hole_r = max(3, px(8))
+                local hx = sheet + px(22)
+                for k = 1, 3 do
+                    local hy = sheet + (h - 2 * sheet) * k / 4
+                    c:disc(hx, hy, hole_r + 1, paper.edge, paper.paper)
+                    c:disc(hx, hy, hole_r, tone.bg, paper.edge)
+                end
+                c:rect(sheet + px(48), sheet + 1, max(2, px(3)), h - 2 * sheet - 2, paper.margin)
+                pad = px(46)
+                left = sheet + px(62)
+            end
+            local W = w - left - pad
+            local t_head = c:label(o.head, fpx(22), left, pad, { bold = true, caps = true, color = tone.accent, max_w = W * 0.6 })
+            local pill_h = fpx(50)
+            local t_an = c:text(T("Another"), fpx(22), { bold = true, color = tone.fg })
+            local pw = t_an.w + fpx(48)
+            if t_head.w + pw + px(20) <= W then
+                local pxx = w - pad - pw
+                local py = pad + t_head.h / 2 - pill_h / 2
+                c:frame(pxx, py, pw, pill_h, CYq and 0 or pill_h / 2, max(2, px(3)), tone.border or tone.fg,
+                    paper and paper.paper or tone.bg, paper and paper.paper or nil)
+                c:put(t_an, pxx + pw / 2, py + pill_h / 2, "c", "mid")
+                c:region("another", pxx, py, pw, pill_h, px(12))
+            end
+            local function tape()
+                if not paper then return end
+                local tl = max(px(40), floor(min(w, h) * 0.2))
+                c:sprite(sheet + px(6), sheet + px(4), tl, math.rad(-38),
+                    { { "r", 0, 0, 0.5, 0.16, 0, 0.02, paper.tape, paper.tape_line } }, { lw = 1 })
+                c:sprite(w - sheet - px(6), sheet + px(4), tl, math.rad(38),
+                    { { "r", 0, 0, 0.5, 0.16, 0, 0.02, paper.tape2, paper.tape2_line } }, { lw = 1 })
+            end
+            if CYq or ACq then
+                if CYq then
+                    terminalQuote(env, c, CYq, o, px, fpx, left, pad + t_head.h + px(16), W, h - px(26))
+                else
+                    manuscriptQuote(env, c, ACq, o, px, fpx, left, pad + t_head.h + px(16), W, h - px(26))
+                end
+                if o.text then c:region("open", 0, 0, w, h) end
+                return c
+            end
+            if not o.text then
+                if o.waiting then
+                    c:label(o.waiting, fpx(24), w / 2, h / 2, { anchor = "c", valign = "mid", color = tone.muted, max_w = W })
+                end
+                tape()
+                return c
+            end
+            local name_px = fpx(26)
+            local div_h = paper and 0 or fpx(22)
+            local src_col = paper and tone.label or tone.accent
+            local t_src = c:text("\xE2\x80\x94 " .. (o.source or ""), name_px, { bold = true, color = src_col, max_w = W })
+            local t_sub = o.sub and c:text(o.sub, fpx(20), { bold = true, color = tone.accent2, max_w = W }) or nil
+            local foot = div_h + t_src.h + (t_sub and (t_sub.h + px(4)) or 0)
+            local top = pad + t_head.h + px(10)
+            local mark = (o.mark ~= false) and c:text("\xE2\x80\x9C", fpx(96), { bold = true, color = tone.accent }) or nil
+            local qx = left + (mark and (floor(mark.w * 0.9) + px(10)) or 0)
+            local tw = w - pad - qx
+            local t_extra = o.extra and c:textbox(o.extra, fpx(22), tw, 3, { color = tone.muted }) or nil
+            local extra_h = t_extra and (t_extra.h + px(10)) or 0
+            local room = h - pad - foot - px(14) - top - extra_h
+            if t_extra and room < fpx(26) * 2 then
+                room, extra_h, t_extra = room + extra_h, 0, nil
+            end
+            local t_q = U.fitQuote(c, o.text, tw, room, fpx(46), fpx(22), tone)
+            -- the name always smaller than the words
+            local q_px = tonumber(t_q.px) or fpx(30)
+            if name_px >= q_px then
+                t_src = c:text("\xE2\x80\x94 " .. (o.source or ""), max(fpx(12), floor(q_px * 0.8)), { bold = true, color = src_col, max_w = W })
+            end
+            local block = t_q.h + extra_h
+            local yy = top + max(0, floor((room + extra_h - block) / 2))
+            local sy = min(h - pad - foot, yy + block + px(14))
+            if paper then
+                local lpx = floor(1.18 * t_q.px + 0.5)
+                local first = yy + lpx - floor(t_q.px * 0.12)
+                while first - lpx > top do first = first - lpx end
+                local lw = max(2, px(2))
+                local ry = first
+                local snapped = false
+                while ry < h - sheet - px(10) do
+                    c:rect(sheet + px(48) + px(5), ry, w - 2 * sheet - px(48) - px(7), lw, paper.rule)
+                    if not snapped and ry - t_src.base - px(2) >= yy + block + px(6) then
+                        snapped = true
+                        sy = min(sy, ry - t_src.base - px(2))
+                        if ry - t_src.base - px(2) <= h - pad - foot then sy = ry - t_src.base - px(2) end
+                    end
+                    ry = ry + lpx
                 end
             end
-            return AC
+            if mark then c:put(mark, left, yy - floor(mark.h * 0.12)) end
+            c:put(t_q, qx, yy)
+            if t_extra then c:put(t_extra, qx, yy + t_q.h + px(10)) end
+            if div_h > 0 then
+                local half = min(floor(tw * 0.18), px(110))
+                divider(c, qx + half, sy + floor(div_h / 2), half, max(3, floor(div_h * 0.3)),
+                    A.mix(tone.bg, tone.accent, 0.8), markKind(paper and "paper" or "plain"))
+            end
+            c:put(t_src, qx, sy + div_h)
+            if t_sub then c:put(t_sub, qx, sy + div_h + t_src.h + px(4)) end
+            tape()
+            c:region("open", 0, 0, w, h)
+            return c
         end
+        -- every quote card asks for drawQuote; they share the one Reading Log has
+        debug.setupvalue(build, draw_i, drawQuote)
     end
-    styleKeep.coloursOn, styleKeep.looksOn, styleKeep.myLooks = keepColoursOn, keepLooksOn, myLooks
     end
 
     -- ─── the Dashboard: its ctx while drawing, critter taps ─────────────────
@@ -7008,7 +7491,7 @@ local function apply(A)
             local items = {
                 {
                     text = "Change Style Each Month",
-                    help_text = "Reading Log's style changes with the month, on the first Dashboard draw of a new month: no timers. Set a style for each month below (a ready-made list to start from), or Keep Current to leave that month alone. A downloaded style that isn't on the device yet is fetched in the background when Wi-Fi is already on (at most once a day; it never turns Wi-Fi on); that month waits for it. Off by default.",
+                    help_text = "Reading Log's style changes with the month, on the first Dashboard draw of a new month and, for a month with two styles, again on the 16th: no timers. Pick one of the Monthly Sets, or set each month's 1st half and 2nd half below, or Keep Current to leave it alone. A downloaded style that isn't on the device yet is fetched in the background when Wi-Fi is already on (at most once a day; it never turns Wi-Fi on); that month waits for it. Off by default.",
                     checked_func = monthStyleOn,
                     keep_menu_open = true,
                     callback = function()
@@ -7022,8 +7505,11 @@ local function apply(A)
                     separator = true,
                 },
             }
-            local function options(m)
+            -- 2.9.4: a month's menu has its 1st half (1st-15th) and 2nd half
+            -- (16th-end); the 2nd half can be Same As 1st Half
+            local function options(m, h)
                 local list = { "keep", "default", "cute", "cyber", "academia" }
+                if h == 2 then table.insert(list, 1, "same") end
                 local seen = {}
                 for _loop, id in ipairs((A.packs and type(A.packs.ids) == "function" and A.packs.ids()) or {}) do
                     seen[id] = true; list[#list + 1] = "pack:" .. id
@@ -7031,60 +7517,110 @@ local function apply(A)
                 for _loop, id in ipairs(PACK_ORDER) do
                     if not seen[id] then list[#list + 1] = "pack:" .. id end
                 end
+                local cut = (h == 2) and 6 or 5
                 local sub = {}
                 for i, v in ipairs(list) do
                     local id = packIdOf(v)
                     sub[#sub + 1] = {
                         text_func = function()
-                            return styleName(v) .. ((id and not packInstalled(id)) and " (downloads)" or "")
+                            if v == "same" then return "Same As 1st Half" end
+                            local tail = ""
+                            if id and not packInstalled(id) then
+                                tail = MS.fetchable[id] and " (downloads)" or " (not on device)"
+                            end
+                            return styleName(v) .. tail
                         end,
                         radio = true, keep_menu_open = true,
-                        checked_func = function() return monthStyleOf(m) == v end,
+                        checked_func = function()
+                            if h == 1 then return monthStyleOf(m) == v end
+                            return (MS.second(m) or "same") == v
+                        end,
                         callback = function()
-                            setMonthStyle(m, v)
+                            if h == 1 then setMonthStyle(m, v) else MS.setSecond(m, v) end
                             if m == tonumber(os.date("%m")) then
                                 A.set("rlt_month_style_done", nil)
                                 if applyMonthStyle(false) then redrawAll() end
                             end
-                            if id and not packInstalled(id) then pcall(fetchMonthStyles, false) end
+                            if id and MS.fetchable[id] and not packInstalled(id) then pcall(fetchMonthStyles, false) end
                         end,
-                        separator = (i == 1 or i == 5) or nil,
+                        separator = (i == 1 or i == cut) or nil,
                     }
                 end
                 return sub
             end
+            local function monthLabel(m)
+                local b = MS.second(m)
+                local t = MONTH_NAMES[m] .. ": " .. styleName(monthStyleOf(m))
+                if b then t = t .. ", " .. styleName(b) end
+                return t
+            end
+            items[#items + 1] = {
+                text = "Random Order Each Month",
+                help_text = "A month with two styles: a coin flip at the start of the month picks which one goes first (1st-15th); the other has the 16th to the end. You always get both. Off: the 1st-half style always goes first.",
+                enabled_func = monthStyleOn,
+                checked_func = MS.randomOn,
+                keep_menu_open = true,
+                callback = function()
+                    A.set("rlt_month_order", (not MS.randomOn()) and "random" or nil)
+                    A.set("rlt_month_flip", nil)
+                    A.set("rlt_month_style_done", nil)
+                    if applyMonthStyle(false) then redrawAll() end
+                end,
+            }
+            local presets = {}
+            for _loop, p in ipairs(MS.presets) do
+                presets[#presets + 1] = {
+                    text = p.name, help_text = p.help,
+                    radio = true, keep_menu_open = true,
+                    checked_func = function() return MS.presetIs(p) end,
+                    callback = function(tmi)
+                        MS.usePreset(p)
+                        A.set("rlt_month_style_done", nil)
+                        if applyMonthStyle(false) then redrawAll() end
+                        if #missingPacks() > 0 then pcall(fetchMonthStyles, false) end
+                        if tmi and tmi.updateItems then pcall(tmi.updateItems, tmi) end
+                    end,
+                }
+            end
+            items[#items + 1] = {
+                text = "Monthly Sets",
+                help_text = "Fills all 12 months in one tap (both halves). Every month can still be changed after.",
+                enabled_func = monthStyleOn,
+                sub_item_table = presets,
+                separator = true,
+            }
             for m = 1, 12 do
                 items[#items + 1] = {
-                    text_func = function() return MONTH_NAMES[m] .. ": " .. styleName(monthStyleOf(m)) end,
+                    text_func = function() return monthLabel(m) end,
                     enabled_func = monthStyleOn,
-                    sub_item_table_func = function() return options(m) end,
+                    sub_item_table_func = function()
+                        return {
+                            { text_func = function() return "1st Half (1st-15th): " .. styleName(monthStyleOf(m)) end,
+                              sub_item_table_func = function() return options(m, 1) end },
+                            { text_func = function()
+                                  local b = MS.second(m)
+                                  return "2nd Half (16th-End): " .. (b and styleName(b) or "Same As 1st Half")
+                              end,
+                              sub_item_table_func = function() return options(m, 2) end },
+                        }
+                    end,
                     separator = (m == 12) or nil,
                 }
             end
             items[#items + 1] = {
                 text = "Download Styles Now",
-                help_text = "Downloads the styles the months are set to that aren't on the device yet (Wi-Fi on). Only those, not the whole list.",
+                help_text = "Downloads the styles the months are set to that aren't on the device yet (Wi-Fi on). Only those, not the whole list. BrownTigerz's styles aren't downloadable: copy them by hand.",
                 enabled_func = monthStyleOn,
                 keep_menu_open = true,
                 callback = function() pcall(fetchMonthStyles, true) end,
             }
             items[#items + 1] = {
                 text = "Put This Month's Style On Now",
-                help_text = "Puts this month's style on again, for instance after you picked another style by hand.",
+                help_text = "Puts the style for this part of the month on again, for instance after you picked another style by hand.",
                 enabled_func = monthStyleOn,
                 keep_menu_open = true,
                 callback = function()
                     if applyMonthStyle(true) then redrawAll() end
-                end,
-            }
-            items[#items + 1] = {
-                text = "Back To The Ready-Made List",
-                help_text = "Every month back to the suggested style: January Winter, February Cute, March Forest, April-May Honey, June-July Ocean, August Space, September Forest, October Gothic, November Dark Academia, December Christmas.",
-                enabled_func = function() return A.get("rlt_month_styles", nil) ~= nil end,
-                keep_menu_open = true,
-                callback = function(tmi)
-                    A.set("rlt_month_styles", nil)
-                    if tmi and tmi.updateItems then pcall(tmi.updateItems, tmi) end
                 end,
             }
             return items
@@ -7359,6 +7895,17 @@ local function apply(A)
                 checked_func = function() return styleKeep.looksOn() end,
                 keep_menu_open = true,
                 callback = function() A.set("rlt_keep_looks", (not styleKeep.looksOn()) and true or false) end,
+            },
+            {
+                text = "Quote Card Extras",
+                help_text = "Every quote card, every look: the name under the quote bigger and in the accent (always smaller than the quote), a short quote drawn bigger in the middle of the card, and (Plain and Manuscript looks) a small divider between them with a mark from the style. On by default. Off: Reading Log's own quote cards.",
+                checked_func = function() return styleKeep.quotesOn and styleKeep.quotesOn() or false end,
+                enabled_func = function() return styleKeep.quotesOn ~= nil end,
+                keep_menu_open = true,
+                callback = function()
+                    A.set("rlt_quote_extras", (styleKeep.quotesOn and not styleKeep.quotesOn()) and true or false)
+                    redrawAll()
+                end,
             },
             {
                 text = "Forget My Card Looks",
