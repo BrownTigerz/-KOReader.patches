@@ -22,7 +22,7 @@ All patches work independently and together. If one fails to attach (for example
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.14.17 |
 | [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.33 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.9.2 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.9.4 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.1 |
@@ -441,7 +441,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.9.2
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.9.4
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 
@@ -502,8 +502,9 @@ Settings: long-press the Dashboard → **Reading Log Tweaks**, or **Tools → Ad
 
 Delete the file and restart to undo (Pages And Cards → Put This Page Back fixes a swipe slot left behind).
 
-- **Styles** (2.9.1): **Keep My Colours** (on by default): a style change, by hand or by Change Style Each Month, changes only how the cards look; your colour theme and both accents stay (Cyber, Dark Academia and most downloaded styles otherwise bring their own colours and clear your accents). Off: Reading Log's own way. **Keep My Card Looks** (2.9.2, on by default): a look you pick by hand in a card's own settings (Year in covers: Plain, the rings' shape, the Book Club's look...) stays when the style changes; the style changes the rest. **Forget My Card Looks** lets the styles set every look again. Dark Academia's **Pocket watch** rings (Activity, Week and Month rings) are drawn as the **Brass dial** for now: the Pocket watch crashed KOReader now and then while being drawn; your setting stays Pocket watch, so it comes back once Reading Log fixes it.
+- **Styles** (2.9.1): **Keep My Colours** (on by default): a style change, by hand or by Change Style Each Month, changes only how the cards look; your colour theme and both accents stay (Cyber, Dark Academia and most downloaded styles otherwise bring their own colours and clear your accents). Off: Reading Log's own way. **Keep My Card Looks** (2.9.2, on by default): a look you pick by hand in a card's own settings (Year in covers: Plain, the rings' shape, the Book Club's look...) stays when the style changes; the style changes the rest. **Forget My Card Looks** lets the styles set every look again. **Quote Card Extras** (2.9.3, on by default): every quote card, in every look, shows the name under the quote bigger and in the accent, always smaller than the quote; a short quote is drawn bigger in the middle of the card; and the Plain and Manuscript looks get a small divider between them with a mark from the style (a diamond, a snowflake for Winter and Christmas, a star for Space). Off: Reading Log's own quote cards. Dark Academia's **Pocket watch** rings work inside the Smart cards (2.9.3; 2.9.1-2.9.2 drew them as the Brass dial while a crash in this patch's Smart card was found).
 - **Change Style Each Month** (2.9.0, off by default, in Styles): Reading Log's style changes with the month, on the first Dashboard draw of a new month (no timers), with Reading Log's own style switch. A ready-made list to start from (January Winter, February Cute, March Forest, April and May Honey, June and July Ocean, August Space, September Forest, October Gothic, November Dark Academia, December Christmas); each month can be any built-in or downloaded style, or **Keep Current**. Styles not on the device yet download in the background with Reading Log's own style downloads: only the ones your months use, only when Wi-Fi is already on, at most once a day (or **Download Styles Now**); a month waits for its style. **Put This Month's Style On Now** puts it back after you picked another by hand. A short note says when the style changes.
+- **Two styles a month** (2.9.4, in Change Style Each Month): every month has a **1st Half** (1st-15th) and a **2nd Half** (16th to the end, or **Same As 1st Half**); the 2nd style goes on at the first Dashboard draw on or after the 16th. **Random Order Each Month** (off by default): a coin flip at the start of the month picks which of the two goes first, saved, so you always get both. **Monthly Sets** fill all 12 months in one tap: **BrownTigerz Monthly Styles** (24 hand-copied styles, two a month; never sent for download), **Downloadable Styles, Two A Month**, **Reading Log's Own Styles** (nothing to download), and **Ready-Made, One A Month** (the 2.9.0 list). Saved month picks don't change: a month with one style works as before.
 
 Optional diagnostic: `debug/2-zz-readinglog-tweaks-diagnostics.lua` (how long each card, tap, Random pick and cover takes; 1.1.0: drawing that goes past its canvas or the screen image, for crash hunting; 1.1.1: your theme and accents before and after each style change; shared `diagnostics.log`).
 
