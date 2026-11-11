@@ -26,7 +26,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.0 |
-| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.3.6 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.4.5 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.12.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.11.20 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
@@ -40,9 +40,9 @@ All patches work independently and together. If one fails to attach (for example
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
-| [Test Mode](#test-mode) | `2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.1 |
+| [Test Mode](#test-mode) | `2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.11 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.15.19 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -243,6 +243,9 @@ Needs a KOReader build with zip support (`ffi/archiver`, 2024+).
 
 Adds **Add-ons → Debugging** (file browser only): one place to switch diagnostic patches on and off and tidy their logs. Your diagnostic patches are never edited.
 
+- **Turn Off All Debug** (top of the menu, shows how many are on): switches every diagnostic off, plus the debug switches inside patches and plugins: OrbitShelf's **Diagnostics**, and any patch that lists its own (debug switch contract v1: `package.loaded.debug_switches[id] = { label, is_on, off }`). Those go off straight away; diagnostics after a restart (asked once). One note says what went off, then it asks to restart. With the Test Mode patch on it asks first: **Turn Off Test Mode Too** (the patch is switched off as well, Test Mode itself off first) or **Keep Test Mode** (debug off, the patch stays on).
+- **Test Mode Patch** (with `2-zz-test-mode.lua`): its own switch at the bottom, moved between `patches/` and `patches/debug/` like a diagnostic (after a restart). Not part of All on/off. Switching it off while Test Mode is on turns Test Mode off first, so its Reset Test Books question comes up.
+- **Test Mode menu** (Test Mode 1.0.2+): while the Test Mode patch is running, its menu (on/off, Reset Test Books) sits at the top, above Turn Off All Debug, instead of in Add-ons → Maintenance. Patch off: not there.
 - One master toggle plus a checkbox per diagnostic. Turning one off moves it to `patches/debug/`, so KOReader doesn't load it and it costs nothing. Changes apply after a restart (asked once).
 - All diagnostics write to one shared log (`koreader/diagnostics.log`), each line tagged with the diagnostic's short name, so a whole test run reads in order in one file.
 - **Combine logs for sending:** writes the shared log plus the end of `crash.log` into one file: `koreader/debug-all.log`.
@@ -582,7 +585,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 `2-zz-test-mode.lua` — one switch for trying things out without anything counting. Open books, turn pages, finish them: nothing syncs and nothing lands in your stats. When you're done, the books go back to how they were.
 
-- **Menu:** Tools → Add-ons → Test Mode (Maintenance), or Tools → Test Mode without the Add-ons patch. **Gesture:** Toggle Test Mode (General).
+- **Menu:** at the top of Tools → Add-ons → Debugging when the Debugging Menu patch (1.4.4+) is installed, in the library; without it, Tools → Add-ons → Test Mode (Maintenance), or Tools → Test Mode without the Add-ons patch. The patch itself is switched on and off in Add-ons → Debugging (Test Mode Patch). **Gesture:** Toggle Test Mode (General).
 - **Held back** while it's on, and for any book opened during it until it's reset:
   - **ShelfSync**: no progress, status, notes or "finished" to StoryGraph, Goodreads, Hardcover or the others, no auto-linking, nothing queued for later. ShelfSync Tweaks' Link & Update and Sync All show a note instead of switching Wi-Fi on.
   - **BookOrbit**: no progress push or pull, book sync (OrbitShelf's Sync and the Side Panel too), highlight exchange, library sweep or close/sleep sync, nothing queued.
@@ -599,9 +602,11 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.11
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.19
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
+
+The menu is grouped (2.15.15): **Opening And Navigation** (Reopen BookOrbit At, Keep Open Through Sleep, Open Book Only From Buttons, Loop Pages, Second Swipe Opens Tools Menu), **Redraws And Flashing** (Draw BookOrbit Once On Open, Draw New Covers Once, Flash To Reduce Ghosting), **Night Mode** (Keep Covers Original, Keep Continue Reading Colour At Night), **Action Colours**, **Library Filter**, **Collections** (Add To Collection, Forget Saved Password, About The Saved Password), and **Server Management** (2.15.18: the Troubleshooting group is gone; the pill trace is in the BookOrbit diagnostic).
 
 ![BookOrbit Tweaks menu](images/bookorbit-tweaks-menu.png)
 ![BookOrbit Library Filter submenu](images/bookorbit-library-filter.png)
@@ -640,7 +645,7 @@ Flashes only fire while BookOrbit is the window on top (no stray flash on the fi
 
 **Keep Covers Original In Night Mode** — catalog and dashboard covers keep their artwork instead of being inverted.
 
-In night mode the Continue Reading card also stays black with white text. With BookOrbit 2.1's own **Colour** setting on, on a colour screen, BookOrbit colours that card for night mode itself, so it's left alone (2.15.11).
+In night mode the Continue Reading card also stays black with white text. With BookOrbit 2.1's own **Colour** setting on, on a colour screen, BookOrbit colours that card for night mode itself, so it's left alone (2.15.11). Switching between day and night with BookOrbit open rebuilds its dashboard straight away, so the cards never keep the other mode's colours (2.15.17). Turn on **Keep Continue Reading Colour At Night** (off by default) to keep the card the same colour as in the day instead (the deep shade of the book's cover, white text).
 
 ### Add To Collection
 
@@ -649,6 +654,14 @@ In night mode the Continue Reading card also stays black with white text. With B
 BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit **website** username and password (asked the first time). That's not your KOReader sync login: BookOrbit keeps that as a separate account, often with a different username, so the box starts empty (2.15.1) and remembers the website username after. The sign-in box has a **Save password on this device** tick (2.15.2; remembers your last choice). Only a sign-in BookOrbit accepted gets saved, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
 
 With the OrbitShelf plugin (1.2.12 on, its own **Add To Collection** setting on), holding a BookOrbit book in Bookshelf or tapping one that isn't on the device opens this same picker, with this sign-in and saved password (2.15.8). There, the sign-in and loading waits show as a plain KOReader message, so no blank bar is left on the shelf (2.15.10).
+
+### Draw New Covers Once
+
+**Draw New Covers Once** (off by default) — when the dashboard is fetching covers it doesn't have yet, BookOrbit redraws the screen after every 3, so it flashes a few times. With this on it redraws once, when they're all in (or when the fetch stops early). Only the dashboard; lists and book pages are unchanged.
+
+### Draw BookOrbit Once On Open
+
+**Draw BookOrbit Once On Open** (off by default) — opening BookOrbit shows your saved dashboard straight away, then redraws a few times as the fresh dashboard, the books on this device and new covers come in. With this on it redraws once, when all of that is in (a few seconds); until then you see the saved dashboard. The Continue Reading card is the exception: as soon as BookOrbit knows the book is on the device, that card alone switches from Download to Resume (2.15.19). Works with Wi-Fi on; offline nothing changes.
 
 ### Open Book Only From Buttons
 
@@ -661,7 +674,7 @@ With the OrbitShelf plugin (1.2.12 on, its own **Add To Collection** setting on)
 - **Book Detail:** the Start reading / Read again / Resume buttons on a book's page.
 - **Dialogs:** the main button in BookOrbit's bottom sheets and the open-book dialog.
 
-If you'd only set the old Resume Pill Colour, Book Detail and Dialogs start with that colour until you pick their own. Light colours keep the black icons readable; for the solid buttons Blue, Pink, Gold or Lavender read best. On a colour screen each tinted button gets a dithered refresh of its own area, so the colour looks the same on a book's page and in dialogs as on the dashboard. **Pill Colour Trace (crash.log)**, off by default, logs which buttons got a colour, for troubleshooting.
+If you'd only set the old Resume Pill Colour, Book Detail and Dialogs start with that colour until you pick their own. Light colours keep the black icons readable; for the solid buttons Blue, Pink, Gold or Lavender read best. On a colour screen each tinted button gets a dithered refresh of its own area, so the colour looks the same on a book's page and in dialogs as on the dashboard. To see which buttons got a colour, switch on the BookOrbit diagnostic (`debug/2-zz-bookorbit-diagnostics.lua` 1.5.4+): while it's logging it writes every match and near-miss to diagnostics.log.
 
 ### Flash to reduce ghosting
 
@@ -683,7 +696,7 @@ Quick flashes are merged, and since 2.15.4 there's never more than one flash eve
 - Swipe south on the catalog does not close BookOrbit (top-edge pull-down still opens the menu).
 - Title case labels in the tweaks menu.
 
-Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics.log` with the other debug companions).
+Optional diagnostic: `debug/2-zz-bookorbit-diagnostics.lua` (shared `diagnostics.log` with the other debug companions). From 1.5.4 it also traces Action Colours (every pill and circle colour match and near-miss) while it's logging; this replaced BookOrbit Tweaks' Pill Colour Trace setting.
 
 ---
 
