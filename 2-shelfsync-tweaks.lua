@@ -1,7 +1,12 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.12.0
+-- Version 1.12.1
 -- Changelog:
+--   1.12.1   A Goodreads / StoryGraph request that stopped with an error
+--            (instead of returning) left "a tap can't cancel this" set, so
+--            the next unrelated background task anywhere in KOReader
+--            couldn't be cancelled by a tap either. It's cleared however
+--            the request ends now.
 --   1.12.0   Progress updates that keep failing on and off: ShelfSync runs
 --            each Goodreads / StoryGraph request in a background task that
 --            any tap on the screen cancels, so turning pages while a book
@@ -105,7 +110,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.12.0"
+local PATCH_VERSION = "1.12.1"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -897,9 +902,10 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         local orig_req = Api.request
         Api.request = function(self, ...)
             keep_next = true
-            local r = pack(orig_req(self, ...))
-            keep_next = false
-            return unpack(r, 1, r.n)
+            local r = pack(pcall(orig_req, self, ...))
+            keep_next = false -- however the request ended
+            if not r[1] then error(r[2], 0) end
+            return unpack(r, 2, r.n)
         end
     end
 
