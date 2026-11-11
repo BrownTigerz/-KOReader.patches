@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.14.1
+Version 2.15.0
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -68,6 +68,13 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.15.0 Waits: a call that holds the screen 500 ms or more while it waits
+         (a network request, a background task the screen waits for, a
+         network check, BookOrbit's cover or file downloads, its on-device
+         lookup) gets a line with who called it and the window on top:
+         "wait: background task 60010 ms from patches/2-simpleui-sidepanel.
+         lua:1846 | on top: homescreen". To find what froze the side panel
+         for 60 s after a swipe (11-11). Only while logging.
   2.14.1 FLASH "by": a patch's pass-through wrapper of UIManager show /
          close / setDirty is skipped, so the line names who really asked
          (the side panel's own open and close flashes were put down to
@@ -307,7 +314,7 @@ local function where(fn)
 end
 
 -- Hard expiry: first run kept in the state file.
-local DIAG_VERSION = "2.14.1"
+local DIAG_VERSION = "2.15.0"
 do
     -- version on line 1, first run on line 2: another version (or an
     -- older state file with just a time) starts a new 3 days
@@ -1739,6 +1746,107 @@ if ok_ui and type(UIManager) == "table" then
         if BUILD.n > 0 then bits[#bits + 1] = string.format("%d builds %d ms", BUILD.n, ms(BUILD.us)) end
         TOT, BUILD = {}, { n = 0, us = 0 }
         if #bits > 0 then log("  drawing: %s", table.concat(bits, "; ")) end
+    end
+end
+
+-- --------------------------------------------------------------------------
+-- 6c. Waits (2.15.0): calls that hold the screen while they wait
+-- Network requests, background tasks the screen waits for, network checks,
+-- BookOrbit's downloads and on-device lookup. Each call of 500 ms or more
+-- gets a line: what, how long, who called it, the window on top. Only
+-- while logging; nothing is changed, every call goes straight through.
+-- --------------------------------------------------------------------------
+do
+    local ok_t, ktime = pcall(require, "ui/time")
+    local function now_us()
+        if ok_t and type(ktime) == "table" and ktime.now then return ktime.now() end
+        return os.clock() * 1e6
+    end
+    local WAIT_US = 500000
+    local SELF = "2-zz-simpleui-diagnostics"
+    local function caller()
+        for lvl = 3, 14 do
+            local info = debug.getinfo(lvl, "Sl")
+            if not info then break end
+            local src = info.short_src or ""
+            if not src:find(SELF, 1, true) and src ~= "[C]" and not src:find("frontend/ui/trapper", 1, true)
+                    and not src:find("bookorbit_api", 1, true) then
+                return (src:gsub("^%./", "")) .. ":" .. tostring(info.currentline or "?")
+            end
+        end
+        return "?"
+    end
+    local function topWindow()
+        local stack = ok_ui and type(UIManager) == "table" and UIManager._window_stack
+        local w = type(stack) == "table" and stack[#stack] and stack[#stack].widget
+        if type(w) ~= "table" then return "?" end
+        return tostring(w.name or w.title or "window")
+    end
+    local function wrap(tbl, key, label, detail)
+        if type(tbl) ~= "table" or type(tbl[key]) ~= "function" then return end
+        local orig = tbl[key]
+        tbl[key] = function(...)
+            if not on() then return orig(...) end
+            local t0 = now_us()
+            local res = { pcall(orig, ...) }
+            local took = now_us() - t0
+            if took >= WAIT_US then
+                local extra = ""
+                if detail then
+                    local ok_d, d = pcall(detail, ...)
+                    if ok_d and d then extra = " " .. tostring(d) end
+                end
+                pcall(log, "wait: %s%s %d ms from %s | on top: %s", label, extra,
+                    math.floor(took / 1000), caller(), topWindow())
+            end
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2)
+        end
+    end
+    local function host(url)
+        if type(url) == "table" then url = url.url end
+        if type(url) ~= "string" then return nil end
+        return url:match("^%a+://([^/?#]+)")
+    end
+    local ok_tr, Trapper = pcall(require, "ui/trapper")
+    if ok_tr then
+        wrap(Trapper, "dismissableRunInSubprocess", "background task")
+        wrap(Trapper, "dismissablePopen", "background command")
+    end
+    local ok_h, http = pcall(require, "socket.http")
+    if ok_h then wrap(http, "request", "http request", host) end
+    local ok_s, https = pcall(require, "ssl.https")
+    if ok_s then wrap(https, "request", "https request", host) end
+    local ok_n, NetMgr = pcall(require, "ui/network/manager")
+    if ok_n and type(NetMgr) == "table" then
+        wrap(NetMgr, "isOnline", "network check (isOnline)")
+        wrap(NetMgr, "isConnected", "network check (isConnected)")
+        wrap(NetMgr, "getCurrentNetwork", "Wi-Fi name lookup")
+    end
+    -- BookOrbit's modules load with the plugin, after this patch: hooked
+    -- once the plugin is set up.
+    local pending = {
+        bookorbit_api = function(Api)
+            wrap(Api, "downloadCatalogThumbnail", "BookOrbit cover download")
+            wrap(Api, "downloadCatalogFile", "BookOrbit file download")
+        end,
+        bookorbit_state_manager = function(SM)
+            wrap(SM, "onDeviceMaps", "BookOrbit on-device lookup")
+        end,
+    }
+    local function hookLoaded()
+        for name, fn in pairs(pending) do
+            local m = package.loaded[name]
+            if type(m) == "table" then pending[name] = nil; pcall(fn, m) end
+        end
+    end
+    hookLoaded()
+    if next(pending) then
+        local ok_up, userpatch = pcall(require, "userpatch")
+        if ok_up and type(userpatch) == "table" and type(userpatch.registerPatchPluginFunc) == "function" then
+            local function onPlugin() pcall(hookLoaded) end
+            pcall(userpatch.registerPatchPluginFunc, "bookorbit", onPlugin)
+        end
     end
 end
 
