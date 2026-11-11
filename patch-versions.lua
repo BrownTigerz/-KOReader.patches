@@ -22,7 +22,7 @@
 return {
     ["2-ReadMastery-notify.lua"] = "1.0.6",
     ["2-ReadMastery-quests.lua"] = "1.0.6",
-    ["2-backup-patches.lua"] = "3.2.0",
+    ["2-backup-patches.lua"] = "3.2.1",
     ["2-bookorbit-tweaks.lua"] = "2.16.0",
     ["2-debugging-menu.lua"] = "1.4.5",
     ["2-kobo-style-sleepscreen-banner.lua"] = "1.2.2",
