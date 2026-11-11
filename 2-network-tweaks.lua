@@ -1,7 +1,7 @@
 --[[
 Network Tweaks (userpatch)
 ==========================
-Version: 1.12.1
+Version: 1.13.0
 
 Menu: Settings (gear) → Network → Network Tweaks
       (or Tools → Add-ons, if 2-tweaks-menu.lua is installed)
@@ -19,16 +19,20 @@ Menu: Settings (gear) → Network → Network Tweaks
 
   Choose network…
     Scans (tap the scanning message to cancel) and lists networks:
-    Connected, Saved, Saved · away (saved, not in range) or Open. Tap one
-    for Reconnect / Edit password / Forget, or Disconnect when connected.
-    When the device has the network saved too, Forget and Forget all ask:
-    KOReader Only, or Device + KOReader.
+    Connected, Saved, Saved · away (saved, not in range), Saved · device /
+    Device · away (saved only on the device) or Open. Tap one for
+    Reconnect / Edit password / Forget, Connect for one saved only on the
+    device (joins with the device's key, then KOReader has it too), or
+    Disconnect when connected. When the device has the network saved too,
+    Forget and Forget all ask: KOReader Only, or Device + KOReader; one
+    saved only on the device is just removed from the device's list.
     Forget all saved, Rescan and Close at the bottom. Never connects by
     itself: with Wi-Fi off (Kobo) the radio comes up just for the scan, and
-    closing the list without picking puts Wi-Fi back off. "Saved" here is
+    closing the list without picking puts Wi-Fi back off. "Saved" is
     KOReader's list; background connect uses the device's own saved
-    networks (on Kobo, the ones joined in Kobo's Wi-Fi settings).
-    Devices without wpa_supplicant use KOReader's own list.
+    networks (on Kobo, the ones joined in Kobo's Wi-Fi settings), which
+    the list reads (only while it's open). Devices without wpa_supplicant
+    use KOReader's own list.
 
   Notifications                                 (default: Banner)
     One style for Wi-Fi on/off, SSH on/off and the Calibre wireless
@@ -101,6 +105,19 @@ Bluetooth hand-off (kobo.koplugin, MTK Kobos: Clara BW/Colour, Libra Colour)
   Does nothing without the plugin, or on other devices.
 
 Changelog (condensed; full history in the patches repo)
+  1.13.0 Choose Network also shows the networks saved only on the device
+         (on Kobo, the ones joined in Kobo's own Wi-Fi settings, which
+         background connect uses): "Saved · device" in range, "Device ·
+         away" out of range, listed with the saved ones. Tap Connect and
+         it joins with the key the device has (read from its list only
+         then); afterwards it's in KOReader's list too, like any network
+         you join here. Forget on one of those asks once and removes it
+         from the device's list. The device's list is read when the
+         network list opens, never written unless you pick Forget.
+         The routine lines (Wi-Fi, SSH, Calibre, network list events) left
+         crash.log for the Network Tweaks diagnostic (1.4.0+, only while
+         it's logging); warnings, the startup line and changes to the
+         device's Wi-Fi list stay in crash.log.
   1.12.1 Patch Backup & Restore 3.0: registers its settings, so they are in
          Everything and in One Patch Or Plugin.
   1.12.0 Calibre: its own messages use the note style (Minimal / Banner),
@@ -224,7 +241,7 @@ Changelog (condensed; full history in the patches repo)
          Banner styles, failure note, SSH address banner.
 --]]
 
-local PATCH_VERSION = "1.12.1"
+local PATCH_VERSION = "1.13.0"
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
@@ -250,6 +267,13 @@ local util = require("util")
 local T = require("ffi/util").template
 local userpatch = require("userpatch")
 local _ = require("gettext")
+
+-- The Network Tweaks diagnostic (1.4.0+) sets package.loaded.network_tweaks_trace
+-- while it's logging; without it these routine lines go nowhere.
+local function trace(...)
+    local t = package.loaded.network_tweaks_trace
+    if type(t) == "function" then pcall(t, ...) end
+end
 local Screen = Device.screen
 
 if NetworkMgr.__network_tweaks then return end
@@ -637,7 +661,7 @@ local function stopSSHForSleep(ssh)
     if not sshRunning() then return end
     local ok, res, err = pcall(stopDropbear, ssh, true)
     if ok and res then
-        logger.info("network-tweaks: SSH server stopped for sleep")
+        trace("SSH server stopped for sleep")
     else
         logger.warn("network-tweaks: could not stop SSH for sleep:", ok and err or res)
     end
@@ -671,7 +695,7 @@ userpatch.registerPatchPluginFunc("SSH", function(SSH)
                     ssh_ip_pending = false
                     noteSSHAddress(port)
                 end
-                logger.info("network-tweaks: SSH server started")
+                trace("SSH server started")
                 note(ip and (_("SSH on · ") .. ip .. ":" .. port) or (_("SSH on · port ") .. port),
                      _("SSH on"), 4)
             else
@@ -801,7 +825,7 @@ local function calibreMessage(widget)
     local C = calText()
     local in_connect = calibre.co ~= nil and coroutine.running() == calibre.co
     if not in_connect and widget.is_infomessage and (t == C.searching or startsWith(t, C.connecting)) then
-        logger.info("network-tweaks: calibre message left as is (not in the connect):", t)
+        trace("calibre message left as is (not in the connect):", t)
     end
     if in_connect and widget.is_infomessage then
         -- Trapper's messages during the connect
@@ -823,7 +847,7 @@ local function calibreMessage(widget)
                     UIManager:close(mine)
                 end or nil)
             cal_shown[widget] = mine
-            logger.info("network-tweaks: calibre", searching and "searching" or "connecting", "note")
+            trace("calibre", searching and "searching" or "connecting", "note")
             return true
         end
         if t == C.not_found then
@@ -904,7 +928,7 @@ Trapper.clear = function(self, ...)
         local CW = package.loaded["wireless"]
         if type(CW) == "table" and CW.calibre_socket ~= nil then
             calibre.connected = true
-            logger.info("network-tweaks: calibre connected")
+            trace("calibre connected")
             local where = calibre.host and (tostring(calibre.host) .. ":" .. tostring(calibre.port))
             note(where and (_("Calibre connected · ") .. where) or _("Calibre connected"),
                  _("Calibre connected"), 3)
@@ -944,7 +968,7 @@ userpatch.registerPatchPluginFunc("calibre", function(Calibre)
                 orig_disconnect(self, ...)
                 if was then
                     calibre.connected = false
-                    logger.info("network-tweaks: calibre disconnected")
+                    trace("calibre disconnected")
                     if not calibre.quiet_disconnect then
                         note(by_server and _("Calibre disconnected (by calibre)") or _("Calibre disconnected"),
                              _("Calibre off"))
@@ -1010,7 +1034,7 @@ end
 local function canQuiet()
     if connectStyle() == "normal" or not quietSupported() then return false end
     if not hasKnownNetworks() then
-        logger.info("network-tweaks: no saved networks for background connect, using normal flow")
+        trace("no saved networks for background connect, using normal flow")
         return false
     end
     return true
@@ -1035,7 +1059,7 @@ end
 local function cancelQuiet(silent)
     local attempt = quiet
     if not attempt then return end
-    logger.info("network-tweaks: background connect cancelled")
+    trace("background connect cancelled")
     endQuiet()
     -- Kills the restore script, stops the check, powers Wi-Fi down,
     -- clears wifi_was_on (so it won't auto-restore on wake).
@@ -1073,7 +1097,7 @@ watch = function(attempt)
     end
     if os.difftime(os.time(), attempt.started) >= GIVE_UP_S and not NetworkMgr:isWifiOn() then
         -- The restore script gave up and powered Wi-Fi down.
-        logger.info("network-tweaks: background connect gave up")
+        trace("background connect gave up")
         NetworkMgr:_abortWifiConnection()
         return
     end
@@ -1087,19 +1111,19 @@ end
 -- Callbacks only run on success: a cancel or failure drops them, like stock.
 local function quietConnect(callback)
     if quiet then
-        logger.info("network-tweaks: joining the connect already in progress")
+        trace("joining the connect already in progress")
         if callback then table.insert(quiet.callbacks, callback) end
         return true
     end
     if NetworkMgr.pending_connection then
-        logger.info("network-tweaks: stock connect in progress, leaving it to KOReader")
+        trace("stock connect in progress, leaving it to KOReader")
         return false
     end
 
     local attempt = { started = os.time(), style = connectStyle(), callbacks = {} }
     if callback then attempt.callbacks[1] = callback end
     quiet = attempt
-    logger.info("network-tweaks: connecting Wi-Fi in the background (" .. attempt.style .. ")")
+    trace("connecting Wi-Fi in the background (" .. attempt.style .. ")")
 
     UIManager:broadcastEvent(Event:new("NetworkConnecting"))
     NetworkMgr.pending_connection = true
@@ -1116,7 +1140,7 @@ local function quietConnect(callback)
     -- over instead of starting a second restore script next to it. Two at
     -- once both load the driver and fight over wpa_supplicant.
     if NetworkMgr.pending_connectivity_check then
-        logger.info("network-tweaks: taking over the reconnect already running")
+        trace("taking over the reconnect already running")
     else
         NetworkMgr:restoreWifiAsync()
     end
@@ -1148,7 +1172,7 @@ local function stopSSHWithWifi()
     if not (sshStartOnConnect() and sshRunning()) then return false end
     local ok, res, err = pcall(stopDropbear, sshInstance(), true)
     if ok and res then
-        logger.info("network-tweaks: SSH stopped with Wi-Fi")
+        trace("SSH stopped with Wi-Fi")
         return true
     end
     logger.warn("network-tweaks: could not stop SSH with Wi-Fi:", ok and err or res)
@@ -1211,7 +1235,7 @@ NetworkMgr.disableWifi = function(self, cb, interactive, ...)
         -- kobo.koplugin is bringing Bluetooth up through the Wi-Fi chip:
         -- powering down now could leave Bluetooth half-started. Stop any
         -- connect, hold the power-off until Bluetooth is up (~3s).
-        logger.info("network-tweaks: Wi-Fi off held until Bluetooth is up")
+        trace("Wi-Fi off held until Bluetooth is up")
         endQuiet()
         self:unscheduleConnectivityCheck()
         self.pending_connection = false
@@ -1268,7 +1292,7 @@ local orig_restore_async = NetworkMgr.restoreWifiAsync
 if orig_restore_async then
     NetworkMgr.restoreWifiAsync = function(self, ...)
         if restoreScriptRunning() then
-            logger.info("network-tweaks: a Wi-Fi restore is already running, not starting another")
+            trace("a Wi-Fi restore is already running, not starting another")
             return
         end
         restore_started_at = os.time()
@@ -1299,12 +1323,12 @@ local function btFinish()
     local intent, off_cb = bt.intent, bt.off_cb
     btReset()
     if intent == "on" or quiet then
-        logger.info("network-tweaks: Bluetooth start-up done, keeping the Wi-Fi you turned on")
+        trace("Bluetooth start-up done, keeping the Wi-Fi you turned on")
         stateChanged()
         return true
     end
     if intent == "off" then
-        logger.info("network-tweaks: Bluetooth start-up done, applying the held Wi-Fi off")
+        trace("Bluetooth start-up done, applying the held Wi-Fi off")
         if NetworkMgr:isWifiOn() then
             NetworkMgr:disableWifi(off_cb, true)
         elseif off_cb then
@@ -1360,7 +1384,7 @@ local function patchKoboBluetooth()
         if not ok then error(res, 0) end
         return res
     end
-    logger.info("network-tweaks: kobo.koplugin Bluetooth coexistence on")
+    trace("kobo.koplugin Bluetooth coexistence on")
 end
 
 -- The plugin's Bluetooth menu, shown in Network Tweaks instead of
@@ -1503,7 +1527,7 @@ do
         if (opt == nil or opt == "collect") and fromStorefrontSleep() then
             if not said then
                 said = true
-                logger.info("network-tweaks: skipping Storefront's full memory clean-ups on sleep")
+                trace("skipping Storefront's full memory clean-ups on sleep")
             end
             return 0
         end
@@ -1520,7 +1544,7 @@ local function listInsteadOfStock()
     if connectStyle() == "normal" or not quietSupported() or hasKnownNetworks() then return false end
     local choose = NetworkMgr.__network_tweaks_choose_network
     if type(choose) ~= "function" then return false end
-    logger.info("network-tweaks: nothing saved on the device, opening the network list")
+    trace("nothing saved on the device, opening the network list")
     UIManager:nextTick(choose)
     return true
 end
@@ -1607,7 +1631,7 @@ if orig_request then
         -- screen ~5 s and still not connect. Say so straight away instead.
         if not self:isWifiOn() and not quiet and quietSupported() and not hasKnownNetworks()
                 and not self.pending_connection then
-            logger.info("network-tweaks: Wi-Fi asked for, nothing saved on the device")
+            trace("Wi-Fi asked for, nothing saved on the device")
             -- the caller's "Connecting…" goes; the failure note says it all
             if last_flash and os.difftime(os.time(), last_flash_at or 0) <= 2 then
                 UIManager:close(last_flash)
@@ -1649,7 +1673,7 @@ end
 -- its networks switched off (network list) or the network removed
 -- (Disconnect), which a reconnect alone wouldn't undo.
 local function reconnectFromHalfOn()
-    logger.info("network-tweaks: Wi-Fi on but not connected, reconnecting")
+    trace("Wi-Fi on but not connected, reconnecting")
     markUserConnect()
     if btBringingUpWifi() then
         -- Half on because kobo.koplugin is bringing Bluetooth up: its restore
@@ -1752,7 +1776,7 @@ local RADIO_TICK_S = 0.25
 local RADIO_MAX_TICKS = 60
 
 local function radioOnlyAsync(on_ready)
-    logger.info("network-tweaks: Wi-Fi radio on for the network list (no auto-join)")
+    trace("Wi-Fi radio on for the network list (no auto-join)")
     os.execute("./enable-wifi.sh &")
     local ctrl = wpaCtrl()
     local ticks, cancelled = 0, false
@@ -1870,11 +1894,15 @@ local function scanAsync(on_done)
     return function() cancelled = true; finish() end
 end
 
+local deviceSaved, deviceKey -- the device's own Wi-Fi list (further down)
+
 -- One entry per SSID (strongest access point), with saved/connected state.
--- Connected first, then saved, then by signal; saved networks that aren't
--- in range go last so they can still be forgotten.
+-- Connected first, then saved (KOReader's or the device's), then by
+-- signal; saved networks that aren't in range go last so they can still be
+-- forgotten. device_only: saved on the device but not in KOReader.
 local function buildList(results, decoded)
     local saved = savedNetworks()
+    local dev = deviceSaved()
     local cur
     local ok_c, c = pcall(NetworkMgr.getCurrentNetwork, NetworkMgr)
     if ok_c and type(c) == "table" and c.ssid then cur = c end
@@ -1904,14 +1932,15 @@ local function buildList(results, decoded)
     end
     for ssid, nw in pairs(best) do
         local s = saved[ssid]
-        if s then nw.password, nw.psk = s.password, s.psk end
+        if s then nw.password, nw.psk = s.password, s.psk
+        elseif dev[ssid] then nw.device_only = true end
         if cur_ssid == ssid then
             nw.connected = true
             nw.wpa_supplicant_id = cur.id
         end
         list[#list + 1] = nw
     end
-    local function rank(nw) return nw.connected and 0 or (saved[nw.ssid] and 1 or 2) end
+    local function rank(nw) return nw.connected and 0 or ((saved[nw.ssid] or dev[nw.ssid]) and 1 or 2) end
     table.sort(list, function(a, b)
         if rank(a) ~= rank(b) then return rank(a) < rank(b) end
         return a.signal_quality > b.signal_quality
@@ -1920,6 +1949,12 @@ local function buildList(results, decoded)
     for ssid, s in pairs(saved) do
         if not best[ssid] then
             away[#away + 1] = { ssid = ssid, password = s.password, psk = s.psk, flags = "", away = true }
+        end
+    end
+    for ssid in pairs(dev) do
+        if not best[ssid] and not saved[ssid] then
+            away[#away + 1] = { ssid = ssid, display = util.fixUtf8(ssid, "?"), flags = "",
+                away = true, device_only = true }
         end
     end
     table.sort(away, function(a, b) return a.ssid:lower() < b.ssid:lower() end)
@@ -1939,7 +1974,7 @@ local function finishPicker(state, radio)
     if state.finished then return end
     state.finished = true
     if state.radio_only and not state.picked then
-        logger.info("network-tweaks: network list closed without a pick, Wi-Fi back off")
+        trace("network list closed without a pick, Wi-Fi back off")
         os.execute("pkill -TERM -f '[e]nable-wifi.sh' 2>/dev/null")
         if radio == "now" then
             pcall(NetworkMgr.disableWifi, NetworkMgr, nil, true)
@@ -1949,7 +1984,7 @@ local function finishPicker(state, radio)
     elseif state.disconnected and not state.picked and not NetworkMgr:isConnected() then
         -- Disconnected here and didn't pick another: don't leave the radio
         -- on with nothing connected (the toolbar would show Wi-Fi as on).
-        logger.info("network-tweaks: list closed after a disconnect, Wi-Fi off")
+        trace("list closed after a disconnect, Wi-Fi off")
         UIManager:nextTick(function() quietOff() end)
     end
 end
@@ -1993,7 +2028,7 @@ local function obtainIPAsync(state, nw)
     end
     local function cancel()
         if not stop() then return end
-        logger.info("network-tweaks: getting an IP address cancelled")
+        trace("getting an IP address cancelled")
         killScript()
         pcall(NetworkMgr.disconnectNetwork, NetworkMgr, nw)
         pcall(NetworkMgr.releaseIP, NetworkMgr)
@@ -2078,10 +2113,16 @@ end
 connectedTo = function(state, nw)
     nw.connected = true
     state.picked = true
+    if nw.device_only then
+        -- joined with the device's key: KOReader has it now too, like any
+        -- network joined from this list
+        nw.device_only = nil
+        if not savedNetworks()[nw.ssid] then pcall(NetworkMgr.saveNetwork, NetworkMgr, nw) end
+    end
     -- saved on the device too, so background reconnects can use it
     local ok_r, err_r = pcall(deviceRemember, nw)
     if not ok_r then logger.warn("network-tweaks: saving on the device failed:", err_r) end
-    logger.info("network-tweaks: connected to", nw.ssid, "from the network list")
+    trace("connected to", nw.ssid, "from the network list")
     -- Announce it like any other connect, so the toolbar, "SSH follows
     -- Wi-Fi" and auto-restore on wake see it.
     markUserConnect()
@@ -2169,7 +2210,7 @@ end
 local NETWORK_BLOCK = "[ \t]*network%s*=%s*{(.-)\n%s*}[ \t]*\n?"
 
 -- SSIDs saved on the device, as a set.
-local function deviceSaved()
+deviceSaved = function()
     local set = {}
     local path = deviceConf()
     local s = path and readAll(path)
@@ -2179,6 +2220,39 @@ local function deviceSaved()
         if id then set[id] = true end
     end
     return set
+end
+
+-- The key the device has for one network, read only when you tap Connect
+-- and kept only on that list entry: { psk = 64 hex } or { password = text },
+-- password "" for an open network. nil when it's something KOReader's
+-- connect can't use (enterprise, WEP, WPA3-only, no key).
+deviceKey = function(ssid)
+    local path = deviceConf()
+    local s = path and readAll(path)
+    if not s then return nil end
+    for body in s:gmatch(NETWORK_BLOCK) do
+        if confSSID(body) == ssid then
+            local b = "\n" .. body
+            local km = b:match("\n%s*key_mgmt%s*=%s*([^\n]*)")
+            km = km and km:gsub("%s+$", "")
+            local psk = b:match("\n%s*psk%s*=%s*([^\n]*)")
+            psk = psk and psk:gsub("%s+$", "")
+            if km == "NONE" and not psk then
+                if b:find("\n%s*wep_key") then return nil end
+                return { password = "" }
+            end
+            if km and not km:find("WPA%-PSK") then return nil end
+            if not psk then return nil end
+            local quoted = psk:match('^"(.*)"$')
+            if quoted then
+                if #quoted >= 8 and #quoted <= 63 then return { password = quoted } end
+                return nil
+            end
+            if #psk == 64 and psk:match("^%x+$") then return { psk = psk:lower() } end
+            return nil
+        end
+    end
+    return nil
 end
 
 -- Removes networks from the device's list: ssids is a set, or true for
@@ -2265,7 +2339,7 @@ deviceRemember = function(nw)
             and not nw.password:find('["%c]') then
         key_line = 'psk="' .. nw.password .. '"'
     else
-        logger.info("network-tweaks: not saving", nw.ssid, "on the device (no key it can store)")
+        trace("not saving", nw.ssid, "on the device (no key it can store)")
         return
     end
     local out = s
@@ -2288,7 +2362,7 @@ end
 -- otherwise just does the KOReader part. on_done(device_too) runs after.
 local function askForgetWhere(text, on_device, koreader_part, device_set, on_done)
     local function finish(device_too)
-        koreader_part()
+        if koreader_part then koreader_part() end
         if device_too then
             local ok, err = deviceForget(device_set)
             if not ok then
@@ -2299,6 +2373,15 @@ local function askForgetWhere(text, on_device, koreader_part, device_set, on_don
         on_done(device_too)
     end
     if not on_device then return finish(false) end
+    if not koreader_part then
+        -- saved only on the device: nothing to choose
+        UIManager:show(ConfirmBox:new{
+            text = text .. "\n\n" .. _("It's saved only on the device. It's removed from the device's list."),
+            ok_text = _("Forget"),
+            ok_callback = function() finish(true) end,
+        })
+        return
+    end
     local MultiConfirmBox = require("ui/widget/multiconfirmbox")
     UIManager:show(MultiConfirmBox:new{
         text = text .. "\n\n" .. _("The device keeps its own list, and reconnects to what's in it."),
@@ -2341,6 +2424,13 @@ local function networkActions(state, nw)
         if saved then
             table.insert(buttons, row(_("Reconnect"), function() connectTo(state, nw) end))
             table.insert(buttons, row(_("Edit password"), function() askPassword(state, nw, true) end))
+        elseif nw.device_only then
+            table.insert(buttons, row(_("Connect"), function()
+                local key = deviceKey(nw.ssid)
+                if not key then return askPassword(state, nw, false) end
+                nw.password, nw.psk = key.password, key.psk
+                connectTo(state, nw)
+            end))
         elseif not nw.flags:find("WPA") then
             -- Open network: nothing to ask.
             nw.password = ""
@@ -2353,7 +2443,7 @@ local function networkActions(state, nw)
     if saved or on_device then
         table.insert(buttons, row(_("Forget"), function()
             askForgetWhere(T(_("Forget %1?"), nw.display or nw.ssid), on_device,
-                function() if saved then forget(nw) end end,
+                saved and function() forget(nw) end or nil,
                 { [nw.ssid] = true },
                 function(device_too)
                     if device_too and nw.connected and not NetworkMgr:isConnected() then
@@ -2363,7 +2453,9 @@ local function networkActions(state, nw)
                         state.disconnected = true
                         stateChanged()
                     end
-                    if nw.away then -- listed only because KOReader had it saved
+                    -- still on the device: listed as saved on the device
+                    nw.device_only = (not device_too and on_device) or nil
+                    if nw.away and not nw.device_only then -- nothing has it saved now
                         for i, other in ipairs(state.list) do
                             if other == nw then table.remove(state.list, i) break end
                         end
@@ -2397,8 +2489,9 @@ showPicker = function(state)
         local nw = state.list[i]
         local status
         if nw.connected then status = _("Connected")
-        elseif nw.away then status = _("Saved · away")
+        elseif nw.away then status = nw.device_only and _("Device · away") or _("Saved · away")
         elseif saved[nw.ssid] then status = _("Saved")
+        elseif nw.device_only then status = _("Saved · device")
         elseif not nw.flags:find("WPA") then status = _("Open")
         else status = _("Join") end
         local function tap() networkActions(state, nw) end
@@ -2438,10 +2531,13 @@ showPicker = function(state)
                         end
                     end
                 end
+                -- KOReader Only: what the device still has stays listed as such
+                local dev = device_too and {} or deviceSaved()
                 for i = #state.list, 1, -1 do
                     local nw = state.list[i]
                     nw.password, nw.psk = nil, nil
-                    if nw.away then table.remove(state.list, i) end
+                    nw.device_only = dev[nw.ssid] or nil
+                    if nw.away and not nw.device_only then table.remove(state.list, i) end
                 end
                 showPicker(state)
             end
@@ -2504,7 +2600,7 @@ startScan = function(state)
         list_scan = nil
         if cancel_step then cancel_step() end
         if info then UIManager:close(info) end
-        logger.info("network-tweaks: network list scan stopped (sleep or Wi-Fi off)")
+        trace("network list scan stopped (sleep or Wi-Fi off)")
         finishPicker(state, radio or "now")
     end
     list_scan = scan_entry
@@ -2559,7 +2655,7 @@ local function chooseNetwork()
     -- Already scanning for the list: a second scan next to it fights over
     -- the results (the first one's note stays up and fails much later).
     if list_scan then
-        logger.info("network-tweaks: network list already scanning, ignored")
+        trace("network list already scanning, ignored")
         return
     end
     if quiet then cancelQuiet(true) end -- you asked for the list instead
@@ -2718,7 +2814,7 @@ local function beforeSleep()
     if quiet then cancelQuiet(true) end
 
     local running = sshRunning()
-    logger.info("network-tweaks: going to sleep, SSH " .. (running and "running" or "not running")
+    trace("going to sleep, SSH " .. (running and "running" or "not running")
         .. ", stop on sleep " .. (sshStopOnSleep() and "on" or "off"))
     if running and sshStopOnSleep() then
         stopSSHForSleep(sshInstance())
