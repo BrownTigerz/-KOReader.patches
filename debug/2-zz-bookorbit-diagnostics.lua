@@ -1,6 +1,6 @@
 --[[
 2-zz-bookorbit-diagnostics.lua - TEMPORARY troubleshooting patch for BookOrbit
-Version 1.5.1
+Version 1.5.4
 
 For the hang where opening BookOrbit does nothing and KOReader has to be
 restarted, and for the freeze after sleep. It changes nothing about how
@@ -8,6 +8,22 @@ BookOrbit runs: it only writes lines to the shared log, so the last line
 before a freeze shows exactly where it stopped.
 
 Changelog
+  1.5.4 The Continue Reading card check (1.5.2/1.5.3) is gone: the night
+        colour is confirmed fixed (BookOrbit Tweaks 2.15.17). New: Action
+        Colours trace, moved here from BookOrbit Tweaks' Pill Colour Trace
+        setting (2.15.18): while this diagnostic is logging, every pill and
+        circle colour match and near-miss goes to diagnostics.log.
+  1.5.3 Fix: 1.5.2 crashed KOReader when the Continue Reading card drew in
+        night mode (it compared a colour with nil, which KOReader's colour
+        objects don't allow). The card check now also covers day mode (first
+        3 draws in each), and says which mode the card was built in, so a
+        card left over from before a day/night switch shows.
+  1.5.2 Continue Reading card at night: the first 3 night-mode draws of the
+        dashboard's Continue Reading card log who built it (BookOrbit, or
+        BookOrbit Tweaks' Keep Continue Reading Colour At Night), the colour
+        just after it was drawn at the card's bottom middle, whether that was
+        the screen itself, and the same screen spot 1.5 s later, so a later
+        paint over it shows.
   1.5.1 Build totals count a dashboard page built inside a catalog page
         once (they were added twice); its line says "(inside the one
         below)".
@@ -145,7 +161,7 @@ local WINDOW_MIN = 30
 local WINDOW_S = WINDOW_MIN * 60
 local EXPIRE_S = 3 * 24 * 3600
 local STATE = DataStorage:getDataDir() .. "/bookorbit-diagnostics.state"
-local DIAG_VERSION = "1.5.1"
+local DIAG_VERSION = "1.5.4"
 local DIAG_TAG = "bookorbit"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
@@ -996,6 +1012,22 @@ local function hookPlugin(plugin)
     else
         log("hook board:BoardUI.cover: not found (not in this plugin version)")
     end
+
+    -- Action Colours trace (1.5.4): BookOrbit Tweaks 2.15.18+ calls this for
+    -- every pill / circle colour match and near-miss, only while it's set.
+    -- Set while logging; the logging window's end turns it off again.
+    package.loaded.bookorbit_tweaks_trace = function(...)
+        if not on() then
+            package.loaded.bookorbit_tweaks_trace = nil
+            return
+        end
+        local parts = {}
+        for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+        log("%s", table.concat(parts, " "))
+    end
+    log("Action Colours trace: on while logging")
+
+
 
     -- Drawing time (1.5.0). Two halves of a BookOrbit screen:
     --   build: making the widgets (board screen, list, detail, data)
