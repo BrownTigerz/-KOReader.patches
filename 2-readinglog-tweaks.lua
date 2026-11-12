@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.9.7
+Version: 2.9.8
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -71,6 +71,14 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.9.8  2026-11-11  Styles > Get Styles: every style Change Style Each Month
+                     can use (the Monthly Styles' 24, then Steven's 7), with
+                     a check when it's on the device and "(update)" when a
+                     newer one is out. Tap one to download just it; one on
+                     the device has Use It Now and Download Again / Update.
+                     Download All gets every missing one. Works with Change
+                     Style Each Month off, and doesn't count as the day's
+                     check.
   2.9.7  2026-11-11  Style downloads that finish: they come a few at a time,
                      each few put in place before the next, so a tap (which
                      stops a background download) or a restart only loses
@@ -405,7 +413,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.9.7"
+local PATCH_VERSION = "2.9.8"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -6230,12 +6238,21 @@ local function apply(A)
         end
         for _loop, p in ipairs(stale) do pcall(K._removeDir, p) end
     end
-    local function fetchMonthStyles(manual, after)
+    -- 2.9.8: pick = { ids = {...}, updates = true/nil } fetches those
+    -- styles (Get Styles), whatever the months are set to; always by hand,
+    -- and it leaves the day's check alone.
+    local function fetchMonthStyles(manual, after, pick)
         if fetching or not (A.packs and A.packs.fetchIndex and A.packs.download and A.packs.place) then return end
-        local need = missingPacks()
-        local have = mineInstalled()
+        local need, have
+        if pick then
+            need = pick.ids or {}
+            have = pick.updates and mineInstalled() or {}
+        else
+            need = missingPacks()
+            have = mineInstalled()
+        end
         if #need == 0 and next(have) == nil then
-            if manual then noteQuiet(T("Every month's style is on the device")) end
+            if manual then noteQuiet(pick and T("Every style is on the device") or T("Every month's style is on the device")) end
             return
         end
         local okN, NM = pcall(require, "ui/network/manager")
@@ -6257,7 +6274,7 @@ local function apply(A)
         local steven_index, steven_files = K.INDEX_URL, K.FILES_URL
         -- 1) the lists: which styles to fetch, and from where
         local function listWork()
-            local todo, errs = {}, {}
+            local todo, errs, versions = {}, {}, nil
             local function from(index_url, files_url, pick)
                 K.INDEX_URL, K.FILES_URL = index_url, files_url
                 local okf, r = pcall(K.fetchIndex)
@@ -6268,6 +6285,10 @@ local function apply(A)
                 for _loop, e in ipairs(r.styles or {}) do
                     local why = (not e.builtin) and pick(e)
                     if why then todo[#todo + 1] = { entry = e, why = why, files_url = files_url } end
+                    if files_url == MS.MINE_URL and MS.mine[e.id] then
+                        versions = versions or {}
+                        versions[e.id] = e.version
+                    end
                 end
             end
             if mine_wanted or next(have) ~= nil then
@@ -6285,7 +6306,7 @@ local function apply(A)
                 end)
             end
             K.INDEX_URL, K.FILES_URL = steven_index, steven_files
-            return { todo = todo, error = (#todo == 0 and #errs > 0) and errs[1] or nil }
+            return { todo = todo, versions = versions, error = (#todo == 0 and #errs > 0) and errs[1] or nil }
         end
         -- 2) a few styles' files (in the sub-process; K's URLs there don't
         -- touch the main process's)
@@ -6321,17 +6342,19 @@ local function apply(A)
             if stopped then
                 if total > 0 then warn("Change Style Each Month: download stopped,", placed + updated, "of", total, "done")
                 else warn("Change Style Each Month: download stopped before the style list came") end
-            else
+            elseif not pick then
                 A.set("rlt_month_style_fetch", today)
             end
-            if placed > 0 then
-                noteQuiet(A.plural(placed, "style", "styles") .. T(" downloaded for Change Style Each Month"))
+            if placed > 0 and pick and placed == 1 and #need == 1 then
+                noteQuiet(styleName("pack:" .. tostring(need[1])) .. T(" downloaded"))
+            elseif placed > 0 then
+                noteQuiet(A.plural(placed, "style", "styles") .. (pick and T(" downloaded") or T(" downloaded for Change Style Each Month")))
             elseif updated > 0 then
                 noteQuiet(A.plural(updated, "style", "styles") .. T(" updated"))
             elseif manual then
                 if stopped then noteQuiet(T("Style download stopped"))
                 elseif failed > 0 or list_error then noteQuiet(T("The styles couldn't be downloaded"))
-                else noteQuiet(T("Every month's style is on the device and up to date")) end
+                else noteQuiet(pick and T("Every style is on the device and up to date") or T("Every month's style is on the device and up to date")) end
             end
             if (placed > 0 or updated > 0) and applyMonthStyle(false) then redrawAll() end
             if updated > 0 then redrawAll() end
@@ -6341,6 +6364,7 @@ local function apply(A)
         if not (ok_t and Trapper and Trapper.wrap and Trapper.dismissableRunInSubprocess) then
             local okl, r = pcall(listWork)
             r = okl and r or { error = r }
+            if type(r.versions) == "table" then A.set("rlt_mine_versions", r.versions) end
             local todo = r.todo or {}
             local okb, got = pcall(batchWork(todo))
             if okb then placeAll(got) else failed = failed + #todo end
@@ -6357,6 +6381,8 @@ local function apply(A)
             local completed, r = Trapper:dismissableRunInSubprocess(listWork, trap(T("Getting the style list…")))
             if not completed then finish(true, nil, 0) return end
             if type(r) ~= "table" then finish(false, "no list", 0) return end
+            -- what the Monthly Styles list has, for Get Styles' "(update)"
+            if type(r.versions) == "table" then A.set("rlt_mine_versions", r.versions) end
             local todo = r.todo or {}
             local i = 1
             while i <= #todo do
@@ -6370,6 +6396,96 @@ local function apply(A)
             end
             finish(false, r.error, #todo)
         end)
+    end
+
+    -- 2.9.8: Get Styles (Styles menu): every downloadable style by name,
+    -- ✓ when it's on the device. Tap one that isn't to download just it;
+    -- one that is has Use It Now and Download Again (or Update). Download
+    -- All gets every missing one and newer versions. Works with Change
+    -- Style Each Month off. In MS: apply() is near Lua's local-variable
+    -- limit.
+    function MS.getStylesMenu()
+        local function refresher(tmi)
+            return function()
+                if tmi and type(tmi.updateItems) == "function" then pcall(tmi.updateItems, tmi) end
+            end
+        end
+        local function updateOf(id)
+            local p = A.packs and type(A.packs.get) == "function" and A.packs.get(id)
+            local seen = A.get("rlt_mine_versions", nil)
+            local v = type(seen) == "table" and seen[id] or nil
+            if p and v and MS.newer(v, p.version) then return v end
+            return nil
+        end
+        local function nameOf(id) return styleName("pack:" .. id) end
+        local items = {
+            {
+                text = "Download All",
+                help_text = "Downloads every style here that isn't on the device yet, and newer versions of the Monthly Styles' own 24 that are (Wi-Fi on). Shows how far it is; tap to stop, and what's done stays.",
+                keep_menu_open = true,
+                callback = function(tmi)
+                    local ids = {}
+                    for id in pairs(MS.fetchable) do
+                        if not packInstalled(id) then ids[#ids + 1] = id end
+                    end
+                    table.sort(ids)
+                    pcall(fetchMonthStyles, true, refresher(tmi), { ids = ids, updates = true })
+                end,
+                separator = true,
+            },
+        }
+        local function add(id, last)
+            local entry = {
+                text_func = function()
+                    local up = updateOf(id)
+                    return nameOf(id) .. (up and " (update)" or "")
+                end,
+                checked_func = function() return packInstalled(id) end,
+                keep_menu_open = true,
+                separator = last or nil,
+            }
+            if packInstalled(id) then
+                entry.sub_item_table_func = function()
+                    return {
+                        {
+                            text = "Use It Now",
+                            help_text = "Puts this style on now. With Change Style Each Month on, the month's style comes back on the 1st or the 16th.",
+                            enabled_func = function() return packInstalled(id) and type(A.setStyle) == "function" end,
+                            keep_menu_open = true,
+                            callback = function()
+                                local ok, err = pcall(A.setStyle, "pack:" .. id)
+                                if not ok then warn("Get Styles:", tostring(err)) return end
+                                noteQuiet(T("Reading Log style: ") .. nameOf(id))
+                                redrawAll()
+                            end,
+                        },
+                        {
+                            text_func = function()
+                                local up = updateOf(id)
+                                return up and ("Update To " .. up) or "Download Again"
+                            end,
+                            help_text = "Downloads this style again from its repo (Wi-Fi on), in place of the one on the device.",
+                            keep_menu_open = true,
+                            callback = function(tmi)
+                                pcall(fetchMonthStyles, true, refresher(tmi), { ids = { id } })
+                            end,
+                        },
+                    }
+                end
+            else
+                entry.callback = function(tmi)
+                    pcall(fetchMonthStyles, true, refresher(tmi), { ids = { id } })
+                end
+            end
+            items[#items + 1] = entry
+        end
+        -- the Monthly Styles' 24 by name, then Steven's 7
+        local mine = {}
+        for _loop, id in ipairs(MS.MINE_ORDER) do mine[#mine + 1] = id end
+        table.sort(mine, function(a, b) return nameOf(a) < nameOf(b) end)
+        for i, id in ipairs(mine) do add(id, i == #mine) end
+        for _loop, id in ipairs(PACK_ORDER) do add(id, false) end
+        return items
     end
 
     -- Keep My Colours and Keep My Card Looks: one
@@ -8130,6 +8246,9 @@ local function apply(A)
                 callback = function() A.set("rlt_my_looks", nil) end,
                 separator = true,
             },
+            { text = "Get Styles", sub_item_table_func = MS.getStylesMenu,
+              enabled_func = function() return A.packs ~= nil and type(A.packs.download) == "function" end,
+              help_text = "Every style Change Style Each Month can use: download one by itself, put one on, or Download All." },
             { text = "Change Style Each Month", sub_item_table_func = monthStyleMenu,
               help_text = "Reading Log's style changes with the month (off by default)." },
         } }
