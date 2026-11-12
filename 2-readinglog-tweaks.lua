@@ -6,7 +6,7 @@ KOReader user patch for stevenzamora1's Reading Log 1.4+
 Hooks: package.loaded.readinglog_kit (and Bookshelf's almanac_kit).
 Upstream: https://github.com/stevenzamora1/reading-log
 
-Version: 2.9.6
+Version: 2.9.7
 
   This Book          The book you're on: time spent, sessions this week,
                      pages today, pace, and when you'll finish at your
@@ -71,6 +71,14 @@ is not touched.
 Versioning: 1.x fixes/features, 2.0.0 settings schema changes.
 
 Changelog:
+  2.9.7  2026-11-11  Style downloads that finish: they come a few at a time,
+                     each few put in place before the next, so a tap (which
+                     stops a background download) or a restart only loses
+                     the few being fetched and the rest carry on next time.
+                     The day's check only counts once a download gets to
+                     the end. Download Styles Now shows how far it is (tap
+                     to stop). Half-done download folders (.<id>.new) are
+                     cleared, and a stopped download is noted in crash.log.
   2.9.6  2026-11-11  Monthly Styles download themselves: the set's own 24
                      styles come from the -KOReader.patches repo
                      (readinglog-styles/), Steven's from his, in the
@@ -397,7 +405,7 @@ Changelog:
                      suggestions and the talk window.
 ]]
 
-local PATCH_VERSION = "2.9.6"
+local PATCH_VERSION = "2.9.7"
 
 local logger = require("logger")
 local TAG = "[readinglog-tweaks]"
@@ -6205,6 +6213,23 @@ local function apply(A)
     -- the -KOReader.patches repo for its 24, Steven's for his), and newer
     -- versions of the 24 that are on it. Wi-Fi already on only; in the
     -- background at most once a day, or now from Download Styles Now.
+    -- 2.9.7: a few at a time, each few put in place before the next, so a
+    -- tap (which stops a background run) or a restart only loses the few
+    -- being fetched; the day only counts once a run gets to the end, and
+    -- Download Styles Now shows how far it is.
+    local FETCH_BATCH = 3
+    -- half-done download folders (.<id>.new) left by a stopped run
+    local function clearStaleDownloads(K)
+        local okl, L = pcall(require, "libs/libkoreader-lfs")
+        local dir = type(K.dir) == "function" and K.dir()
+        if not (okl and dir and type(K._removeDir) == "function") then return end
+        if L.attributes(dir, "mode") ~= "directory" then return end
+        local stale = {}
+        for f in L.dir(dir) do
+            if f:match("^%..+%.new$") then stale[#stale + 1] = dir .. "/" .. f end
+        end
+        for _loop, p in ipairs(stale) do pcall(K._removeDir, p) end
+    end
     local function fetchMonthStyles(manual, after)
         if fetching or not (A.packs and A.packs.fetchIndex and A.packs.download and A.packs.place) then return end
         local need = missingPacks()
@@ -6219,11 +6244,8 @@ local function apply(A)
             if manual then noteQuiet(T("Turn on Wi-Fi to download the styles")) end
             return
         end
-        if not manual then
-            local today = os.date("%Y-%m-%d")
-            if A.get("rlt_month_style_fetch", nil) == today then return end
-            A.set("rlt_month_style_fetch", today)
-        end
+        local today = os.date("%Y-%m-%d")
+        if not manual and A.get("rlt_month_style_fetch", nil) == today then return end
         fetching = true
         local wanted, mine_wanted = {}, false
         for _loop, id in ipairs(need) do
@@ -6231,9 +6253,11 @@ local function apply(A)
             if MS.mine[id] then mine_wanted = true end
         end
         local K = A.packs
-        local function work()
-            local got, errs = {}, {}
-            local orig_index, orig_files = K.INDEX_URL, K.FILES_URL
+        pcall(clearStaleDownloads, K)
+        local steven_index, steven_files = K.INDEX_URL, K.FILES_URL
+        -- 1) the lists: which styles to fetch, and from where
+        local function listWork()
+            local todo, errs = {}, {}
             local function from(index_url, files_url, pick)
                 K.INDEX_URL, K.FILES_URL = index_url, files_url
                 local okf, r = pcall(K.fetchIndex)
@@ -6243,14 +6267,9 @@ local function apply(A)
                 end
                 for _loop, e in ipairs(r.styles or {}) do
                     local why = (not e.builtin) and pick(e)
-                    if why then
-                        local okd, ok, tmp = pcall(K.download, e)
-                        got[#got + 1] = { entry = e, why = why, tmp = okd and ok and tmp or nil,
-                            error = (not (okd and ok)) and tostring(okd and tmp or ok) or nil }
-                    end
+                    if why then todo[#todo + 1] = { entry = e, why = why, files_url = files_url } end
                 end
             end
-            -- the 24: missing ones the months need, and newer versions
             if mine_wanted or next(have) ~= nil then
                 from(MS.MINE_URL .. "index.json", MS.MINE_URL, function(e)
                     if not MS.mine[e.id] then return nil end
@@ -6258,38 +6277,60 @@ local function apply(A)
                     if have[e.id] and MS.newer(e.version, have[e.id]) then return "update" end
                 end)
             end
-            -- Steven's: only missing ones the months need
             local steven = false
             for id in pairs(wanted) do if not MS.mine[id] then steven = true end end
             if steven then
-                from(orig_index, orig_files, function(e)
+                from(steven_index, steven_files, function(e)
                     if wanted[e.id] and not MS.mine[e.id] then return "new" end
                 end)
             end
-            K.INDEX_URL, K.FILES_URL = orig_index, orig_files
-            return { got = got, error = (#got == 0 and #errs > 0) and errs[1] or nil }
+            K.INDEX_URL, K.FILES_URL = steven_index, steven_files
+            return { todo = todo, error = (#todo == 0 and #errs > 0) and errs[1] or nil }
         end
-        local function done(r)
-            fetching = false
-            if type(r) ~= "table" then return end
-            if r.error then warn("Change Style Each Month: style list:", tostring(r.error)) end
-            local placed, updated, failed = 0, 0, 0
-            for _loop, g in ipairs(r.got or {}) do
+        -- 2) a few styles' files (in the sub-process; K's URLs there don't
+        -- touch the main process's)
+        local function batchWork(batch)
+            return function()
+                local got = {}
+                for _loop, t in ipairs(batch) do
+                    K.FILES_URL = t.files_url
+                    local okd, ok, tmp = pcall(K.download, t.entry)
+                    got[#got + 1] = { entry = t.entry, why = t.why, tmp = okd and ok and tmp or nil,
+                        error = (not (okd and ok)) and tostring(okd and tmp or ok) or nil }
+                end
+                K.FILES_URL = steven_files
+                return got
+            end
+        end
+        local placed, updated, failed = 0, 0, 0
+        local function placeAll(got)
+            for _loop, g in ipairs(got or {}) do
                 local ok, err = false, g.error
                 if g.tmp then ok, err = K.place(g.entry, g.tmp) end
                 if ok then
                     if g.why == "update" then updated = updated + 1 else placed = placed + 1 end
                 else
                     failed = failed + 1
-                    warn("Change Style Each Month: couldn't install", tostring(g.entry.id), tostring(err))
+                    warn("Change Style Each Month: couldn't install", tostring(g.entry and g.entry.id), tostring(err))
                 end
+            end
+        end
+        local function finish(stopped, list_error, total)
+            fetching = false
+            if list_error then warn("Change Style Each Month: style list:", tostring(list_error)) end
+            if stopped then
+                if total > 0 then warn("Change Style Each Month: download stopped,", placed + updated, "of", total, "done")
+                else warn("Change Style Each Month: download stopped before the style list came") end
+            else
+                A.set("rlt_month_style_fetch", today)
             end
             if placed > 0 then
                 noteQuiet(A.plural(placed, "style", "styles") .. T(" downloaded for Change Style Each Month"))
             elseif updated > 0 then
                 noteQuiet(A.plural(updated, "style", "styles") .. T(" updated"))
             elseif manual then
-                if failed > 0 or r.error then noteQuiet(T("The styles couldn't be downloaded"))
+                if stopped then noteQuiet(T("Style download stopped"))
+                elseif failed > 0 or list_error then noteQuiet(T("The styles couldn't be downloaded"))
                 else noteQuiet(T("Every month's style is on the device and up to date")) end
             end
             if (placed > 0 or updated > 0) and applyMonthStyle(false) then redrawAll() end
@@ -6298,13 +6339,36 @@ local function apply(A)
         end
         local ok_t, Trapper = pcall(require, "ui/trapper")
         if not (ok_t and Trapper and Trapper.wrap and Trapper.dismissableRunInSubprocess) then
-            local ok, r = pcall(work)
-            done(ok and r or { error = r })
+            local okl, r = pcall(listWork)
+            r = okl and r or { error = r }
+            local todo = r.todo or {}
+            local okb, got = pcall(batchWork(todo))
+            if okb then placeAll(got) else failed = failed + #todo end
+            finish(false, r.error, #todo)
             return
         end
         Trapper:wrap(function()
-            local completed, r = Trapper:dismissableRunInSubprocess(work, true)
-            if completed then done(r) else fetching = false end
+            -- manual: a message to tap to stop; background: unseen, a tap
+            -- stops it (and still goes through)
+            local function trap(text)
+                if manual then return text .. "\n" .. T("Tap to stop.") end
+                return true
+            end
+            local completed, r = Trapper:dismissableRunInSubprocess(listWork, trap(T("Getting the style list…")))
+            if not completed then finish(true, nil, 0) return end
+            if type(r) ~= "table" then finish(false, "no list", 0) return end
+            local todo = r.todo or {}
+            local i = 1
+            while i <= #todo do
+                local batch = {}
+                for j = i, math.min(i + FETCH_BATCH - 1, #todo) do batch[#batch + 1] = todo[j] end
+                local label = T("Downloading styles… ") .. i .. "–" .. (i + #batch - 1) .. T(" of ") .. #todo
+                local done_ok, got = Trapper:dismissableRunInSubprocess(batchWork(batch), trap(label))
+                if not done_ok then finish(true, nil, #todo) return end
+                placeAll(got)
+                i = i + #batch
+            end
+            finish(false, r.error, #todo)
         end)
     end
 
@@ -7756,7 +7820,7 @@ local function apply(A)
             end
             items[#items + 1] = {
                 text = "Download Styles Now",
-                help_text = "Downloads the styles the months are set to that aren't on the device yet, and newer versions of the Monthly Styles' own 24 that are (Wi-Fi on). Only those, not the whole list. In the background this happens at most once a day, when Wi-Fi is already on.",
+                help_text = "Downloads the styles the months are set to that aren't on the device yet, and newer versions of the Monthly Styles' own 24 that are (Wi-Fi on). Only those, not the whole list. Shows how far it is; tap to stop, and what's done stays. In the background this happens at most once a day, when Wi-Fi is already on.",
                 enabled_func = monthStyleOn,
                 keep_menu_open = true,
                 callback = function() pcall(fetchMonthStyles, true) end,
