@@ -38,6 +38,11 @@ This patch hooks the real current module, bookorbit_catalog_widgets.
 It does not alter BookOrbit sync, downloads, metadata, or reading progress.
 
 Changes:
+  2.16.1  2026-11-14  Closing BookOrbit goes to SimpleUI home only when the stock
+                      library was under it. Opened over Bookshelf, an OrbitShelf
+                      Book Page or another full-screen window, it goes back to
+                      that window (home used to cover it, and the window came
+                      back the next time Bookshelf opened).
   2.16.0  2026-11-11  Switching saved servers is clean: with BookOrbit open, it
                       closes and opens again fresh on the new server (from the
                       sign-in page, Settings → Account → Server or the Tweaks
@@ -209,7 +214,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.16.0"
+local VERSION = "2.16.1"
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -1532,13 +1537,38 @@ end
 -- when that window closes. After sleep the home is re-shown over the catalog and
 -- later closed again, so closing the catalog can leave only the stock file
 -- browser. When the option is on and no SimpleUI home is left, show it.
-local function showSimpleUIHome()
+-- 2.16.1: is the stock library what BookOrbit was covering? Only then does closing
+-- it go to SimpleUI home. Opened over Bookshelf, an OrbitShelf Book Page or any
+-- other full-screen window, closing BookOrbit goes back to that window (home used
+-- to cover it, and it came back the next time Bookshelf opened).
+local function stockLibraryUnder(UIManager, closing)
+    local FM = package.loaded["apps/filemanager/filemanager"]
+    local fm = type(FM) == "table" and FM.instance
+    local okD, Device = pcall(require, "device")
+    local sw = okD and Device.screen and Device.screen:getWidth() or 0
+    local sh = okD and Device.screen and Device.screen:getHeight() or 0
+    local stack = UIManager._window_stack or {}
+    for i = #stack, 1, -1 do
+        local w = stack[i].widget
+        if type(w) == "table" and w ~= closing then
+            if w == fm then return true end
+            local d = w.dimen
+            local full = w.covers_fullscreen
+                or (type(d) == "table" and sw > 0 and (d.w or 0) >= sw and (d.h or 0) >= sh * 0.9)
+            if full then return false end
+        end
+    end
+    return true
+end
+
+local function showSimpleUIHome(closing)
     if not (G_reader_settings and G_reader_settings:readSetting("start_with") == "homescreen_simpleui") then
         return
     end
     local ok, UIManager = pcall(require, "ui/uimanager")
     if not ok or type(UIManager) ~= "table" then return end
     if UIManager._exit_code ~= nil or UIManager._simpleui_exiting then return end
+    if not stockLibraryUnder(UIManager, closing) then return end
     local RUI = package.loaded["apps/reader/readerui"]
     if type(RUI) == "table" and RUI.instance then return end
     for _i, entry in ipairs(UIManager._window_stack or {}) do
@@ -1572,7 +1602,7 @@ local function hookCatalogClose()
             -- makes home topmost before that repaint. This mirrors the
             -- Bookshelf close path, which shows home synchronously
             -- after its close instead of deferring it.
-            local ok_show, err = pcall(showSimpleUIHome)
+            local ok_show, err = pcall(showSimpleUIHome, self)
             if not ok_show then logger.warn(TAG, "show SimpleUI home failed:", err) end
         end
         return result
