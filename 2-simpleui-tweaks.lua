@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.15.0
+Version 2.16.0
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,12 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.16.0  Finished Books In Stats (SimpleUI Tweaks menu): every finished book
+          SimpleUI counts, newest year first. Tap one: Don't Count (stays
+          listed, like SimpleUI's Exclude from goals, and works for a deleted
+          book too) / Count Again, and for a deleted book Remove From Stats
+          (asks first). No more editing sui_settings by hand. Manual books
+          stay in SimpleUI's own Finished Books window.
   2.15.0  Home Screen Pages (SimpleUI Tweaks menu): untick a page to hide
           it without deleting it, and Open On picks the page the home
           screen opens on. SimpleUI's saved layout isn't changed (its page
@@ -390,7 +396,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.15.0"
+local VERSION = "2.16.0"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -3575,6 +3581,117 @@ end
 return { hiddenPages = hiddenPages, homePages = homePages, hook = hookHomePages }
 end)()
 
+-- ---- Finished Books In Stats (2.16.0) -----------------------------------------
+-- SimpleUI keeps every finished book in its own list (simpleui_finished_books,
+-- through SUISettings.FinishedBooks) and still counts one after it's deleted.
+-- Its own "Exclude from goals" saves into the book's sidecar, so it can't reach a
+-- deleted book. Here: Don't Count (any book) and Remove From Stats (deleted books
+-- only; a book still on the device would be added back at SimpleUI's next check).
+-- Manual books are SimpleUI's own (its Finished Books window) and aren't listed.
+CF.finished = (function()
+local function parts()
+    local okS, S = pcall(orig_require, "infra/sui_store")
+    local FB = okS and type(S) == "table" and S.FinishedBooks
+    if type(FB) ~= "table" or type(FB.load) ~= "function" or type(FB.save) ~= "function" then return nil end
+    return FB, package.loaded["modules/module_stats_provider"]
+end
+
+local function isGone(stored)
+    if stored.gone then return true end
+    local p = stored.path
+    if type(p) ~= "string" or p == "" then return true end
+    local okL, lfs = pcall(orig_require, "libs/libkoreader-lfs")
+    return okL and lfs.attributes(p, "mode") ~= "file" or false
+end
+
+local function yearOf(stored)
+    local s = stored.finished or stored.started
+    return type(s) == "string" and tonumber(s:match("^(%d%d%d%d)")) or nil
+end
+
+-- the stats and the home screen pick it up now
+local function refreshStats(SP)
+    if SP then
+        if SP.invalidateBooks then pcall(SP.invalidateBooks) end
+        if SP.invalidateStatusCounts then pcall(SP.invalidateStatusCounts) end
+    end
+    local SE = package.loaded["engines/sui_screen_engine"]
+    if SE and SE.markAllStale then pcall(SE.markAllStale) end
+    local UIManager = orig_require("ui/uimanager")
+    for i = #(UIManager._window_stack or {}), 1, -1 do
+        local w = UIManager._window_stack[i].widget
+        if type(w) == "table" and w.name == "homescreen" and type(w._refreshImmediate) == "function" then
+            pcall(w._refreshImmediate, w, false)
+            return
+        end
+    end
+end
+
+-- on the device: the sidecar, like SimpleUI's own Exclude from goals (its next
+-- check reads it from there); deleted: the list entry itself
+local function setCounted(md5, counted)
+    local FB, SP = parts()
+    if not FB then return false end
+    local ledger = FB.load()
+    local stored = type(ledger) == "table" and type(ledger.books) == "table" and ledger.books[md5]
+    if type(stored) ~= "table" then return false end
+    local excluded = (not counted) or nil
+    if not isGone(stored) then
+        local okD, DocSettings = pcall(orig_require, "docsettings")
+        local okO, ds = false, nil
+        if okD then okO, ds = pcall(DocSettings.open, DocSettings, stored.path) end
+        if okO and ds then
+            local summary = ds:readSetting("summary") or {}
+            summary.exclude_from_goals = excluded
+            ds:saveSetting("summary", summary)
+            ds:flush()
+            if SP and SP.bookChanged then pcall(SP.bookChanged, stored.path) end
+        end
+        ledger = FB.load()
+        stored = ledger.books[md5] or stored
+    end
+    stored.excluded = excluded
+    FB.save(ledger)
+    refreshStats(SP)
+    return true
+end
+
+local function remove(md5)
+    local FB, SP = parts()
+    if not FB then return false end
+    local ledger = FB.load()
+    local stored = type(ledger) == "table" and type(ledger.books) == "table" and ledger.books[md5]
+    if type(stored) ~= "table" or not isGone(stored) then return false end
+    ledger.books[md5] = nil
+    FB.save(ledger)
+    refreshStats(SP)
+    return true
+end
+
+-- the books, newest year first, then by title
+local function list()
+    local FB = parts()
+    if not FB then return nil end
+    local ok, ledger = pcall(FB.load)
+    if not ok or type(ledger) ~= "table" or type(ledger.books) ~= "table" then return nil end
+    local out = {}
+    for md5, stored in pairs(ledger.books) do
+        if type(stored) == "table" and not stored.manual then
+            out[#out + 1] = { md5 = md5, title = tostring(stored.title or "?"), year = yearOf(stored),
+                              gone = isGone(stored), counted = not stored.excluded }
+        end
+    end
+    table.sort(out, function(a, b)
+        if (a.year or 0) ~= (b.year or 0) then return (a.year or 0) > (b.year or 0) end
+        if a.title ~= b.title then return a.title < b.title end
+        return tostring(a.md5) < tostring(b.md5)
+    end)
+    return out
+end
+
+return { list = list, setCounted = setCounted, remove = remove }
+end)()
+
 do
     local UIManager = orig_require("ui/uimanager")
     local orig_show = UIManager.show
@@ -4407,6 +4524,71 @@ local function buildMenu()
                       end,
                       separator = true }
                 },
+            },
+            {
+                text = _("Finished Books In Stats"),
+                help_text = _("Every finished book SimpleUI counts, newest year first. Tap one to stop counting it (it stays listed, like SimpleUI's own Exclude from goals) or, for a book you've deleted, to remove it from the stats."),
+                sub_item_table_func = function()
+                    local books = CF.finished.list()
+                    if not books then
+                        return { { text = _("SimpleUI's finished books list isn't available"), enabled = false } }
+                    end
+                    if #books == 0 then
+                        return { { text = _("No finished books yet"), enabled = false } }
+                    end
+                    local items = {}
+                    for _i, b in ipairs(books) do
+                        items[#items + 1] = {
+                            text_func = function()
+                                local tags = {}
+                                if b.year then tags[#tags + 1] = tostring(b.year) end
+                                if b.gone then tags[#tags + 1] = _("deleted") end
+                                if not b.counted then tags[#tags + 1] = _("not counted") end
+                                return b.title .. (#tags > 0 and ("  (" .. table.concat(tags, ", ") .. ")") or "")
+                            end,
+                            keep_menu_open = true,
+                            callback = function(touchmenu_instance)
+                                local UIManager = orig_require("ui/uimanager")
+                                local ButtonDialog = orig_require("ui/widget/buttondialog")
+                                local dlg
+                                local function redraw()
+                                    if touchmenu_instance and touchmenu_instance.updateItems then
+                                        pcall(touchmenu_instance.updateItems, touchmenu_instance)
+                                    end
+                                end
+                                local rows = {
+                                    {{ text = b.counted and _("Don't Count") or _("Count Again"), callback = function()
+                                        UIManager:close(dlg)
+                                        if CF.finished.setCounted(b.md5, not b.counted) then
+                                            b.counted = not b.counted
+                                        end
+                                        redraw()
+                                    end }},
+                                }
+                                if b.gone then
+                                    rows[#rows + 1] = {{ text = _("Remove From Stats…"), callback = function()
+                                        UIManager:close(dlg)
+                                        local ConfirmBox = orig_require("ui/widget/confirmbox")
+                                        UIManager:show(ConfirmBox:new{
+                                            text = string.format(_("Remove \"%s\" from your stats?\n\nIt's deleted from the device, so it can't come back on its own."), b.title),
+                                            ok_text = _("Remove"),
+                                            ok_callback = function()
+                                                CF.finished.remove(b.md5)
+                                                if touchmenu_instance and touchmenu_instance.backToUpperMenu then
+                                                    pcall(touchmenu_instance.backToUpperMenu, touchmenu_instance)
+                                                end
+                                            end,
+                                        })
+                                    end }}
+                                end
+                                rows[#rows + 1] = {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }}
+                                dlg = ButtonDialog:new{ title = b.title, buttons = rows }
+                                UIManager:show(dlg)
+                            end,
+                        }
+                    end
+                    return items
+                end,
             },
             {
                 text = _("Home Screen Pages"),
