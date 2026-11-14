@@ -42,7 +42,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Test Mode](#test-mode) | `2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.16.0 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.16.1 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -614,7 +614,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.15.19
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.16.1
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -630,7 +630,7 @@ The menu is grouped (2.15.15): **Opening And Navigation** (Reopen BookOrbit At, 
 
 - **Loop pages** — swipe past the last catalog or dashboard page to wrap to the first (and the other way). When looping is off, a swipe at either end does nothing and does not flash.
 - **Reopen BookOrbit at** — *Where I Left Off* or *BookOrbit Home* when bringing an already-open catalog back (for example after sleep).
-- Closing BookOrbit goes back to **SimpleUI home** if that's your start screen, instead of flashing the stock library. Works best with SimpleUI Tweaks 2.14.3+.
+- Closing BookOrbit goes back to **SimpleUI home** if that's your start screen, instead of flashing the stock library. Works best with SimpleUI Tweaks 2.14.3+. Since 2.16.1 that only happens when the stock library was under BookOrbit: opened from Bookshelf, an OrbitShelf Book Page or another full-screen window, closing BookOrbit goes back there.
 
 ### After sleep / SimpleUI nav
 
