@@ -28,7 +28,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.1 |
 | [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.5.0 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.13.1 |
-| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.13.1 |
+| [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.14.3 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
 | [ReadMastery Quests](#readmastery-quests) | `2-ReadMastery-quests.lua` | ReadMastery (Notify optional) | 1.0.6 |
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
@@ -298,10 +298,15 @@ Checked against ShelfSync 1.8.3; the bundled Goodreads login code is a goodreads
 - **Goodreads login on device:** a Log In button (email + password) in ShelfSync → Providers → Goodreads → Account, same as StoryGraph's. Login code is bundled from `goodreadskosync` (MIT, license in the file), so that plugin isn't needed.
 - **Remember login** for Goodreads and StoryGraph: tap "Log In As…" to sign in with the saved login, long-press to edit, "Forget Saved Login" to remove it.
 - **Goodreads WAF fix:** search and security-token requests use `/book/auto_complete` and `/review/list` to get around Amazon's bot check, and fall back to the normal ones if those fail.
-- **New toggles in ShelfSync → Settings** (above Verbose logging):
+- **ShelfSync → Settings → Tweaks** (1.14.2: all of the patch's settings in one submenu, so ShelfSync's own Settings stays as it was):
   - Auto Re-login When Session Expires (on).
   - Retry Autolink When Wi-Fi Connects (on).
+  - Remember Links, One "Linked To" Note, Remember Ignore (on; see **A quieter book open** below).
   - Hide Providers: Fable, Hardcover, Goodreads, Pagebound, StoryGraph, LibraryThing (all off). Hiding a provider also stops it from syncing. Menu changes show after reopening the book / file browser.
+- **A quieter book open** (1.14.0):
+  - **Remember Links:** every link is also kept by the book file itself (KOReader's partial MD5, the fingerprint BookOrbit and KOSync use), in `shelfsync_tweaks_memory.lua`, up to 500 books. Remove a book and download it again (which deletes its book settings, where ShelfSync keeps its links) and it gets its links back on open: no search, no "Linked to" notes. Books linked before 1.14 are kept the next time they're opened (1.14.1). Unlinking a book by hand forgets it.
+  - **Remember Ignore:** tap **Ignore** on ShelfSync's "This book is marked Read on … Mark it as Currently Reading?" and that site doesn't ask again for that book while its status there stays the same. **Mark as Reading** forgets it. Tapping outside the box doesn't count.
+  - **One "Linked To" Note:** when opening a book links it to several sites, one note names them all ("Linked to StoryGraph · Hardcover · Goodreads: …") instead of one per site.
 - **Link & Update:** every enabled provider's Link Book and Update Status in one menu, with three gesture actions that jump straight to them (Link & Update Menu, Link Book (All Providers), Update Status (All Providers)).
 - **Link All Books** (1.13.0, file browser only): ShelfSync → Link & Update → Link All Books links every unlinked book to Goodreads, Hardcover or StoryGraph in one pass. It looks at the books in your home folder and in History, and matches them with ShelfSync's own auto-link (embedded id, then ISBN, then title and author, as set in ShelfSync's Auto-link settings, including file types never linked). It never uses ShelfSync's link step, so nothing changes on the site: no Currently Reading, no edition change; the link is written to the book's settings only (a book you open later with no status there is still added to Currently Reading by ShelfSync, as before). It goes slowly so the sites don't block it (a book every 10 s on Goodreads, 12 s on StoryGraph, 3 s on Hardcover; Wi-Fi stays on), shows the matches to check (tap one to skip it, then Save), skips StoryGraph books whose only match is an audio edition and uses the StoryGraph edition you already have. A tap on the progress box, 3 errors in a row, sleep or opening a book stops it; what it found is kept under **Review Matches** until KOReader restarts. A book that isn't on the device can't be linked (there's no file to keep the link in).
 - **Book menu cards** (1.13.1): Bookshelf's book menu (hold a book) and the file browser's long-press menu get **ShelfSync: Link This Book** (pick Goodreads, Hardcover or StoryGraph; a site the book's already linked to shows its link; the match is shown to confirm, nothing changes on the site) and **ShelfSync: Link All Books** (opens the Link All Books list). Both are their own cards, so an arranged book menu keeps its order.
@@ -310,7 +315,7 @@ Checked against ShelfSync 1.8.3; the bundled Goodreads login code is a goodreads
 - **Progress updates a tap can't cancel** (1.12.0): ShelfSync runs each Goodreads and StoryGraph request in a background task that any tap cancels, so turning pages right after opening a book could kill the security-token fetch and the progress update failed. Those requests now finish however much you tap (still in the background, still with ShelfSync's own network timeouts); nothing else in KOReader is affected, even when a request fails (1.12.1). If an update still has no token it's retried once straight away with a fresh one; only if that fails too a popup says so (it goes with the next sync).
 - **Autolink retry on connect:** books opened offline get linked when Wi-Fi connects.
 - **Auto re-login:** if a saved-login session expires, it signs in again and sends the open book's progress again, at most once per provider per 30 minutes. You'll still be asked for a Goodreads verification code or captcha.
-- **Quiet crash.log:** the routine Goodreads lines (search fallback, token retries) only show in the ShelfSync diagnostic (`debug/2-zz-shelfsync-tweaks-diagnostics.lua` 1.2.0+) while it's logging.
+- **Quiet crash.log:** the routine lines (Goodreads search fallback, token retries, a link restored, a status question skipped) only show in the ShelfSync diagnostic (`debug/2-zz-shelfsync-tweaks-diagnostics.lua` 1.2.0+) while it's logging.
 - **Security:** logins stay on the device (`koreader/settings/shelfsync_*_login.lua`), encrypted with a device-local key. That protects against casual browsing, not full device access.
 
 ---
