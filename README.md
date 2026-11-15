@@ -21,7 +21,7 @@ All patches work independently and together. If one fails to attach (for example
 | Patch | File | Requires | Version |
 |---|---|---|---|
 | [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.16.0 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.33 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.36 |
 | [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.9.8 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
@@ -119,6 +119,8 @@ Download: [critters.zip](critters.zip) — extract to `koreader/settings/simpleu
 The edge-swipe panel for the SimpleUI home screen, split out of SimpleUI Tweaks in 2.14.6. Swipe in from the right (or left) edge for your To Be Read list, KOReader collections, newly added books, history, and BookOrbit views; tap a book to open it, hold it to remove it. Pick the edge or turn it off, and set how close to the edge the swipe has to start, so ordinary swipes don't open it by accident.
 
 Settings: Tools → SimpleUI Side Panel.
+
+**Open it with a gesture** (1.0.34+): KOReader's Gestures has a **SimpleUI Side Panel** action in the **File browser** section (pick a gesture, then File browser › SimpleUI Side Panel). It opens the panel on SimpleUI home, the library, Project: Title and Bookshelf, sliding in over whatever is showing; it does nothing in a book. To open it only with your gesture, set **Panel** to **Off**: that turns the edge swipe off and the gesture still works (the panel opens on the right).
 
 If you used the panel inside SimpleUI Tweaks, your panel settings carry over.
 
