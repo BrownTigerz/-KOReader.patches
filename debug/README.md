@@ -5,7 +5,8 @@ Temporary troubleshooting companions for the main patches. Each `2-zz-*-diagnost
 ## How they work
 
 - **Shared log:** every diagnostic appends timestamped, tagged lines to `koreader/diagnostics.log`. Tags are the patch's short name (`[network-tweaks]`, `[simpleui]`, …). The log rotates at 2 MB to `diagnostics.log.old`.
-- **Self-limiting:** each diagnostic logs for its own window after every KOReader start (15–30 minutes for most; ReadMastery and Track Reading Location run a 5-day watch), then goes quiet. Each has a hard expiry counted from first install (24 hours to 10 days — 10 days for those two long-watch ones), after which it's one line per start, then nothing. Re-copy the file for a fresh window. (The Debugging Menu's "Delete all logs" also restarts the windows.)
+- **Self-limiting:** each diagnostic logs for its own window after every KOReader start (5–30 minutes for most; ReadMastery runs a 5-day watch, Track Reading Location and Sleep Screen Banner log around reading sessions and sleeps), then goes quiet. Each has a hard expiry counted from first install (1 hour to 10 days), after which it's one line per start, then nothing. The Debugging Menu's **Restart Timers** (or Delete All Logs) starts the windows again.
+- **Times from the Debugging Menu** (debug timing contract v1): **Logging Time** and **Stop After** there, for all diagnostics or one, replace those times at the next start (`G_reader_settings` `debug_timing`); **End Logging Now** stops their writing at once (`package.loaded.debug_timing_ended`). Nothing set, or no Debugging Menu: each keeps its own times.
 - **State files:** `<name>-diagnostics.state` in the KOReader data dir holds the first-run stamp the expiry is counted from.
 - **Load order:** the `zz` in the name makes each diagnostic load after its main patch.
 - **Shared perf core:** diagnostics that include it share one copy of KOReader's timer loop and one watch on screen updates, sleep, slow taps and warnings (the first one loaded installs it, the rest plug in, so they never replace each other's). Each reports only its own patch's files: timers timed (slow ones named), flashes and who asked, timers left waiting at sleep, and a once-a-minute perf line with Lua memory. No timers of its own. In: SimpleUI, ShelfSync Tweaks, Network Tweaks, Track Reading Location, ReadMastery, Reading Insights Tweaks, Shortcuts Toolbar Icon Tweaks, Quick Shelf, Add-ons menu, Patch Backup & Restore, Debugging menu, Sleep Screen Banner, BookOrbit, Reading Log Tweaks (more to follow).
@@ -20,24 +21,24 @@ Copy the diagnostics you want into KOReader's patches folder (the same place as 
 
 ## Managing them
 
-Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Debugging in the file browser): one master toggle plus a checkbox per diagnostic, view the shared log, combine everything into `koreader/debug-all.log` for sending, or delete one diagnostic's lines — or everything.
+Use the Debugging Menu (`2-debugging-menu.lua` in the repo root, Add-ons → Debugging in the file browser): one master toggle plus a checkbox per diagnostic, set how long they log (all or one by one) or end logging now, view the shared log, combine everything into `koreader/debug-all.log` for sending, or delete one diagnostic's lines — or everything.
 
 ## The files
 
 | Diagnostic | Watches | Version |
 |---|---|---|
-| `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.3.2 |
-| `2-zz-bookorbit-diagnostics.lua` | BookOrbit Tweaks | 1.5.1 |
-| `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.2.1 |
-| `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.4.0 |
-| `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 2.1.2 |
-| `2-zz-readinglog-tweaks-diagnostics.lua` | Reading Log Tweaks | 1.1.5 |
-| `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.1.0 |
-| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.2.0 |
-| `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.1.0 |
-| `2-zz-shortcutstoolbar-quick-shelf-diagnostics.lua` | Shortcuts Toolbar Quick Shelf | 1.3.0 |
-| `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.15.0 |
-| `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.1.0 |
-| `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.2.1 |
-| `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.1.1 |
+| `2-zz-backup-patches-diagnostics.lua` | Patch Backup & Restore | 1.4.0 |
+| `2-zz-bookorbit-diagnostics.lua` | BookOrbit Tweaks | 1.6.0 |
+| `2-zz-debugging-diagnostics.lua` | Debugging Menu | 1.3.0 |
+| `2-zz-network-tweaks-diagnostics.lua` | Network Tweaks | 1.5.0 |
+| `2-zz-readinginsights-tweaks-diagnostics.lua` | Reading Insights Tweaks | 2.2.0 |
+| `2-zz-readinglog-tweaks-diagnostics.lua` | Reading Log Tweaks | 1.2.0 |
+| `2-zz-readmastery-diagnostics.lua` | ReadMastery Notify | 1.2.0 |
+| `2-zz-shelfsync-tweaks-diagnostics.lua` | ShelfSync Tweaks | 1.3.0 |
+| `2-zz-shortcutstoolbar-diagnostics.lua` | Shortcuts Toolbar Icon Tweaks | 1.2.0 |
+| `2-zz-shortcutstoolbar-quick-shelf-diagnostics.lua` | Shortcuts Toolbar Quick Shelf | 1.4.0 |
+| `2-zz-simpleui-diagnostics.lua` | SimpleUI Tweaks | 2.16.0 |
+| `2-zz-sleepscreen-banner-diagnostics.lua` | Sleep Screen Banner | 1.2.0 |
+| `2-zz-track-reading-location-diagnostics.lua` | Track Reading Location | 1.3.0 |
+| `2-zz-tweaks-menu-diagnostics.lua` | Add-ons menu | 1.2.0 |
 
