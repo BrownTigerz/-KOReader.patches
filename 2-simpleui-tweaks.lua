@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.16.0
+Version 2.16.1
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -13,6 +13,10 @@ colours in Night Mode (for colour icons swapped in via koreader/icons/).
 Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 
 Changelog
+  2.16.1  Close Bookshelf with a book held behind it (Bookshelf's Instant
+          book close) goes straight to SimpleUI home too; it showed the stock
+          library for a moment first (2.6.0 only covered no book held).
+          Three loop counters named _loop are now _i (as in every patch).
   2.16.0  Finished Books In Stats (SimpleUI Tweaks menu): every finished book
           SimpleUI counts, newest year first. Tap one: Don't Count (stays
           listed, like SimpleUI's Exclude from goals, and works for a deleted
@@ -396,7 +400,7 @@ Changelog
   1.x    Earlier versions: see the GitHub history.
 ]]
 
-local VERSION = "2.16.0"
+local VERSION = "2.16.1"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -1500,7 +1504,7 @@ local function boxHeight(UI, face, bold, text, width)
     local h = box:getSize().h
     pcall(box.free, box)
     local n = 0
-    for _loop in pairs(_bh) do n = n + 1 end
+    for _i in pairs(_bh) do n = n + 1 end
     if n > 200 then _bh = {} end
     _bh[key] = h
     return h
@@ -1932,7 +1936,7 @@ local function critterNews()
             local v = type(w.variants) == "table" and w.variants[1]
             if type(v) ~= "table" then return nil end
             local parts = {}
-            for _loop, seg in ipairs(v) do
+            for _i, seg in ipairs(v) do
                 if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
             end
             local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
@@ -1948,7 +1952,7 @@ local function critterNews()
         if hub.on() and not (okD and Device.screen_saver_mode) then
             local text = hub.toastText(w)
             if text then
-                for _loop, spot in pairs(hub.spots) do
+                for _i, spot in pairs(hub.spots) do
                     local okV, vis = pcall(spot.visible)
                     if okV and vis then
                         local okS, said = pcall(spot.say, text)
@@ -3312,11 +3316,18 @@ patchBookshelfPark = function(Park)
     if ours[orig] then return true end
     Park.closeShelfToFileManager = mine(function(...)
         local res = pack(orig(...))
+        local UIManager = orig_require("ui/uimanager")
+        bs_close_home = true
         if not res[1] then
             -- no book held: the caller now closes the shelf itself
-            bs_close_home = true
-            local UIManager = orig_require("ui/uimanager")
             UIManager:nextTick(function() bs_close_home = false end)
+        else
+            -- a book held (Instant book close, 2.16.1): on the next tick
+            -- Bookshelf closes the book, raises the stock library and then
+            -- closes the shelf, so home goes up there, before anything's drawn
+            UIManager:nextTick(function()
+                UIManager:nextTick(function() bs_close_home = false end)
+            end)
         end
         return unpack(res, 1, res.n)
     end)
