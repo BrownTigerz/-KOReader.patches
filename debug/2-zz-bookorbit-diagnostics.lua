@@ -1,6 +1,6 @@
 --[[
 2-zz-bookorbit-diagnostics.lua - TEMPORARY troubleshooting patch for BookOrbit
-Version 1.5.4
+Version 1.6.0
 
 For the hang where opening BookOrbit does nothing and KOReader has to be
 restarted, and for the freeze after sleep. It changes nothing about how
@@ -8,6 +8,9 @@ BookOrbit runs: it only writes lines to the shared log, so the last line
 before a freeze shows exactly where it stopped.
 
 Changelog
+  1.6.0 Logging time and stop-after can be set in Add-ons › Debugging (for all
+        diagnostics or this one), and End Logging Now stops this log until the
+        next start (debug timing contract v1). Defaults unchanged.
   1.5.4 The Continue Reading card check (1.5.2/1.5.3) is gone: the night
         colour is confirmed fixed (BookOrbit Tweaks 2.15.17). New: Action
         Colours trace, moved here from BookOrbit Tweaks' Pill Colour Trace
@@ -154,18 +157,35 @@ BookOrbit Tweaks v2.11.1 and this diagnostic v1.3.1 are on GitHub.
 Future patch pushes still need TK's go-ahead each time.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "bookorbit"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
 
-local WINDOW_MIN = 30
+local WINDOW_MIN = dtTime("window_min", 30)
 local WINDOW_S = WINDOW_MIN * 60
-local EXPIRE_S = 3 * 24 * 3600
+local EXPIRE_S = dtTime("expire_days", 3) * 86400
 local STATE = DataStorage:getDataDir() .. "/bookorbit-diagnostics.state"
-local DIAG_VERSION = "1.5.4"
+local DIAG_VERSION = "1.6.0"
 local DIAG_TAG = "bookorbit"
 local SHARED_LOG = DataStorage:getDataDir() .. "/diagnostics.log"
 local SHARED_MAX_BYTES = 2 * 1024 * 1024
-local HEARTBEAT_S = 10
 
 local started = os.time()
 local active = true
@@ -222,6 +242,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
@@ -552,7 +573,7 @@ end
 local function widgetName(widget)
     if widget == catalog_widget then return "BookOrbit catalog" end
     if type(widget) ~= "table" then return tostring(widget) end
-    local base = nil
+    local base
     if type(widget.id) == "string" and widget.id ~= "" then base = widget.id
     elseif type(widget.name) == "string" and widget.name ~= "" then base = widget.name
     elseif type(widget.title) == "string" and widget.title ~= "" then base = "title=" .. widget.title

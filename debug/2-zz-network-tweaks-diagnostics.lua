@@ -1,8 +1,11 @@
 --[[
 2-zz-network-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.4.0
+Version 1.5.0
 
 Changelog:
+  1.5.0 - Logging time and stop-after can be set in Add-ons › Debugging (for
+          all diagnostics or this one), and End Logging Now stops this log
+          until the next start (debug timing contract v1). Defaults unchanged.
   1.4.0 - Logs the routine lines Network Tweaks 1.13.0+ keeps out of
           crash.log (Wi-Fi, SSH, Calibre, network list events) while
           logging is on; they stop by themselves when the logging window
@@ -101,9 +104,27 @@ How to use:
   3. Send diagnostics.log, then delete this file and restart.
 ]]
 
-local DIAG_VERSION = "1.4.0"
-local ACTIVE_MINUTES = 5   -- logging window after each KOReader start
-local EXPIRES_HOURS = 24   -- after first install: no hooks at all
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "network-tweaks"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
+local DIAG_VERSION = "1.5.0"
+local ACTIVE_MINUTES = dtTime("window_min", 5)   -- logging window after each KOReader start
+local EXPIRES_HOURS = dtTime("expire_days", 1) * 24   -- after first install: no hooks at all
 
 local DataStorage = require("datastorage")
 local Device = require("device")
@@ -142,6 +163,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")

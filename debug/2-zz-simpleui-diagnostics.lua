@@ -1,6 +1,6 @@
 --[[
 2-zz-simpleui-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.15.0
+Version 2.16.0
 
 Shared log contract v1: writes tagged lines ("[simpleui]") to the ONE
 shared diagnostics file:  koreader/diagnostics.log
@@ -68,6 +68,9 @@ How to use (within 30 minutes of starting KOReader):
 The "zz" makes it load after every other patch, so it sees their changes.
 
 Changelog
+  2.16.0 Logging time and stop-after can be set in Add-ons › Debugging (for
+         all diagnostics or this one), and End Logging Now stops this log
+         until the next start (debug timing contract v1). Defaults unchanged.
   2.15.0 Waits: a call that holds the screen 500 ms or more while it waits
          (a network request, a background task the screen waits for, a
          network check, BookOrbit's cover or file downloads, its on-device
@@ -201,12 +204,30 @@ Changelog
   1.0.0  Tab icons and Shortcuts Toolbar checks.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "simpleui"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
 
-local WINDOW_MIN = 30                -- logging stops this many minutes after start
+local WINDOW_MIN = dtTime("window_min", 30)                -- logging stops this many minutes after start
 local WINDOW_S = WINDOW_MIN * 60
-local EXPIRE_S = 3 * 24 * 3600      -- stops hooking anything after this
+local EXPIRE_S = dtTime("expire_days", 3) * 86400      -- stops hooking anything after this
 local STATE = DataStorage:getDataDir() .. "/simpleui-diagnostics.state"
 local SLOW_REPAINT_MS = 100
 local SLOW_TAP_MS = 300
@@ -252,6 +273,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", line, "\n")
@@ -314,7 +336,7 @@ local function where(fn)
 end
 
 -- Hard expiry: first run kept in the state file.
-local DIAG_VERSION = "2.15.0"
+local DIAG_VERSION = "2.16.0"
 do
     -- version on line 1, first run on line 2: another version (or an
     -- older state file with just a time) starts a new 3 days

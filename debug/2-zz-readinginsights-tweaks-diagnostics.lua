@@ -1,6 +1,6 @@
 --[[
 2-zz-readinginsights-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 2.1.2
+Version 2.2.0
 
 Watches Reading Insights Tweaks from outside and writes what it sees as
 tagged lines to the SHARED diagnostics log (shared log contract v1):
@@ -102,7 +102,29 @@ Changelog
                      the suspend line says so instead of a number.
   2.1.2  2026-10-27  Wording pass (TK-approved): plainer Perf line description;
                      no behavior change.
+  2.2.0  2026-11-14  Logging time and stop-after can be set in Add-ons ›
+                    Debugging (for all diagnostics or this one), and End
+                    Logging Now stops this log until the next start (debug
+                    timing contract v1). Defaults unchanged.
 ]]
+
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "readinginsights-tweaks"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
 
 local DataStorage = require("datastorage")
 local Device = require("device")
@@ -112,7 +134,7 @@ local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_up, userpatch = pcall(require, "userpatch")
 
-local DIAG_VERSION = "2.1.2"
+local DIAG_VERSION = "2.2.0"
 
 -- ---- Shared log contract v1 ---------------------------------------------------------------
 -- All diagnostics append timestamped, tagged lines to ONE file
@@ -141,6 +163,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
@@ -149,8 +172,8 @@ local function shared_log(fmt, ...)
 end
 
 local IDLE_S = 120          -- a session ends this long after the last activity
-local SESSION_MAX_S = 600   -- and never runs longer than this
-local EXPIRE_H = 48         -- the whole patch goes inert this long after first load
+local SESSION_MAX_S = dtTime("window_min", 10) * 60   -- and never runs longer than this
+local EXPIRE_H = dtTime("expire_days", 2) * 24         -- the whole patch goes inert this long after first load
 local HOOK_NAME = "ri_tweaks_hook"
 local SETTINGS_KEY = "ri_cover_calendar"
 local FIRST_LOAD_KEY = "ri_tweaks_diag_first_load" -- before 2.1.0; removed on load

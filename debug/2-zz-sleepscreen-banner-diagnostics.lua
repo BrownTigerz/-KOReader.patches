@@ -1,8 +1,11 @@
 --[[
 2-zz-sleepscreen-banner-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.0
+Version 1.2.0
 
 CHANGELOG
+1.2.0 - Logging time and stop-after can be set in Add-ons › Debugging (for all
+        diagnostics or this one), and End Logging Now stops this log until the
+        next start (debug timing contract v1). Defaults unchanged.
 1.1.0 - The 0.25 s heartbeat is gone: it was a timer of its own running
         for a minute after every sleep and wake. The shared perf core
         (the same block as the other diagnostics) does the job without
@@ -89,13 +92,31 @@ What it checks, roughly mapped to an audit's usual sections:
                        across many sleep events instead of staying flat.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "sleepscreen-banner"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.0"
+local DIAG_VERSION = "1.2.0"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
@@ -124,6 +145,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
@@ -136,7 +158,7 @@ end
 -- ends in ".firstload", so it can't be mistaken for a log target.
 local STATE_FILE = DataStorage:getDataDir() .. "/sleepscreen-banner-diagnostics.log.firstload"
 
-local TTL_MINUTES = 60   -- stops installing hooks this long after first load,
+local TTL_MINUTES = dtTime("expire_days", nil) and dtTime("expire_days", nil) * 1440 or 60   -- stops installing hooks this long after first load,
                           -- persisted across restarts -- see header. Several
                           -- sleep/wake cycles usually fit in this window;
                           -- shorten it if you only need a quick check.
@@ -295,7 +317,7 @@ local function countEligibleHighlights(fp)
     end
     local n = 0
     if type(annotations) == "table" then
-        for _, a in ipairs(annotations) do
+        for _i, a in ipairs(annotations) do
             if type(a) == "table" and type(a.text) == "string" and a.drawer
                     and ALLOWED_HL_STYLES[a.drawer] and util.trim(a.text) ~= "" then
                 n = n + 1

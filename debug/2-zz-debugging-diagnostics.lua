@@ -1,6 +1,6 @@
 --[[
 2-zz-debugging-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.1
+Version 1.3.0
 
 Watches 2-debugging-menu.lua from the outside and writes what it sees to:
     koreader/debugging-diagnostics.log
@@ -59,6 +59,10 @@ menu's own file, so its path below is joined without that slash in the
 quotes; otherwise the menu would count it as this diagnostic's log.
 
 Changelog
+  1.3.0 (2026-11-14) - Logging time and stop-after can be set in Add-ons ›
+                       Debugging (for all diagnostics or this one), and End
+                       Logging Now stops this log until the next start (debug
+                       timing contract v1). Defaults unchanged.
   1.2.1 (2026-10-23) - Same rule as Debugging menu 1.3.4: files named after
                        a diagnostic itself (.log.firstload, .stamp, -meta.lua)
                        belong to it, so they're no longer flagged ORPHAN and
@@ -104,6 +108,24 @@ Changelog
   1.0.0  First version.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "debugging"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local Device = require("device")
 local UIManager = require("ui/uimanager")
@@ -111,7 +133,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.2.1"
+local DIAG_VERSION = "1.3.0"
 local LOG = DataStorage:getDataDir() .. "/debugging-diagnostics.log"
 local DATA = DataStorage:getDataDir()
 local STATE = DATA .. "/debugging-diagnostics.state"
@@ -127,9 +149,9 @@ local VERSION_LOG = DATA .. "/version.log"
 local SHARED = DATA .. "/diagnostics.log"  -- shared log contract v1
 
 local MAX_BYTES = 2 * 1024 * 1024
-local WINDOW_MIN = 15
+local WINDOW_MIN = dtTime("window_min", 15)
 local WINDOW_S = WINDOW_MIN * 60
-local EXPIRE_S = 24 * 60 * 60
+local EXPIRE_S = dtTime("expire_days", 1) * 86400
 
 local SELF_NAME = ((debug.getinfo(1, "S") or {}).source or ""):match("[^/]+$") or ""
 
@@ -163,6 +185,7 @@ local function write(line)
             os.remove(LOG .. ".old")
             os.rename(LOG, LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), diagOneLine(line), "\n")

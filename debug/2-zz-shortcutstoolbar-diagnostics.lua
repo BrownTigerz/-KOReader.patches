@@ -1,8 +1,12 @@
 --[[
 2-zz-shortcutstoolbar-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.0
+Version 1.2.0
 
 Changelog:
+  1.2.0  - Logging time and stop-after can be set in Add-ons › Debugging (for
+           all diagnostics or this one), and End Logging Now stops this log
+           until the next start (debug timing contract v1). Defaults
+           unchanged.
   1.1.0  - Shared perf core (the same block as the other diagnostics):
            Shortcuts Toolbar and Icon Tweaks timers that hold the screen
            80 ms+, flashes they ask for, timers left waiting at sleep, and
@@ -115,6 +119,24 @@ How to use:
 The "zz" makes it load after the icon tweaks patch.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "shortcutstoolbar"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local Device = require("device")
 local UIManager = require("ui/uimanager")
@@ -123,7 +145,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local DIAG_VERSION = "1.1.0"
+local DIAG_VERSION = "1.2.0"
 local STATE = DataStorage:getDataDir() .. "/shortcutstoolbar-diagnostics.state"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
@@ -153,14 +175,15 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
         f:close()
     end)
 end
-local WINDOW_S = 5 * 60
-local EXPIRE_S = 24 * 60 * 60
+local WINDOW_S = dtTime("window_min", 5) * 60
+local EXPIRE_S = dtTime("expire_days", 1) * 86400
 local MAIN_TAG = "shortcutstoolbar-icon-tweaks"
 
 -- --------------------------------------------------------------------------

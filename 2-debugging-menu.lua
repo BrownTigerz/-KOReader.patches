@@ -1,6 +1,6 @@
 --[[
 2-debugging-menu.lua
-Version 1.4.5
+Version 1.5.0
 
 Adds Add-ons > Debugging (library only) to switch your diagnostic patches on
 and off, and to tidy up their logs. Your diagnostic patches are never edited.
@@ -33,6 +33,12 @@ and off, and to tidy up their logs. Your diagnostic patches are never edited.
     a separate option below.
   • Hold a diagnostic: filter its lines out of the shared log, or delete
     its log lines and the patch itself.
+  • Logging Time / Stop After (debug timing contract v1): how long each
+    diagnostic logs after a start, and how many days after its first run it
+    stops for good, for all of them at once or (hold one) one by one; Each
+    Its Own keeps a diagnostic's own times. They apply from the next start.
+    End Logging Now stops every diagnostic's log at once (until the next
+    start); Restart Timers starts their time windows again, logs kept.
   • Crash.log: shows its size, "Clear Crash.log" empties it (asks first).
     version.log (KOReader's update history) is never touched.
 
@@ -44,6 +50,16 @@ Without the Add-ons patch (2-tweaks-menu.lua), or when Debugging is hidden
 there, it shows up as Tools > Debugging instead.
 
 Changelog
+1.5.0  Logging Time and Stop After for all diagnostics (Each Its Own, or
+       5 / 15 / 30 / 60 / 120 min; 1 / 3 / 7 days), and per diagnostic
+       (hold it: Follow All, Its Own, or a time). Each diagnostic row shows
+       its times. End Logging Now stops their logging straight away (also
+       one by one, and Turn Off All Debug does it too); Restart Timers
+       starts their windows again without deleting logs. The diagnostics
+       read the times at start (debug timing contract v1, diagnostics
+       updated with it); nothing set = their own times, as before.
+       Lighter start: it only lists the patch folders at start (each
+       diagnostic file is read when the menu opens, not at every start).
 1.4.5  Pill Colour Trace is no longer a switch here: BookOrbit Tweaks 2.15.18
        moved it into the BookOrbit diagnostic, which Turn Off All Debug
        already switches off. A Pill Colour Trace setting left saved by an
@@ -115,7 +131,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
-local VERSION = "1.4.5"
+local VERSION = "1.5.0"
 local DATA = DataStorage:getDataDir()
 local PATCHES = DATA .. "/patches"
 local OFF_DIR = PATCHES .. "/debug"
@@ -143,6 +159,99 @@ local NAMES = {
     ["tweaks-menu"]                = "Add-ons menu",
     ["xray-direct-lookup"]         = "X-Ray direct lookup",
 }
+
+-- ---------------------------------------------------------------------------
+-- Debug timing contract v1
+-- ---------------------------------------------------------------------------
+-- G_reader_settings "debug_timing" = { all = { window_min = n, expire_days = n },
+-- per = { [stem] = { window_min = n | "own", expire_days = n | "own" } } }: a
+-- diagnostic reads it at start (its own value, else all's, else its default; "own" =
+-- its default). package.loaded.debug_timing_ended ["*"] or [stem]: End Logging Now,
+-- until the next start. Each diagnostic's own times, as shipped (window: minutes
+-- per start, nil when it logs per session / per sleep instead; expire: days):
+local DT_KEY = "debug_timing"
+local DT_DEFAULTS = {
+    ["backup-patches"]               = { window = 15, expire = 3 },
+    ["bookorbit"]                    = { window = 30, expire = 3 },
+    ["debugging"]                    = { window = 15, expire = 1 },
+    ["network-tweaks"]               = { window = 5, expire = 1 },
+    ["readinginsights-tweaks"]       = { window = 10, expire = 2, per = "per session" },
+    ["readinglog-tweaks"]            = { window = 15, expire = 1 },
+    ["readmastery"]                  = { window = 5 * 1440, expire = 10 },
+    ["shelfsync-tweaks"]             = { window = 10, expire = 1 },
+    ["shortcutstoolbar"]             = { window = 5, expire = 1 },
+    ["shortcutstoolbar-quick-shelf"] = { window = 15, expire = 1 },
+    ["simpleui"]                     = { window = 30, expire = 3 },
+    ["sleepscreen-banner"]           = { expire = 1 / 24, per = "after each sleep" },
+    ["track-reading-location"]       = { expire = 5, per = "per session" },
+    ["tweaks-menu"]                  = { window = 10, expire = 3 },
+}
+local WINDOW_CHOICES = { 5, 15, 30, 60, 120 }
+local EXPIRE_CHOICES = { 1, 3, 7 }
+
+local function dtRead()
+    local t = G_reader_settings:readSetting(DT_KEY)
+    t = type(t) == "table" and t or {}
+    t.all = type(t.all) == "table" and t.all or {}
+    t.per = type(t.per) == "table" and t.per or {}
+    return t
+end
+
+local function dtSave(t)
+    for k, v in pairs(t.per) do if next(v) == nil then t.per[k] = nil end end
+    if next(t.all) == nil and next(t.per) == nil then
+        G_reader_settings:delSetting(DT_KEY)
+    else
+        G_reader_settings:saveSetting(DT_KEY, { all = next(t.all) and t.all or nil,
+            per = next(t.per) and t.per or nil })
+    end
+    pcall(G_reader_settings.flush, G_reader_settings)
+end
+
+local function fmtMinutes(m)
+    m = tonumber(m)
+    if not m then return "?" end
+    if m >= 1440 then
+        local d = m / 1440
+        return string.format("%g day%s", d, d == 1 and "" or "s")
+    end
+    return string.format("%d min", m)
+end
+
+local function fmtDays(d)
+    d = tonumber(d)
+    if not d then return "?" end
+    if d < 1 then return fmtMinutes(math.floor(d * 1440 + 0.5)) end
+    return string.format("%g day%s", d, d == 1 and "" or "s")
+end
+
+-- the time a diagnostic gets for key ("window_min" | "expire_days"), and from where:
+-- "own" (its default), "all" or "set" (its own setting)
+local function dtEffective(stem, key)
+    local def = DT_DEFAULTS[stem] or {}
+    local default = key == "window_min" and def.window or def.expire
+    if key == "window_min" and not def.window then return nil, "own" end
+    local t = dtRead()
+    local per = t.per[stem] and t.per[stem][key]
+    if per == "own" then return default, "own" end
+    if tonumber(per) then return tonumber(per), "set" end
+    if tonumber(t.all[key]) then return tonumber(t.all[key]), "all" end
+    return default, "own"
+end
+
+local function dtEnded(stem)
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[stem]) and true or false
+end
+
+local function dtEnd(stem)
+    local e = package.loaded.debug_timing_ended
+    if type(e) ~= "table" then
+        e = {}
+        package.loaded.debug_timing_ended = e
+    end
+    e[stem or "*"] = true
+end
 
 -- ---------------------------------------------------------------------------
 -- Finding diagnostics and their files
@@ -221,6 +330,18 @@ local function stateNamesFrom(base, path)
     end
     state_cache[base] = names
     return names
+end
+
+-- True when the diagnostic reads the Debugging menu's times (debug timing contract v1).
+local timing_cache = {}
+local function readsTiming(base, path)
+    if timing_cache[base] == nil then
+        local f = io.open(path, "r")
+        local src = f and f:read("*a") or ""
+        if f then f:close() end
+        timing_cache[base] = src:find("Debug timing contract v1", 1, true) ~= nil
+    end
+    return timing_cache[base]
 end
 
 -- True when the diagnostic writes to the shared log instead of its own file.
@@ -386,7 +507,20 @@ end
 
 -- What was switched on when KOReader started (to mark pending changes).
 local loaded = {}
-for _i, d in ipairs(scan()) do loaded[d.base] = d.on end
+-- at start only which diagnostics are on: the folders listed, no file read
+pcall(function()
+    for _i, dir in ipairs({ PATCHES, OFF_DIR }) do
+        if lfs.attributes(dir, "mode") == "directory" then
+            for entry in lfs.dir(dir) do
+                local base = isDiagnostic(entry)
+                if base and loaded[base] == nil then
+                    local on, path = locate(base)
+                    if path then loaded[base] = on end
+                end
+            end
+        end
+    end
+end)
 do
     local on_t, path_t = locate("2-zz-test-mode")
     if path_t then loaded["2-zz-test-mode"] = on_t end
@@ -613,14 +747,120 @@ local function patchCopies(base)
     return out
 end
 
+-- Logging Time / Stop After: for all diagnostics (stem nil) or one. The current
+-- choice has a dot.
+local function timingChoices(stem, key, name, on_done)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local dlg
+    local t = dtRead()
+    local fmt = key == "window_min" and fmtMinutes or fmtDays
+    local list = key == "window_min" and WINDOW_CHOICES or EXPIRE_CHOICES
+    local cur
+    if stem then cur = t.per[stem] and t.per[stem][key] else cur = t.all[key] end
+    local function set(v)
+        local t2 = dtRead()
+        if stem then
+            t2.per[stem] = t2.per[stem] or {}
+            t2.per[stem][key] = v
+        else
+            t2.all[key] = v
+        end
+        dtSave(t2)
+        UIManager:close(dlg)
+        if on_done then on_done() end
+    end
+    local function mark(text, on) return (on and "• " or "") .. text end
+    local rows = {}
+    if stem then
+        local def = DT_DEFAULTS[stem] or {}
+        local own = key == "window_min" and def.window or def.expire
+        local all_v = tonumber(t.all[key])
+        rows[#rows + 1] = {{ text = mark("Follow All (" .. (all_v and titlecase(fmt(all_v)) or "Its Own") .. ")", cur == nil),
+            callback = function() set(nil) end }}
+        rows[#rows + 1] = {{ text = mark("Its Own (" .. (own and titlecase(fmt(own)) or "?") .. ")", cur == "own"),
+            callback = function() set("own") end }}
+    else
+        rows[#rows + 1] = {{ text = mark("Each Its Own", cur == nil), callback = function() set(nil) end }}
+    end
+    local row = {}
+    for _i, v in ipairs(list) do
+        row[#row + 1] = { text = mark(titlecase(fmt(v)), tonumber(cur) == v), callback = function() set(v) end }
+        if #row == 3 then
+            rows[#rows + 1] = row
+            row = {}
+        end
+    end
+    if #row > 0 then rows[#rows + 1] = row end
+    rows[#rows + 1] = {{ text = "Cancel", callback = function() UIManager:close(dlg) end }}
+    dlg = ButtonDialog:new{
+        title = (key == "window_min" and "Logging Time" or "Stop After") .. (name and (": " .. name) or " (All)"),
+        title_align = "center",
+        buttons = rows,
+    }
+    UIManager:show(dlg)
+end
+
+-- Restart Timers: every diagnostic's stamp / state files (not its logs), so each
+-- starts a fresh window and a fresh stop-after count at the next start
+local function timerFiles()
+    local files, seen = {}, {}
+    local function add(p)
+        if not seen[p] and lfs.attributes(p, "mode") == "file" then
+            seen[p] = true
+            files[#files + 1] = p
+        end
+    end
+    for _i, d in ipairs(scan()) do
+        for _j, n in ipairs(d.states or {}) do
+            for _k, dir in ipairs({ DATA, SETTINGS_DIR }) do add(dir .. "/" .. n) end
+        end
+        for _j, p in ipairs(filesOf(d)) do
+            local low = p:lower()
+            if not (low:find("%.log$") or low:find("%.log%.old$")) then add(p) end
+        end
+    end
+    return files
+end
+
+local function restartTimers()
+    local files = timerFiles()
+    if #files == 0 then notify("Debugging: no timers to restart") return end
+    confirm(string.format("Start every diagnostic's time window again?\n\n%d stamp file%s deleted; logs are kept.",
+        #files, #files == 1 and "" or "s"), "Restart Timers", function()
+        local n = 0
+        for _i, p in ipairs(files) do if os.remove(p) then n = n + 1 end end
+        notify(string.format("Debugging: %d timer%s restarted", n, n == 1 and "" or "s"))
+        changed(true)
+    end)
+end
+
 local function holdMenu(d, tm)
     local ButtonDialog = require("ui/widget/buttondialog")
     local dlg
     local running = loaded[d.base] == true
-    dlg = ButtonDialog:new{
-        title = d.name,
-        title_align = "center",
-        buttons = {
+    local rows = {}
+    if readsTiming(d.base, d.path) then
+        local function done() refresh(tm) changed() end
+        if (DT_DEFAULTS[d.stem] or {}).window then
+            rows[#rows + 1] = {{ text = "Logging Time…", callback = function()
+                UIManager:close(dlg)
+                timingChoices(d.stem, "window_min", d.name, done)
+            end }}
+        end
+        rows[#rows + 1] = {{ text = "Stop After…", callback = function()
+            UIManager:close(dlg)
+            timingChoices(d.stem, "expire_days", d.name, done)
+        end }}
+        if running and not dtEnded(d.stem) then
+            rows[#rows + 1] = {{ text = "End Logging Now", callback = function()
+                UIManager:close(dlg)
+                dtEnd(d.stem)
+                notify("Debugging: " .. d.name .. " stopped logging (until the next start)")
+                refresh(tm)
+            end }}
+        end
+    end
+    for _i, r in ipairs({
             {{ text = "Delete Log", callback = function()
                 UIManager:close(dlg)
                 local files = filesOf(d)
@@ -650,7 +890,11 @@ local function holdMenu(d, tm)
                 end)
             end }},
             {{ text = "Cancel", callback = function() UIManager:close(dlg) end }},
-        },
+        }) do rows[#rows + 1] = r end
+    dlg = ButtonDialog:new{
+        title = d.name,
+        title_align = "center",
+        buttons = rows,
     }
     UIManager:show(dlg)
 end
@@ -724,6 +968,7 @@ end
 local function turnOffAllDebug(tm)
     local names, moved = {}, 0
     migrate()
+    dtEnd() -- the ones running stop logging now, not only from the next start
     for _i, d in ipairs(scan()) do
         if d.on and setOn(d, false) then moved = moved + 1 end
     end
@@ -871,6 +1116,44 @@ local function buildItems()
         separator = true,
     }
 
+    -- debug timing contract v1: times for all diagnostics, End Logging Now, Restart Timers
+    items[#items + 1] = {
+        text_func = function()
+            local v = tonumber(dtRead().all.window_min)
+            return "Logging Time  ·  " .. (v and titlecase(fmtMinutes(v)) or "Each Its Own")
+        end,
+        help_text = "How long every diagnostic logs after each KOReader start (from the next start). Each Its Own keeps each one's own time. Hold a diagnostic below to give it its own. Diagnostics that log per session or after each sleep keep doing that.",
+        keep_menu_open = true,
+        callback = function(tm) timingChoices(nil, "window_min", nil, function() refresh(tm) changed() end) end,
+    }
+    items[#items + 1] = {
+        text_func = function()
+            local v = tonumber(dtRead().all.expire_days)
+            return "Stop After  ·  " .. (v and titlecase(fmtDays(v)) or "Each Its Own")
+        end,
+        help_text = "How many days after its first run a diagnostic stops for good (until Restart Timers or Delete All Logs). Each Its Own keeps each one's own limit. Hold a diagnostic below to give it its own.",
+        keep_menu_open = true,
+        callback = function(tm) timingChoices(nil, "expire_days", nil, function() refresh(tm) changed() end) end,
+    }
+    items[#items + 1] = {
+        text_func = function() return "End Logging Now" .. (dtEnded("*") and "  ·  Ended" or "") end,
+        help_text = "Every diagnostic that's running stops writing to its log now, until the next start. Hold a diagnostic below to end just that one.",
+        enabled_func = function() return not dtEnded("*") end,
+        keep_menu_open = true,
+        callback = function(tm)
+            dtEnd()
+            notify("Debugging: diagnostics stopped logging (until the next start)")
+            refresh(tm)
+        end,
+    }
+    items[#items + 1] = {
+        text = "Restart Timers",
+        help_text = "Starts every diagnostic's time window again (and its days until it stops for good), from the next start. Logs are kept; Delete All Logs does this too.",
+        keep_menu_open = true,
+        callback = function(tm) restartTimers() refresh(tm) end,
+        separator = true,
+    }
+
     local list = scan()
     if #list == 0 then
         items[#items + 1] = { text = "No diagnostics found", enabled = false, separator = true }
@@ -891,13 +1174,22 @@ local function buildItems()
                 local pending = loaded[base] ~= nil and loaded[base] ~= d.on
                 -- with the shared log there is no per-diagnostic size to show
                 local logpart
-                if isShared(d) then
-                    logpart = "shared log"
-                else
+                if not isShared(d) then
                     local size = fmtSize(logSize(d))
                     logpart = size and ("log " .. size) or "no log"
                 end
-                return titlecase(d.name .. "  ·  " .. logpart
+                -- its times (debug timing contract v1): window, then stop-after
+                local times
+                if readsTiming(d.base, d.path) then
+                    local def = DT_DEFAULTS[d.stem] or {}
+                    local w = dtEffective(d.stem, "window_min")
+                    local e = dtEffective(d.stem, "expire_days")
+                    times = (w and fmtMinutes(w) or def.per or "own window") .. ", stops after " .. fmtDays(e)
+                    if loaded[base] and dtEnded(d.stem) then times = times .. ", ended" end
+                else
+                    times = "own times"
+                end
+                return titlecase(d.name .. "  ·  " .. times .. (logpart and ("  ·  " .. logpart) or "")
                     .. (pending and "  (after restart)" or ""))
             end,
             checked_func = function() local d = cur() return d and d.on end,

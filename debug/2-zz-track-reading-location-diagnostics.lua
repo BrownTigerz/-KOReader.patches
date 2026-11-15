@@ -1,8 +1,11 @@
 --[[
 2-zz-track-reading-location-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.1
+Version 1.3.0
 
 Changelog:
+  1.3.0 - Logging time and stop-after can be set in Add-ons › Debugging (for
+          all diagnostics or this one), and End Logging Now stops this log
+          until the next start (debug timing contract v1). Defaults unchanged.
   1.2.1 - No timer of its own any more: the 5-day watch ends on the
           wall clock, checked whenever something happens (the old 5-day
           awake-minutes timer sat in KOReader's timer list and showed as
@@ -132,6 +135,24 @@ open it does a few microseconds of bookkeeping per page turn and writes
 nothing to disk.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "track-reading-location"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
@@ -142,7 +163,7 @@ local ReaderView = require("apps/reader/modules/readerview")
 local ok_time, ktime = pcall(require, "ui/time")
 local ok_bd, BD = pcall(require, "ui/bidi")
 
-local VERSION = "1.2.1"
+local VERSION = "1.3.0"
 local STATE = DataStorage:getDataDir() .. "/track-reading-location-diagnostics.state"
 
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
@@ -172,6 +193,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
@@ -181,8 +203,8 @@ end
 local SESSION_S = 90        -- how long a detailed window stays open
 local RING_MAX = 40         -- quiet turns kept in memory for the lead-up
 local SLOW_TURN_MS = 80     -- a page update slower than this is flagged
-local WATCH_DAYS = 5         -- active watch: wall-clock days from the first run, then hooks go idle
-local CAP_DAYS = 10          -- hard stop, counted from the first run
+local WATCH_DAYS = dtTime("expire_days", 5)         -- active watch: wall-clock days from the first run, then hooks go idle
+local CAP_DAYS = math.max(10, WATCH_DAYS)          -- hard stop, counted from the first run
 local MEM_FLAG_KB = 1024    -- memory growth over one window that gets flagged
 
 local function pack(...) return { n = select("#", ...), ... } end
@@ -508,7 +530,7 @@ end
 local function dropWrappers(self, orig_action)
     local list = dismiss_wrappers[orig_action]
     if not list then return end
-    for _, w in ipairs(list) do
+    for _i, w in ipairs(list) do
         pcall(function() orig_unschedule(self, w) end)
     end
     dismiss_wrappers[orig_action] = nil
@@ -756,7 +778,7 @@ do
                     local ok_o, order = pcall(require, "ui/elements/reader_menu_order")
                     local in_navi = false
                     if ok_o and order and type(order.navi) == "table" then
-                        for _, k in ipairs(order.navi) do
+                        for _j, k in ipairs(order.navi) do
                             if k == "go_to_furthest_reading_location" then in_navi = true break end
                         end
                     end

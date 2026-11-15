@@ -1,6 +1,6 @@
 --[[
 2-zz-shelfsync-tweaks-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.2.0
+Version 1.3.0
 
 Watches ShelfSync and ShelfSync tweaks from the outside and writes what it
 sees as [shelfsync]-tagged lines to the SHARED diagnostics log
@@ -13,6 +13,9 @@ line. It doesn't touch 2-shelfsync-tweaks.lua. The "zz" makes it load after
 it, so it sees the tweaks' hooks too.
 
 Changelog:
+  1.3.0  Logging time and stop-after can be set in Add-ons › Debugging (for
+         all diagnostics or this one), and End Logging Now stops this log
+         until the next start (debug timing contract v1). Defaults unchanged.
   1.2.0  Logs the routine lines ShelfSync tweaks 1.12.0+ keeps quiet in
          crash.log (Goodreads search fallback, token retries, progress
          retries) while logging is on; they stop by themselves when the
@@ -96,8 +99,26 @@ How to use:
      restart.
 ]]
 
-local ACTIVE_MINUTES = 10  -- logging window after each KOReader start
-local EXPIRES_HOURS = 24   -- after first install: no hooks at all
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "shelfsync-tweaks"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
+local ACTIVE_MINUTES = dtTime("window_min", 10)  -- logging window after each KOReader start
+local EXPIRES_HOURS = dtTime("expire_days", 1) * 24   -- after first install: no hooks at all
 
 local DataStorage = require("datastorage")
 local Device = require("device")
@@ -108,7 +129,7 @@ local logger = require("logger")
 local userpatch = require("userpatch")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 -- Shared log contract v1: all diagnostics append timestamped, tagged lines
 -- to ONE file (koreader/diagnostics.log) so a full test run reads as a
 -- single chronological log. Rotation at 2 MB, older part kept as
@@ -136,6 +157,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")

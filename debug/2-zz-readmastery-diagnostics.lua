@@ -1,8 +1,12 @@
 --[[
 2-zz-readmastery-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.0
+Version 1.2.0
 
 Changelog:
+  1.2.0 (2026-11-14) - Logging time and stop-after can be set in Add-ons ›
+                       Debugging (for all diagnostics or this one), and End
+                       Logging Now stops this log until the next start (debug
+                       timing contract v1). Defaults unchanged.
   1.1.0 (2026-10-22) - Expiry is counted per version: a new version of
                        this file starts a fresh 10 days (a new version
                        found the old stamp past its limit and never
@@ -140,6 +144,24 @@ notification bridge and the plugin's own classes already exist by the
 time this wraps them.
 ]]
 
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "readmastery"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
 local userpatch = require("userpatch")
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
@@ -147,10 +169,13 @@ local LuaSettings = require("luasettings")
 local lfs = require("libs/libkoreader-lfs")
 local ok_time, ktime = pcall(require, "ui/time")
 
-local PATCH_VERSION = "1.1.0"
-local EXPIRE_AFTER_DAYS = 10
-local WINDOW_DAYS = 5 -- active-logging window per start, in days
+local PATCH_VERSION = "1.2.0"
+local EXPIRE_AFTER_DAYS = dtTime("expire_days", 10)
+local WINDOW_DAYS = dtTime("window_min", 5 * 1440) / 1440 -- active-logging window per start, in days
 local WINDOW_S = WINDOW_DAYS * 86400
+-- the window in words: "5 days" or, set shorter in Add-ons › Debugging, "30 min"
+local WINDOW_TEXT = WINDOW_DAYS >= 1 and (string.format("%g", WINDOW_DAYS) .. " days")
+    or (math.floor(WINDOW_DAYS * 1440 + 0.5) .. " min")
 local SLOW_PAGE_UPDATE_MS = 50 -- log a warning if a single page-turn's full handling chain takes longer than this
 
 -- --------------------------------------------------------------------------
@@ -211,6 +236,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
@@ -244,14 +270,14 @@ local function on()
     if not active then return false end
     if os.time() - started > WINDOW_S then
         active = false
-        log("==== %d days up: logging stopped, every hook is idle now ====", WINDOW_DAYS)
+        log("==== %s up: logging stopped, every hook is idle now ====", WINDOW_TEXT)
         return false
     end
     return true
 end
 
-log("==================== readmastery diagnostics %s started (logging for %d days, day %.1f of %d) ====================",
-    PATCH_VERSION, WINDOW_DAYS, days_active, EXPIRE_AFTER_DAYS)
+log("==================== readmastery diagnostics %s started (logging for %s, day %.1f of %g) ====================",
+    PATCH_VERSION, WINDOW_TEXT, days_active, EXPIRE_AFTER_DAYS)
 
 -- --------------------------------------------------------------------------
 -- XP ledger - the single funnel every XP grant passes through (quest
@@ -628,7 +654,7 @@ end
 UIManager:nextTick(function()
     pcall(function()
         require("ui/widget/notification"):notify(
-            "ReadMastery diagnostics: logging for " .. WINDOW_DAYS .. " days")
+            "ReadMastery diagnostics: logging for " .. WINDOW_TEXT)
     end)
 end)
 

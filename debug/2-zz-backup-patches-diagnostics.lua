@@ -1,6 +1,6 @@
 --[[
 2-zz-backup-patches-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.3.2
+Version 1.4.0
 
 Watches Patch Backup & Restore (2-backup-patches.lua) and its hooks into
 Device Backup & Restore (backup.koplugin) from the outside, and writes
@@ -69,6 +69,9 @@ How to use:
   4. Delete this file (and the .state file) and restart.
 
 Changelog
+  1.4.0  Logging time and stop-after can be set in Add-ons › Debugging (for
+         all diagnostics or this one), and End Logging Now stops this log
+         until the next start (debug timing contract v1). Defaults unchanged.
   1.3.2  A restore logged "TIMER scheduled by Patch Backup & Restore
          (unexpected)", but the timer was the diagnostic's own restore
          post-check (it runs inside the patch's safety backup, so the
@@ -136,10 +139,28 @@ Changelog
   1.0.0  First version.
 ]]
 
-local DIAG_VERSION = "1.3.2"
-local WINDOW_S     = 15 * 60       -- logging window after start
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "backup-patches"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
+
+local DIAG_VERSION = "1.4.0"
+local WINDOW_S     = dtTime("window_min", 15) * 60       -- logging window after start
 local EXTEND_S     = 5 * 60        -- extension when a backup/restore runs
-local EXPIRE_S     = 3 * 24 * 3600 -- stops hooking anything after this
+local EXPIRE_S     = dtTime("expire_days", 3) * 86400 -- stops hooking anything after this
 local SLOW_TAP_MS  = 300
 
 local DataStorage = require("datastorage")
@@ -194,6 +215,7 @@ local function shared_log(fmt, ...)
         end
         -- orig_open, not the io.open this file wraps below: the shared log
         -- never counts as Patch Backup & Restore's file work.
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = orig_open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")

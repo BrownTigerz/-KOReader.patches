@@ -1,6 +1,6 @@
 --[[
 2-zz-tweaks-menu-diagnostics.lua - TEMPORARY troubleshooting patch
-Version 1.1.1
+Version 1.2.0
 
 Watches the Add-ons menu patch (2-tweaks-menu.lua) from outside and writes
 tagged lines (shared log contract v1) to the shared diagnostics log:
@@ -54,6 +54,10 @@ hook just passes straight through. The "zz" makes it load after
 2-tweaks-menu.lua.
 
 Changelog:
+  1.2.0  2026-11-14  Logging time and stop-after can be set in Add-ons ›
+                     Debugging (for all diagnostics or this one), and End
+                     Logging Now stops this log until the next start (debug
+                     timing contract v1). Defaults unchanged.
   1.1.1  2026-10-30  Finds Add-ons 1.1.0's "Arrange Add-ons" entry as well
                      as the older "Choose what's in Add-ons".
   1.1.0  2026-10-23  Shared perf core (the same block as the other
@@ -93,12 +97,30 @@ Changelog:
   1.0.0  2026-10-08  First release.
 ]]
 
-local PATCH_VERSION = "1.1.1"
+-- Debug timing contract v1 (Add-ons › Debugging): its Logging Time and Stop After,
+-- for every diagnostic or this one, replace the times below (read at start; nothing
+-- set = these defaults), and End Logging Now stops this log until the next start.
+local DT_ID = "tweaks-menu"
+local function dtTime(key, default)
+    local ok, t = pcall(function() return G_reader_settings:readSetting("debug_timing") end)
+    if not ok or type(t) ~= "table" then return default end
+    local per = type(t.per) == "table" and t.per[DT_ID] or nil
+    local v = type(per) == "table" and per[key] or nil
+    if v == "own" then return default end
+    if v == nil and type(t.all) == "table" then v = t.all[key] end
+    return tonumber(v) or default
+end
+local function dtEnded()
+    local e = package.loaded.debug_timing_ended
+    return type(e) == "table" and (e["*"] or e[DT_ID]) and true or false
+end
 
-local WINDOW_S  = 10 * 60          -- logging window after KOReader starts
+local PATCH_VERSION = "1.2.0"
+
+local WINDOW_S  = dtTime("window_min", 10) * 60          -- logging window after KOReader starts
 local EXTEND_S  = 3 * 60           -- menu use keeps it open this much longer
-local MAX_S     = 20 * 60          -- never past this, whatever happens
-local EXPIRE_S  = 3 * 24 * 3600    -- stop for good this long after first run
+local MAX_S     = math.max(20 * 60, WINDOW_S)          -- never past this, whatever happens
+local EXPIRE_S  = dtTime("expire_days", 3) * 86400    -- stop for good this long after first run
 local MAX_BYTES = 256 * 1024       -- log size cap
 local SLOW_BUILD_MS = 300          -- flag menu builds slower than this
 local SLOW_TAP_MS   = 500          -- flag taps/holds handled slower than this
@@ -145,6 +167,7 @@ local function shared_log(fmt, ...)
             os.remove(SHARED_LOG .. ".old")
             os.rename(SHARED_LOG, SHARED_LOG .. ".old")
         end
+        if dtEnded() then return end -- End Logging Now (Add-ons › Debugging)
         local f = io.open(SHARED_LOG, "a")
         if not f then return end
         f:write(os.date("%Y-%m-%d %I:%M:%S %p  "), "[", DIAG_TAG, "] ", diagOneLine(line), "\n")
