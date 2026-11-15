@@ -40,7 +40,7 @@ All patches work independently and together. If one fails to attach (for example
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
 | [List Rating Progress](#list-rating-progress) | `2-list-rating-progress.lua` | none | 1.0.0 |
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
-| [Test Mode](#test-mode) | `2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
+| [Test Mode](#test-mode) | `debug/2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
 | [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.16.1 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
@@ -597,7 +597,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## Test Mode
 
-`2-zz-test-mode.lua` — one switch for trying things out without anything counting. Open books, turn pages, finish them: nothing syncs and nothing lands in your stats. When you're done, the books go back to how they were.
+`debug/2-zz-test-mode.lua` — one switch for trying things out without anything counting. It installs into `patches/debug/` (switched off); turn it on in Add-ons → Debugging (Test Mode Patch). Open books, turn pages, finish them: nothing syncs and nothing lands in your stats. When you're done, the books go back to how they were.
 
 - **Menu:** at the top of Tools → Add-ons → Debugging when the Debugging Menu patch (1.4.4+) is installed, in the library; without it, Tools → Add-ons → Test Mode (Maintenance), or Tools → Test Mode without the Add-ons patch. The patch itself is switched on and off in Add-ons → Debugging (Test Mode Patch). **Gesture:** Toggle Test Mode (General).
 - **Held back** while it's on, and for any book opened during it until it's reset:
