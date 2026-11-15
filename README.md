@@ -26,7 +26,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.1 |
-| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.4.5 |
+| [Debugging Menu](#debugging-menu) | `2-debugging-menu.lua` | Add-ons menu | 1.5.0 |
 | [Network Tweaks](#network-tweaks) | `2-network-tweaks.lua` | Kobo or Kindle for background connect | 1.13.1 |
 | [ShelfSync Tweaks](#shelfsync-tweaks) | `2-shelfsync-tweaks.lua` | ShelfSync | 1.12.1 |
 | [ReadMastery Notify](#readmastery-notify) | `2-ReadMastery-notify.lua` | ReadMastery | 1.0.6 |
@@ -49,7 +49,7 @@ Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `
 
 ## Diagnostic patches
 
-The `debug/` folder holds temporary troubleshooting companions for the main patches (`2-zz-*-diagnostics.lua`). They change nothing — each one watches its main patch and writes timestamped, tagged lines to one shared log (`koreader/diagnostics.log`) for a short window after every start, then goes quiet, and stops entirely 24 hours after install. Manage them with the Debugging Menu (toggle, view, combine, delete). See [debug/README.md](debug/README.md).
+The `debug/` folder holds temporary troubleshooting companions for the main patches (`2-zz-*-diagnostics.lua`). They change nothing — each one watches its main patch and writes timestamped, tagged lines to one shared log (`koreader/diagnostics.log`) for a short window after every start, then goes quiet, and stops entirely a few days after install. Manage them with the Debugging Menu (toggle, view, combine, delete, and set how long they log). See [debug/README.md](debug/README.md).
 
 ---
 
@@ -250,6 +250,8 @@ Adds **Add-ons → Debugging** (file browser only): one place to switch diagnost
 - **Turn Off All Debug** (top of the menu, shows how many are on): switches every diagnostic off, plus the debug switches inside patches and plugins: OrbitShelf's **Diagnostics**, and any patch that lists its own (debug switch contract v1: `package.loaded.debug_switches[id] = { label, is_on, off }`). Those go off straight away; diagnostics after a restart (asked once). One note says what went off, then it asks to restart. With the Test Mode patch on it asks first: **Turn Off Test Mode Too** (the patch is switched off as well, Test Mode itself off first) or **Keep Test Mode** (debug off, the patch stays on).
 - **Test Mode Patch** (with `2-zz-test-mode.lua`): its own switch at the bottom, moved between `patches/` and `patches/debug/` like a diagnostic (after a restart). Not part of All on/off. Switching it off while Test Mode is on turns Test Mode off first, so its Reset Test Books question comes up.
 - **Test Mode menu** (Test Mode 1.0.2+): while the Test Mode patch is running, its menu (on/off, Reset Test Books) sits at the top, above Turn Off All Debug, instead of in Add-ons → Maintenance. Patch off: not there.
+- **Logging Time / Stop After** (1.5.0): how long every diagnostic logs after each start (**Each Its Own**, or 5 / 15 / 30 / 60 / 120 min) and how many days after its first run it stops for good (**Each Its Own**, or 1 / 3 / 7 days). Hold a diagnostic for its own (**Follow All**, **Its Own**, or a time); each row shows its times. They apply from the next start (asked once). Sleep Screen Banner and Track Reading Location log around events rather than after a start, so they only take Stop After. Without the menu, or with nothing set, each diagnostic keeps its own times.
+- **End Logging Now** (1.5.0): every running diagnostic stops writing to its log at once, until the next start (hold one to end just that one). Turn Off All Debug does this too. **Restart Timers** starts every diagnostic's time window again, logs kept.
 - One master toggle plus a checkbox per diagnostic. Turning one off moves it to `patches/debug/`, so KOReader doesn't load it and it costs nothing. Changes apply after a restart (asked once).
 - All diagnostics write to one shared log (`koreader/diagnostics.log`), each line tagged with the diagnostic's short name, so a whole test run reads in order in one file.
 - **Combine logs for sending:** writes the shared log plus the end of `crash.log` into one file: `koreader/debug-all.log`.
