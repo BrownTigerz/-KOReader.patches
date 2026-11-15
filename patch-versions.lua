@@ -38,7 +38,7 @@ return {
     ["2-simpleui-sidepanel.lua"] = "1.0.36",
     ["2-simpleui-tweaks.lua"] = "2.16.0",
     ["2-track-reading-location.lua"] = "1.9.6",
-    ["2-zz-test-mode.lua"] = "1.0.2",
+    ["debug/2-zz-test-mode.lua"] = "1.0.2",
     ["2-tweaks-menu.lua"] = "1.2.0",
     ["Quotes.lua"] = "1.0.0",
     ["critter-phrases.lua"] = "1.2.0",
