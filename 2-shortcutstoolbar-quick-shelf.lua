@@ -1,15 +1,17 @@
 --[[
 Shortcuts Toolbar – Quick Shelf (userpatch)
 ===========================================
-Version: 1.5.3
+Version: 1.6.1
 For xusoo/shortcutstoolbar.koplugin
 
 In the reader's Shortcuts toolbar, swipe left or right on the top row (the
 book info panel) to flip between it and a strip of books. The shortcut icons
 below stay where they are. Two dots show which page you're on. Each menu
-open starts on the book panel.
+open starts on the book panel, or on the strip if you set Opens On (Shortcuts
+toolbar → Quick Shelf) to Quick Shelf, so there's no swipe to see
+your books.
 
-Optional: Critter Remarks (Shortcuts toolbar menu, all off by default).
+Optional: Critter Remarks (Shortcuts toolbar → Critter Remarks, all off).
   • While Reading       - SimpleUI's Tiny Critter and a speech bubble in the
                           book panel's free strip, about where you are in
                           this book: pages and time left, the chapter end,
@@ -26,7 +28,8 @@ critter-phrases.lua 1.1.0+ (next to this patch; a few built-in ones stand
 in without it). Pace lines need KOReader's reading statistics on. Without
 SimpleUI's critter you still get the remark.
 
-The strip (the Quick Shelf) shows, per Shortcuts toolbar → Quick Shelf Shows:
+The strip (the Quick Shelf) shows, per Shows (Shortcuts toolbar → Quick
+Shelf):
   • Books In Progress  - your reading history, most recent first: books
                          you've started and not finished (the open book
                          left out). Progress under each cover.
@@ -36,17 +39,17 @@ Tap a cover to switch to that book.
 
 Reader only: the library toolbar and the SimpleUI module are unchanged.
 
-Cost: nothing until you swipe. The strip is built on the first swipe of a
-menu open and reused after that. Covers come from thumbnails SimpleUI
-(or CoverBrowser) already keeps. A book is never opened to pull its cover.
-A book with no saved thumbnail gets a title tile instead. Covers are kept
-already sized between menu opens, up to 10. A swipe redraws only the top
-row, so the menu doesn't resize. No timers.
+Cost: nothing until you swipe (or, with Opens On: Quick Shelf, until you open
+the menu). The strip is built once per menu open and reused after that.
+Covers come from thumbnails SimpleUI (or CoverBrowser) already keeps. A book
+is never opened to pull its cover. A book with no saved thumbnail gets a
+title tile instead. Covers are kept already sized between menu opens, up to
+10. A swipe redraws only the top row, so the menu doesn't resize. No timers.
 
 Install: drop in koreader/patches/ and restart KOReader. Loads after
 2-shortcutstoolbar-icon-tweaks.lua (file order), which it works with.
 
-Tap the book panel (1.3.0, optional): Shortcuts toolbar → Book Panel Tap →
+Tap the book panel (1.3.0, optional): Shortcuts toolbar → Book Panel → Tap
 Opens BookOrbit "This Book" makes a tap on the book panel open BookOrbit's
 This book sheet (sync status, sync now, progress) instead of KOReader's
 book details. Hold Opens Book Details (on by default) keeps the details a
@@ -54,6 +57,24 @@ long-press away. Without BookOrbit, or not signed in, a tap does what it
 always did.
 
 Changelog
+  1.6.1  Book Panel, Quick Shelf and Critter Remarks are submenus instead of
+         grey headings, so the Shortcuts toolbar menu is half as long. They
+         sit after File browser settings, before Icon Tweaks and the
+         plugin's Reset settings (now last). Critter Remarks goes While
+         Reading, On Quick Shelf, On Library Toolbar, then Critters Say
+         Notifications under a line (it covers every critter). Same saved
+         settings, nothing resets.
+  1.6.0  The Shortcuts toolbar menu is grouped under three headings: Quick
+         Shelf, Book Panel and Critter Remarks. Menu Opens On is now Opens On
+         and Quick Shelf Shows is now Shows, the Book Panel Tap submenu is
+         two tick boxes under Book Panel, and the critter switches sit
+         together. Same saved settings, nothing resets.
+         Opens On (new): Book Panel (as before, the default) or Quick Shelf. With Quick Shelf the toolbar opens on the
+         strip of books, so you don't swipe to it; swipe left or right still
+         flips to the book panel. After the device sleeps with the menu up,
+         it comes back on the page you chose. Off by default; nothing
+         changes until you pick it. The last two loops that used _ as their
+         variable now use _i.
   1.5.3  Loops no longer use _ as their variable (it's gettext's name).
   1.5.2  SimpleUI 3.0.3: the critter's bubble counts the pixel style's new
          shadow when it checks what fits, and the critter gets SimpleUI's
@@ -145,7 +166,7 @@ local userpatch = require("userpatch")
 local _ = require("gettext")
 local Screen = Device.screen
 
-local PATCH_VERSION = "1.5.3"
+local PATCH_VERSION = "1.6.1"
 local SETTINGS_KEY = "shortcutstoolbar_quick_shelf"
 local OLD_SETTINGS_KEY = "shortcutstoolbar_recent_books" -- before 1.2.0
 local MAX_BOOKS = 5
@@ -172,6 +193,12 @@ local function setOpt(key, value)
     local s = G_reader_settings:readSetting(SETTINGS_KEY) or {}
     s[key] = value
     G_reader_settings:saveSetting(SETTINGS_KEY, s)
+end
+
+-- Opens On (1.6.0): the page the toolbar's top row starts on. 1 = the
+-- book panel (default), 2 = the Quick Shelf strip.
+local function startPage()
+    return opt("opens_on", "panel") == "shelf" and 2 or 1
 end
 
 -- ─── Critters Say Notifications (shared, off by default) ────────────────────
@@ -219,7 +246,7 @@ local function critterNews()
     local okD, Device = pcall(require, "device")
     local function isA(w, class)
         local mt = getmetatable(w)
-        for _ = 1, 8 do
+        for _i = 1, 8 do
             if mt == nil then return false end
             if mt == class then return true end
             mt = getmetatable(mt)
@@ -237,7 +264,7 @@ local function critterNews()
             local v = type(w.variants) == "table" and w.variants[1]
             if type(v) ~= "table" then return nil end
             local parts = {}
-            for _loop, seg in ipairs(v) do
+            for _i, seg in ipairs(v) do
                 if type(seg) == "table" and type(seg.t) == "string" then parts[#parts + 1] = seg.t end
             end
             local t = table.concat(parts):gsub("^%s+", ""):gsub("%s+$", "")
@@ -253,7 +280,7 @@ local function critterNews()
         if hub.on() and not (okD and Device.screen_saver_mode) then
             local text = hub.toastText(w)
             if text then
-                for _loop, spot in pairs(hub.spots) do
+                for _i, spot in pairs(hub.spots) do
                     local okV, vis = pcall(spot.visible)
                     if okV and vis then
                         local okS, said = pcall(spot.say, text)
@@ -918,7 +945,7 @@ local function readingRemark()
     if not f then return nil end
     local b, cid = phraseBank(), critterNow()
     local pool, total = {}, 0
-    for _loop, s in ipairs(SITUATIONS) do
+    for _i, s in ipairs(SITUATIONS) do
         local ok, yes = pcall(s[3], f)
         if ok and yes then
             local shared, own = linesFor(b.reading, b.reading_voices, s[1], cid, f.user_name ~= nil)
@@ -931,12 +958,12 @@ local function readingRemark()
     end
     if #pool == 0 then return nil end
     if total == 0 then
-        for _loop, p in ipairs(pool) do p[2] = 1 end
+        for _i, p in ipairs(pool) do p[2] = 1 end
         total = #pool
     end
     local r = rnd() * total
     local pick = pool[#pool]
-    for _loop, p in ipairs(pool) do
+    for _i, p in ipairs(pool) do
         r = r - p[2]
         if r <= 0 then pick = p break end
     end
@@ -983,7 +1010,7 @@ local function shelfRemark(list, src)
         f.next_title, f.next_pct = titleOf(fp), pctOf(fp)
     end
     local pool, total = {}, 0
-    for _loop, s in ipairs(SHELF_SITUATIONS) do
+    for _i, s in ipairs(SHELF_SITUATIONS) do
         local ok, yes = pcall(s[3], f)
         if ok and yes then
             local shared, own = linesFor(b.shelf, b.shelf_voices, s[1], cid, f.user_name ~= nil)
@@ -996,12 +1023,12 @@ local function shelfRemark(list, src)
     end
     if #pool == 0 then return nil end
     if total == 0 then
-        for _loop, p in ipairs(pool) do p[2] = 1 end
+        for _i, p in ipairs(pool) do p[2] = 1 end
         total = #pool
     end
     local r = rnd() * total
     local pick = pool[#pool]
-    for _loop, p in ipairs(pool) do
+    for _i, p in ipairs(pool) do
         r = r - p[2]
         if r <= 0 then pick = p break end
     end
@@ -1075,11 +1102,11 @@ local function menuRemark(tabkey, names)
     local b, cid = phraseBank(), critterNow()
     local key, name = nil, nil
     local words = type(b.menu_words) == "table" and b.menu_words or {}
-    for _loop, nm in ipairs(names) do
+    for _i, nm in ipairs(names) do
         local low = nm:lower()
-        for _loop, e in ipairs(words) do
+        for _j, e in ipairs(words) do
             if type(e) == "table" and type(e.key) == "string" and type(e.words) == "table" then
-                for _loop, w in ipairs(e.words) do
+                for _k, w in ipairs(e.words) do
                     if type(w) == "string" and w ~= "" and low:find(w, 1, true) then key, name = e.key, nm break end
                 end
             end
@@ -1231,7 +1258,7 @@ local function critterGroup(message, mood, max_w, h, detail, fit)
             if fit and bw > 0 then
                 local fits = messageFits(Bubble, o)
                 if fits == false then
-                    for _loop, k in ipairs({ 0.85, 0.72 }) do
+                    for _i, k in ipairs({ 0.85, 0.72 }) do
                         o.scale = scale * k
                         o.msg_face, o.msg_bold, o.det_face, o.det_bold = bubbleFaces(o.scale)
                         fits = messageFits(Bubble, o)
@@ -1356,7 +1383,7 @@ local function hookMenuBar()
             if not crit then
                 -- a line that shows whole in the bar: smaller text, else another line
                 local why
-                for _ = 1, 6 do
+                for _i = 1, 6 do
                     crit, why = critterGroup(rem.text, rem.mood, right - left, h, rem.sub, true)
                     if crit or why ~= "nofit" then break end
                     local r2 = remarkFor(ctx_sig, tabkey, names)
@@ -1451,7 +1478,7 @@ local function makePager(panel, avail_w)
         if type(p) == "table" then
             if opt("tap_bookorbit", false) and openThisBook() then return true end
             if type(p.onTap) == "function" then return p:onTap(arg, ges) end
-            for _loop, n in ipairs({ "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+            for _i, n in ipairs({ "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
                 if type(p[n]) == "function" then return p[n](p, arg, ges) end
             end
         end
@@ -1471,6 +1498,23 @@ local function makePager(panel, avail_w)
         end
         return false
     end
+    -- Show page 1 (book panel) or 2 (strip); the strip is built the first
+    -- time it's wanted. False when it can't be built (the page stays put).
+    function pager:showPage(want)
+        if want == 2 and not self.pages[2] then
+            local ps = panelStrip(panel, w, h)
+            local ok, strip = pcall(buildStrip, w, h, ps and ps.y or math.floor(h * 0.55))
+            if not ok then
+                logger.warn("shortcutstoolbar quick shelf:", strip)
+                return false
+            end
+            self.pages[2] = strip
+        end
+        self.page = want
+        self[1] = self.pages[want]
+        return true
+    end
+
     function pager:onSwipePager(_arg, ges)
         local dir = ges and BD.flipDirectionIfMirroredUILayout(ges.direction)
         -- Left or right both go to the other page (two pages: it loops).
@@ -1478,17 +1522,7 @@ local function makePager(panel, avail_w)
         -- by swiping down ends with a down-swipe that would flip the page.
         if dir ~= "west" and dir ~= "east" then return false end
         local want = (self.page == 1) and 2 or 1
-        if want == 2 and not self.pages[2] then
-            local ps = panelStrip(panel, w, h)
-            local ok, strip = pcall(buildStrip, w, h, ps and ps.y or math.floor(h * 0.55))
-            if not ok then
-                logger.warn("shortcutstoolbar quick shelf:", strip)
-                return true
-            end
-            self.pages[2] = strip
-        end
-        self.page = want
-        self[1] = self.pages[want]
+        if not self:showPage(want) then return true end
         -- "flashui": one quick flash of just this row, so the previous page
         -- leaves no ghost (a plain "ui" refresh skips the flash, and on
         -- colour e-ink the old covers/text linger). Dithered for the covers.
@@ -1500,12 +1534,15 @@ local function makePager(panel, avail_w)
         return true
     end
 
-    -- On suspend the shelf dismisses: the menu wakes on the book panel,
-    -- not the strip. (Nothing is consumed: the event keeps propagating.)
+    -- On suspend the menu goes back to its start page: the book panel, or
+    -- the strip with Opens On: Quick Shelf (already built then, so
+    -- nothing is built while the device sleeps). (Nothing is consumed: the
+    -- event keeps propagating.)
     function pager:onSuspend()
-        if self.page ~= 1 then
-            self.page = 1
-            self[1] = self.pages[1]
+        local want = (startPage() == 2 and self.pages[2]) and 2 or 1
+        if self.page ~= want then
+            self.page = want
+            self[1] = self.pages[want]
         end
     end
 
@@ -1597,6 +1634,10 @@ local function makePager(panel, avail_w)
         if base_free then return base_free(self, ...) end
     end
 
+    -- Opens On: Quick Shelf (1.6.0): start on the strip. If it can't be
+    -- built the book panel stays (crash.log says why).
+    if startPage() == 2 then pager:showPage(2) end
+
     return pager
 end
 
@@ -1609,7 +1650,7 @@ local function bookOrbit()
     local RUI = package.loaded["apps/reader/readerui"]
     local ui = type(RUI) == "table" and RUI.instance
     if type(ui) ~= "table" then return nil end
-    for _loop, key in ipairs({ "bookorbit", "BookOrbit" }) do
+    for _i, key in ipairs({ "bookorbit", "BookOrbit" }) do
         local bo = ui[key]
         if type(bo) == "table" and (
                 type(bo.onBookOrbitThisBook) == "function"
@@ -1676,7 +1717,7 @@ local function wireTaps(panel)
         if opt("tap_bookorbit", false) and openThisBook() then return true end
         return nil -- fall through
     end
-    for _loop, name in ipairs({ "onTap", "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
+    for _i, name in ipairs({ "onTap", "onTapBookInfo", "onTapPanel", "onTapTitle" }) do
         local orig = panel[name]
         if type(orig) == "function" or name == "onTap" then
             panel[name] = function(self, ...)
@@ -1766,7 +1807,7 @@ local function hookPanel()
 end
 
 -- --------------------------------------------------------------------------
--- Menu: Shortcuts toolbar → Quick Shelf Shows
+-- Menu: Shortcuts toolbar → Quick Shelf / Book Panel / Critter Remarks
 -- --------------------------------------------------------------------------
 
 local function menuItem()
@@ -1784,7 +1825,7 @@ local function menuItem()
         text_func = function()
             local cur = source()
             for _i, s in ipairs(SOURCES) do
-                if s.id == cur then return T(_("Quick Shelf Shows: %1"), s.text) end
+                if s.id == cur then return T(_("Shows: %1"), s.text) end
             end
         end,
         help_text = _("Quick Shelf: in the reader, swipe left or right on the toolbar's top row to flip between the book panel and the Quick Shelf."),
@@ -1792,87 +1833,115 @@ local function menuItem()
     }
 end
 
-local function critterMenuItem()
+local function opensOnItem()
+    local T = require("ffi/util").template
+    local choices = {
+        { id = "panel", text = _("Book Panel"),
+          help = _("The toolbar opens on the book panel (cover, title, author, pages). Swipe left or right to see the Quick Shelf. This is how it has always worked.") },
+        { id = "shelf", text = _("Quick Shelf"),
+          help = _("The toolbar opens on the Quick Shelf, the strip of books, so you don't have to swipe to it. Swipe left or right to get to the book panel.") },
+    }
+    local items = {}
+    for _i, c in ipairs(choices) do
+        items[#items + 1] = {
+            text = c.text,
+            help_text = c.help,
+            radio = true,
+            checked_func = function() return (startPage() == 2 and "shelf" or "panel") == c.id end,
+            callback = function() setOpt("opens_on", c.id == "shelf" and "shelf" or nil) end,
+        }
+    end
     return {
-        text = _("Critter Remarks"),
-        help_text = _("Optional short lines from the critter on the Shortcuts Toolbar. Not on the swipe Quick Shelf strip."),
-        sub_item_table = {
-            {
-                text = _("While Reading"),
-                help_text = _("When you pull the toolbar down while reading: SimpleUI's critter and a speech bubble about this book in the book panel, under its title, author and page line. It goes by what's happening: pages and time left, the chapter ending, your pace this sitting against your usual, long or late sessions, milestones. Your critter's own voice when it has lines for it (Donny, Blu). Pace remarks need KOReader's reading statistics on. Tap the critter for another remark. Off by default."),
-                checked_func = function() return opt("critter_on_panel", false) == true end,
-                callback = function() setOpt("critter_on_panel", not opt("critter_on_panel", false)) end,
-            },
-            {
-                text_func = function()
-                    if not shelfCritterOn() then return _("On Quick Shelf: Off") end
-                    return shelfLayout() == "beside" and _("On Quick Shelf: Beside Full Covers")
-                        or _("On Quick Shelf: Under Small Covers")
-                end,
-                help_text = _("When you swipe the book row over to the Quick Shelf, the critter talks about the books on the shelf: a different one each time, the one nearly done, how many are going, an empty shelf. Tap it for another remark. Follows While Reading until you choose."),
-                sub_item_table = {
-                    {
-                        text = _("Off"),
-                        help_text = _("Full covers, no critter."),
-                        radio = true,
-                        checked_func = function() return not shelfCritterOn() end,
-                        callback = function() setOpt("critter_on_shelf", false) end,
-                    },
-                    {
-                        text = _("Beside Full Covers"),
-                        help_text = _("Covers at full size; the critter sits in the room they leave on the right. With enough books to fill the row it doesn't show."),
-                        radio = true,
-                        checked_func = function() return shelfCritterOn() and shelfLayout() == "beside" end,
-                        callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", "beside") end,
-                    },
-                    {
-                        text = _("Under Small Covers"),
-                        help_text = _("Covers the height of the book panel's title, author and page lines; the critter always shows in the row under them, like on the book panel."),
-                        radio = true,
-                        checked_func = function() return shelfCritterOn() and shelfLayout() == "under" end,
-                        callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", nil) end,
-                    },
+        text_func = function()
+            return T(_("Opens On: %1"), startPage() == 2 and _("Quick Shelf") or _("Book Panel"))
+        end,
+        help_text = _("Which page the toolbar's top row starts on when you pull the menu down while reading. Swipe left or right on it to flip to the other page."),
+        sub_item_table = items,
+    }
+end
+
+local function critterItems()
+    return {
+        {
+            text = _("While Reading"),
+            help_text = _("When you pull the toolbar down while reading: SimpleUI's critter and a speech bubble about this book in the book panel, under its title, author and page line. It goes by what's happening: pages and time left, the chapter ending, your pace this sitting against your usual, long or late sessions, milestones. Your critter's own voice when it has lines for it (Donny, Blu). Pace remarks need KOReader's reading statistics on. Tap the critter for another remark. Off by default."),
+            checked_func = function() return opt("critter_on_panel", false) == true end,
+            callback = function() setOpt("critter_on_panel", not opt("critter_on_panel", false)) end,
+        },
+        {
+            text_func = function()
+                if not shelfCritterOn() then return _("On Quick Shelf: Off") end
+                return shelfLayout() == "beside" and _("On Quick Shelf: Beside Full Covers")
+                    or _("On Quick Shelf: Under Small Covers")
+            end,
+            help_text = _("When you swipe the book row over to the Quick Shelf, the critter talks about the books on the shelf: a different one each time, the one nearly done, how many are going, an empty shelf. Tap it for another remark. Follows While Reading until you choose."),
+            sub_item_table = {
+                {
+                    text = _("Off"),
+                    help_text = _("Full covers, no critter."),
+                    radio = true,
+                    checked_func = function() return not shelfCritterOn() end,
+                    callback = function() setOpt("critter_on_shelf", false) end,
+                },
+                {
+                    text = _("Beside Full Covers"),
+                    help_text = _("Covers at full size; the critter sits in the room they leave on the right. With enough books to fill the row it doesn't show."),
+                    radio = true,
+                    checked_func = function() return shelfCritterOn() and shelfLayout() == "beside" end,
+                    callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", "beside") end,
+                },
+                {
+                    text = _("Under Small Covers"),
+                    help_text = _("Covers the height of the book panel's title, author and page lines; the critter always shows in the row under them, like on the book panel."),
+                    radio = true,
+                    checked_func = function() return shelfCritterOn() and shelfLayout() == "under" end,
+                    callback = function() setOpt("critter_on_shelf", true); setOpt("shelf_critter_layout", nil) end,
                 },
             },
-            {
-                text = _("Critters Say Notifications"),
-                help_text = _("When a notification (a short toast like \"Wi-Fi on\") comes in while a critter is on screen, the critter says it in its bubble instead of the popup. Otherwise, or if it doesn't fit, the popup shows as usual. Questions, failures and banners you can tap always stay popups. One setting for every critter: this toolbar's, SimpleUI's home screen (with SimpleUI Tweaks) and Reading Log's (with Reading Log Tweaks). Off by default."),
-                checked_func = function() return critterNews().on() end,
-                callback = function() critterNews().set(not critterNews().on()) end,
-                separator = true,
-            },
-            {
-                text = _("On Library Toolbar"),
-                help_text = _("In the file browser: the critter in the empty stretch of the menu's tab bar, before the last tab icon. A remark for the time of day, and about the tab and submenu you open. Tap the critter for another remark. Off by default."),
-                checked_func = function() return opt("critter_on_library", false) == true end,
-                callback = function() setOpt("critter_on_library", not opt("critter_on_library", false)) end,
-            },
+        },
+        {
+            text = _("On Library Toolbar"),
+            help_text = _("In the file browser: the critter in the empty stretch of the menu's tab bar, before the last tab icon. A remark for the time of day, and about the tab and submenu you open. Tap the critter for another remark. Off by default."),
+            checked_func = function() return opt("critter_on_library", false) == true end,
+            callback = function() setOpt("critter_on_library", not opt("critter_on_library", false)) end,
+            separator = true,
+        },
+        {
+            text = _("Critters Say Notifications"),
+            help_text = _("When a notification (a short toast like \"Wi-Fi on\") comes in while a critter is on screen, the critter says it in its bubble instead of the popup. Otherwise, or if it doesn't fit, the popup shows as usual. Questions, failures and banners you can tap always stay popups. One setting for every critter: this toolbar's, SimpleUI's home screen (with SimpleUI Tweaks) and Reading Log's (with Reading Log Tweaks). Off by default."),
+            checked_func = function() return critterNews().on() end,
+            callback = function() critterNews().set(not critterNews().on()) end,
         },
     }
 end
 
-local function tapMenuItem()
+-- Book Panel: what a tap and a hold on the toolbar's book panel open.
+local function tapItems()
     return {
-        text_func = function()
-            return opt("tap_bookorbit", false) and _("Book Panel Tap: BookOrbit This Book") or _("Book Panel Tap: Book Details")
-        end,
-        help_text = _("What a tap on the toolbar's book panel (the cover and title at the top) opens while reading."),
-        sub_item_table = {
-            {
-                text = _("Opens BookOrbit \"This Book\""),
-                help_text = _("Tap the book panel to open BookOrbit's This book sheet: whether this book is synced, Sync now, and its BookOrbit progress. Without BookOrbit installed the tap shows the book details as before."),
-                checked_func = function() return opt("tap_bookorbit", false) == true end,
-                callback = function() setOpt("tap_bookorbit", not opt("tap_bookorbit", false)) end,
-            },
-            {
-                text = _("Hold Opens Book Details"),
-                help_text = _("With the tap on BookOrbit: a long-press on the book panel shows KOReader's book details (status, rating, review)."),
-                enabled_func = function() return opt("tap_bookorbit", false) == true end,
-                checked_func = function() return opt("hold_details", true) == true end,
-                callback = function() setOpt("hold_details", not opt("hold_details", true)) end,
-            },
+        {
+            text = _("Tap Opens BookOrbit \"This Book\""),
+            help_text = _("Tap the book panel to open BookOrbit's This book sheet: whether this book is synced, Sync now, and its BookOrbit progress. Without BookOrbit installed the tap shows the book details as before."),
+            checked_func = function() return opt("tap_bookorbit", false) == true end,
+            callback = function() setOpt("tap_bookorbit", not opt("tap_bookorbit", false)) end,
+        },
+        {
+            text = _("Hold Opens Book Details"),
+            help_text = _("With the tap on BookOrbit: a long-press on the book panel shows KOReader's book details (status, rating, review)."),
+            enabled_func = function() return opt("tap_bookorbit", false) == true end,
+            checked_func = function() return opt("hold_details", true) == true end,
+            callback = function() setOpt("hold_details", not opt("hold_details", true)) end,
         },
     }
+end
+
+-- Where this patch's rows go in the Shortcuts toolbar menu: before Icon
+-- Tweaks' row, else before the plugin's Reset settings, else at the end.
+local function insertAt(rows)
+    local reset = _("Reset settings")
+    for i, r in ipairs(rows) do
+        if r._stb_icon_tweaks or r.text == reset then return i end
+    end
+    return #rows + 1
 end
 
 logger.info("shortcutstoolbar quick shelf v" .. PATCH_VERSION)
@@ -1887,9 +1956,17 @@ userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
         orig_add(self, menu_items)
         local root = menu_items.shortcutstoolbar
         if root and root.sub_item_table then
-            table.insert(root.sub_item_table, menuItem())
-            table.insert(root.sub_item_table, tapMenuItem())
-            table.insert(root.sub_item_table, critterMenuItem())
+            local rows = root.sub_item_table
+            local at = insertAt(rows)
+            local before_reset = rows[at] ~= nil and not rows[at]._stb_icon_tweaks
+            if at > 1 then rows[at - 1].separator = true end
+            local mine = {
+                { text = _("Book Panel"), sub_item_table = tapItems() },
+                { text = _("Quick Shelf"), sub_item_table = { opensOnItem(), menuItem() } },
+                { text = _("Critter Remarks"), sub_item_table = critterItems() },
+            }
+            if before_reset then mine[#mine].separator = true end
+            for i, it in ipairs(mine) do table.insert(rows, at + i - 1, it) end
         end
     end
 end)
