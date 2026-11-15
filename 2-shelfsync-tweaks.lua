@@ -1,7 +1,28 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.12.1
+-- Version 1.13.1
 -- Changelog:
+--   1.13.1   Two cards in Bookshelf's book menu (hold a book) and the file
+--            browser's long-press menu: "ShelfSync: Link This Book" links
+--            just that book to the site you pick (Goodreads, Hardcover,
+--            StoryGraph; a site it's already linked to shows its link),
+--            shown to confirm first, nothing changed on the site; and
+--            "ShelfSync: Link All Books" opens the Link All Books list.
+--            Clean-up: two unused locals removed.
+--   1.13.0   Link All Books (Link & Update › Link All Books, file browser
+--            only): links every unlinked book to Goodreads, Hardcover or
+--            StoryGraph in one pass, for people without Bookshelf's
+--            Hardcover auto-link too. It uses ShelfSync's own matching
+--            (embedded id, ISBN, then title + author, as set in ShelfSync's
+--            Auto-link settings) but not its link step, so nothing changes
+--            on the site (no Currently Reading, no edition change); the
+--            link is written to the book's settings only. Slow on purpose
+--            (one book every 10 s Goodreads, 12 s StoryGraph, 3 s
+--            Hardcover), stops after 3 errors in a row, on sleep, when a
+--            book opens, or with a tap. The matches are shown first: tap
+--            one to skip it, then Save. StoryGraph skips audio-only
+--            editions and uses the edition you already have. Checked
+--            against ShelfSync 1.8.3.
 --   1.12.1   A Goodreads / StoryGraph request that stopped with an error
 --            (instead of returning) left "a tap can't cancel this" set, so
 --            the next unrelated background task anywhere in KOReader
@@ -83,7 +104,7 @@
 --            absent (or its shared note doesn't handle it).
 --   1.11.9   Header only: bundled login code is a goodreadskosync 1.15.0
 --            snapshot (was mislabeled 2.0.0). No behavior change.
--- Checked against: ShelfSync 1.8.1, goodreadskosync 1.15.0 (bundled login code)
+-- Checked against: ShelfSync 1.8.3, goodreadskosync 1.15.0 (bundled login code)
 -- https://github.com/BrownTigerz/-KOReader.patches
 --
 -- 1) Goodreads email + password "Log in" (code bundled from goodreadskosync,
@@ -103,6 +124,9 @@
 --    and chains BookOrbit the same way.
 -- 9) Auto re-login once per provider per 30 min when a session expires,
 --    then re-push progress. Captcha / verification code still prompts.
+-- 10) Link All Books: link every unlinked book to Goodreads, Hardcover or
+--    StoryGraph at once, matches checked first, nothing changed on the site.
+--    Link This Book / Link All Books cards in Bookshelf's book menu.
 --
 -- Notifications match Network Tweaks if it's installed, ReadMastery Notify
 -- if that's installed, otherwise plain KOReader popups. Hide changes show after reopening
@@ -110,7 +134,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.12.1"
+local PATCH_VERSION = "1.13.1"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -134,6 +158,7 @@ local CACHE = {
     net_waits = {}, -- [token] = stop fn: syncs waiting for Wi-Fi, stopped on sleep
     guards = {}, -- [fn] = true: safety timeouts, run early (and stopped) on sleep (1.11.19)
     suspending = false, -- true while sleep wraps up running syncs
+    linkall = nil, -- the Link All Books pass running, if any (1.13.0)
 }
 
 -- Safety timeouts (Wi-Fi safety net, BookOrbit step): on sleep they're
@@ -162,6 +187,569 @@ local WIFI_CONNECT_TIMEOUT = 30 -- give up if Wi-Fi hasn't connected by then
 local WIFI_JOIN_WAIT = 12       -- radio already on: wait this long for that connect first
 local RETRY_DELAY = 5 -- seconds before retrying providers that failed
 local CSRF_TTL = 120 -- seconds; Goodreads rotates tokens, same TTL goodreadskosync uses
+
+-- Link All Books (1.13.0) ----------------------------------------------------
+-- Links every unlinked book to Goodreads, StoryGraph or Hardcover in one pass,
+-- with nothing changed on the site: no shelf, no status, no edition. The link
+-- is written to the book's own settings only (what Bookshelf's Hardcover
+-- auto-link does). ShelfSync's own "link book" step isn't used: it adds a book
+-- with no status to Currently Reading. Matching is ShelfSync's own autolink
+-- (embedded id, then ISBN, then title + author, as set in its Auto-link
+-- settings), run with the link step swapped for "remember the match". The
+-- matches are shown for checking first; only the ones kept are saved.
+-- File browser only; a book opening or the device sleeping stops the pass
+-- (what it found so far can still be reviewed).
+local LinkAll = {
+    RATE = { goodreads = 10, storygraph = 12, hardcover = 3 }, -- seconds between books
+    MAX_FAILED_RUN = 3, -- errors in a row before the pass gives up
+    EXT = { epub = true, kepub = true, pdf = true, mobi = true, azw = true, azw3 = true,
+            fb2 = true, djvu = true, docx = true, cbz = true, cbr = true, txt = false },
+    METHOD = { identifier = "ID", isbn = "ISBN", title_author = "Title" },
+    D = {}, -- set by the plugin hook: notify, note, withNetwork
+    last = nil, -- { key, label, found = {...}, report } from the last pass, until saved
+}
+
+-- Every book file under the home folder, plus books in History (kepubs from the
+-- Kobo library live there).
+function LinkAll.bookFiles()
+    local lfs = require("libs/libkoreader-lfs")
+    local seen, list = {}, {}
+    local function add(path)
+        local ext = path:lower():match("%.([^%./]+)$")
+        if ext and LinkAll.EXT[ext] and not seen[path] then
+            seen[path] = true
+            list[#list + 1] = path
+        end
+    end
+    local function walk(dir, depth)
+        if depth > 8 then return end
+        local ok, iter, obj = pcall(lfs.dir, dir)
+        if not ok then return end
+        for name in iter, obj do
+            if name:sub(1, 1) ~= "." and not name:match("%.sdr$") then
+                local path = dir .. "/" .. name
+                local mode = lfs.attributes(path, "mode")
+                if mode == "directory" then
+                    walk(path, depth + 1)
+                elseif mode == "file" then
+                    add(path)
+                end
+            end
+        end
+    end
+    local home = G_reader_settings:readSetting("home_dir")
+    if type(home) == "string" and lfs.attributes(home, "mode") == "directory" then walk(home, 0) end
+    local ok_rh, ReadHistory = pcall(require, "readhistory")
+    if ok_rh and type(ReadHistory) == "table" and type(ReadHistory.hist) == "table" then
+        for _i, item in ipairs(ReadHistory.hist) do
+            if type(item.file) == "string" and not item.dim then add(item.file) end
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+-- Title, authors and identifiers (ISBN, Goodreads id...) of a book: from its
+-- settings if it was opened, else read from the file in a background task (a
+-- broken file can't take KOReader down). Edits from Book information apply.
+function LinkAll.props(file)
+    local raw
+    local DocSettings = require("docsettings")
+    if DocSettings:hasSidecarFile(file) then
+        local ok, ds = pcall(DocSettings.open, DocSettings, file)
+        raw = ok and ds and ds:readSetting("doc_props") or nil
+    end
+    if not raw then
+        local done, got = require("ui/trapper"):dismissableRunInSubprocess(function()
+            local DR = require("document/documentregistry")
+            local doc = DR:hasProvider(file) and DR:openDocument(file)
+            if not doc then return nil end
+            local p
+            if not doc.loadDocument or doc:loadDocument(false) then
+                local all = doc:getProps() or {}
+                p = { title = all.title, authors = all.authors, identifiers = all.identifiers,
+                      language = all.language }
+            end
+            doc:close()
+            return p
+        end, {}) -- {}: a trap never shown, so a tap doesn't cancel it
+        if done and type(got) == "table" then raw = got end
+    end
+    if type(raw) ~= "table" then return nil end
+    local props = raw
+    local ok_bi, BookInfo = pcall(require, "apps/filemanager/filemanagerbookinfo")
+    if ok_bi and type(BookInfo) == "table" and type(BookInfo.extendProps) == "function" then
+        local ok_x, ext = pcall(BookInfo.extendProps, raw, file)
+        if ok_x and type(ext) == "table" then
+            ext.identifiers = raw.identifiers
+            props = ext
+        end
+    end
+    if type(props.title) ~= "string" or props.title:match("^%s*$") then props.title = nil end
+    return props
+end
+
+local function linkAllAuthor(b)
+    local function first(v)
+        if type(v) == "string" then return v end
+        if type(v) == "table" then
+            local x = v[1]
+            if type(x) == "string" then return x end
+            if type(x) == "table" then
+                return (type(x.author) == "table" and x.author.name) or x.name
+            end
+        end
+    end
+    return first(b.author) or first(b.authors) or first(b.author_contributions) or first(b.contributions)
+end
+
+local function linkAllName(file, props)
+    if props and props.title then return props.title end
+    return ((file:match("([^/]+)$") or file):gsub("%.[^%.]+$", ""))
+end
+
+-- Writes one kept match: the same fields ShelfSync's own link writes for that
+-- site, and nothing sent anywhere.
+function LinkAll.save(engine, key, item)
+    if engine.settings:readBookSetting(item.file, "book_id") ~= nil then return false end -- linked meanwhile
+    local Book = require("shelfsync/lib/common/book")
+    local b = item.book
+    local cfg = { book_id = b.book_id, pages = b.pages, title = b.title, link_method = item.method }
+    if key == "hardcover" then
+        cfg.edition_id = b.edition_id
+        cfg.edition_format = Book:editionFormatName(b.edition_format, b.reading_format_id)
+    elseif key == "storygraph" then
+        cfg.edition_format = item.edition_format or Book:editionFormatName(b.edition_format, b.reading_format_id)
+    end
+    local del = {}
+    for _i, k in ipairs({ "book_id", "edition_id", "edition_format", "pages", "title" }) do
+        if cfg[k] == nil then del[#del + 1] = k end
+    end
+    cfg._delete = del
+    engine.settings:updateBookSetting(item.file, cfg)
+    return true
+end
+
+function LinkAll.review(app, last)
+    local UIManager = require("ui/uimanager")
+    local T = require("ffi/util").template
+    local _ = require("gettext")
+    local engine = app.engines and app.engines[last.key]
+    if not engine then return end
+    local Menu = require("ui/widget/menu")
+    local menu
+    local function kept()
+        local n = 0
+        for _i, it in ipairs(last.found) do if it.keep then n = n + 1 end end
+        return n
+    end
+    local build
+    local function doSave()
+        local n = 0
+        for _i, it in ipairs(last.found) do
+            if it.keep then
+                local ok, saved = pcall(LinkAll.save, engine, last.key, it)
+                if ok and saved then n = n + 1 end
+                if not ok then require("logger").warn("ShelfSync tweaks: Link All save failed: " .. tostring(saved)) end
+            end
+        end
+        LinkAll.last = nil
+        UIManager:close(menu)
+        LinkAll.D.notify(T(_("Books linked to %2: %1.\n\nNothing was changed on %2. A book you open later that has no status there is added to Currently Reading by ShelfSync, as before."), n, last.label))
+    end
+    build = function()
+        local items = {
+            { text = T(_("Save %1 Links"), kept()), bold = true, callback = doSave, separator = true },
+        }
+        for i, it in ipairs(last.found) do
+            local who = linkAllAuthor(it.book)
+            items[#items + 1] = {
+                text = it.name .. "  →  " .. tostring(it.book.title or "?") .. (who and (" · " .. who) or ""),
+                mandatory = it.keep and (LinkAll.METHOD[it.method] or it.method) or _("Skip"),
+                dim = not it.keep,
+                callback = function()
+                    it.keep = not it.keep
+                    menu:switchItemTable(nil, build(), i + 1)
+                end,
+            }
+        end
+        return items
+    end
+    menu = Menu:new{
+        title = T(_("%1: %2 Matches · Tap One To Skip It"), last.label, #last.found),
+        item_table = build(),
+        covers_fullscreen = true,
+        is_borderless = true,
+        is_popout = false,
+    }
+    menu.close_callback = function() UIManager:close(menu) end
+    UIManager:show(menu)
+    if last.report then LinkAll.D.notify(last.report) end
+end
+
+function LinkAll.run(app, key, CACHE)
+    local UIManager = require("ui/uimanager")
+    local T = require("ffi/util").template
+    local _ = require("gettext")
+    local engine = app.engines and app.engines[key]
+    if not (engine and engine.provider and engine.settings and engine.api) then return end
+    local label = engine.label or key
+    local todo = {}
+    for _i, f in ipairs(LinkAll.bookFiles()) do
+        local ok_l, id = pcall(engine.settings.readBookSetting, engine.settings, f, "book_id")
+        local skip = type(engine.settings.autolinkSkipsFile) == "function"
+            and engine.settings:autolinkSkipsFile(f)
+        if ok_l and id == nil and not skip then todo[#todo + 1] = f end
+    end
+    if #todo == 0 then
+        LinkAll.D.notify(T(_("Every book here is already linked to %1."), label))
+        return
+    end
+    local rate = LinkAll.RATE[key] or 10
+    local minutes = math.max(1, math.ceil(#todo * (rate + 2) / 60))
+    UIManager:show(require("ui/widget/confirmbox"):new{
+        text = T(_("Link %1 unlinked books to %2?\n\nIt searches %2 for each book, slowly so %2 doesn't block it (about %3 min, Wi-Fi stays on). Then it shows you the matches to check, and saves only the ones you keep.\n\nNothing changes on %2: no shelves, no statuses. Tap the progress box to stop."), #todo, label, minutes),
+        ok_text = _("Link"),
+        ok_callback = function()
+            LinkAll.D.withNetwork(function() LinkAll.pass(app, key, engine, todo, rate, CACHE) end, false, app)
+        end,
+    })
+end
+
+-- matcher(engine, key) -> m: m.match(file) -> outcome ("found" | "nomatch" |
+-- "audio" | "error" | "unreadable"), item (for "found"); m.restore() puts the
+-- site's search functions back (they're watched for errors while it's in use).
+-- ShelfSync's own autolink runs with its link step swapped for "remember it".
+function LinkAll.matcher(engine, key)
+    local Book = require("shelfsync/lib/common/book")
+    local api = engine.api
+    local last_err
+    local wrapped = {}
+    local function packN(...) return { n = select("#", ...), ... } end
+    for _i, name in ipairs({ "findBooks", "findBookByIdentifiers" }) do
+        local orig = api[name]
+        if type(orig) == "function" then
+            wrapped[name] = orig
+            api[name] = function(...)
+                local r = packN(orig(...))
+                if r[2] ~= nil then last_err = r[2] end
+                return unpack(r, 1, r.n)
+            end
+        end
+    end
+    local captured
+    local proxy = setmetatable({}, { __index = engine.provider })
+    proxy.linkBookWithMethod = function(_self, book, method)
+        captured = { book = book, method = method }
+        return false -- nothing linked, no "Linked to" note
+    end
+    local m = {}
+    function m.restore()
+        for name, orig in pairs(wrapped) do api[name] = orig end
+        wrapped = {}
+    end
+    function m.match(file)
+        local props = LinkAll.props(file)
+        if not props then return "unreadable" end
+        if Book:isWikipediaDocument(props) then return "nomatch" end
+        captured, last_err = nil, nil
+        proxy.ui = { document = { file = file, getProps = function() return props end } }
+        local ok_a, err_a = pcall(proxy._runAutolink, proxy, Book:parseIdentifiers(props.identifiers))
+        if captured and captured.book and captured.book.book_id then
+            local edition_format
+            if key == "storygraph" and type(api.findUserBook) == "function" then
+                -- StoryGraph won't link an audio edition, and links the edition
+                -- you already have: a lookup, nothing changed
+                local ok_s, status = pcall(api.findUserBook, api, captured.book.book_id)
+                status = ok_s and type(status) == "table" and status or {}
+                if status.is_audio then return "audio" end
+                if status.id and status.id ~= captured.book.book_id then
+                    captured.book.book_id = status.id
+                    captured.book.pages = status.book_num_of_pages or captured.book.pages
+                end
+                edition_format = status.edition_format
+            end
+            return "found", { file = file, name = linkAllName(file, props), book = captured.book,
+                method = captured.method, edition_format = edition_format, keep = true }
+        end
+        if not ok_a or last_err ~= nil then
+            require("logger").warn("ShelfSync tweaks: Link All " .. tostring(engine.label) .. " search failed: "
+                .. tostring(ok_a and last_err or err_a))
+            return "error"
+        end
+        return "nomatch"
+    end
+    return m
+end
+
+function LinkAll.pass(app, key, engine, todo, rate, CACHE)
+    local UIManager = require("ui/uimanager")
+    local Trapper = require("ui/trapper")
+    local T = require("ffi/util").template
+    local _ = require("gettext")
+    local label = engine.label or key
+    if CACHE.linkall then return end -- one at a time
+    local pass = { found = {}, nomatch = 0, errors = 0, audio = 0, unreadable = 0, done = 0 }
+    CACHE.linkall = pass
+    local matcher = LinkAll.matcher(engine, key)
+    pass.finish = function(reason)
+        if pass.finished then return end
+        pass.finished = true
+        if pass.timer then UIManager:unschedule(pass.timer); pass.timer = nil end
+        matcher.restore()
+        pcall(Trapper.clear, Trapper)
+        CACHE.linkall = nil
+        local report = T(_("%1 · checked %2 of %3 books: %4 found, %5 no match"),
+            label, pass.done, #todo, #pass.found, pass.nomatch)
+        if pass.errors > 0 then report = report .. T(_(", %1 errors"), pass.errors) end
+        if pass.audio > 0 then report = report .. T(_(", %1 audio only"), pass.audio) end
+        if pass.unreadable > 0 then report = report .. T(_(", %1 couldn't be read"), pass.unreadable) end
+        if reason == "gave_up" then report = report .. "\n\n" .. T(_("Stopped after %1 errors in a row (Wi-Fi, sign-in, or %2 blocking the searches). Try again later."), LinkAll.MAX_FAILED_RUN, label)
+        elseif reason == "sleep" then report = report .. "\n\n" .. _("Stopped for sleep.")
+        elseif reason == "book" then report = report .. "\n\n" .. _("Stopped because a book opened.")
+        elseif reason == "stopped" then report = report .. "\n\n" .. _("Stopped.") end
+        if #pass.found == 0 then
+            LinkAll.last = nil
+            if reason ~= "sleep" and reason ~= "book" then LinkAll.D.notify(report) end
+            return
+        end
+        LinkAll.last = { key = key, label = label, found = pass.found, report = report }
+        if reason == "sleep" or reason == "book" then
+            -- Not over the sleep screen or the book: reviewed from the menu
+            -- (Link & Update › Link All Books › Review Matches)
+            return
+        end
+        LinkAll.review(app, LinkAll.last)
+    end
+    local function reading()
+        local RUI = package.loaded["apps/reader/readerui"]
+        return RUI and RUI.instance
+    end
+    local function breathe(sec)
+        local co = coroutine.running()
+        pass.timer = function()
+            pass.timer = nil
+            coroutine.resume(co)
+        end
+        UIManager:scheduleIn(sec, pass.timer)
+        coroutine.yield()
+    end
+    Trapper:wrap(function()
+        local ok_run, err_run = xpcall(function()
+            local failed_run = 0
+            for i, file in ipairs(todo) do
+                if pass.finished then return end
+                if reading() then return pass.finish("book") end
+                if not Trapper:info(T(_("Linking to %1: book %2 of %3 · %4 found\n\nTap to stop."),
+                        label, i, #todo, #pass.found)) then
+                    return pass.finish("stopped")
+                end
+                local outcome, item = matcher.match(file)
+                if pass.finished then return end
+                pass.done = i
+                if outcome == "found" then
+                    pass.found[#pass.found + 1] = item
+                elseif outcome == "audio" then
+                    pass.audio = pass.audio + 1
+                elseif outcome == "error" then
+                    pass.errors = pass.errors + 1
+                elseif outcome == "unreadable" then
+                    pass.unreadable = pass.unreadable + 1
+                else
+                    pass.nomatch = pass.nomatch + 1
+                end
+                if outcome ~= "unreadable" then
+                    failed_run = outcome == "error" and failed_run + 1 or 0
+                    if failed_run >= LinkAll.MAX_FAILED_RUN then return pass.finish("gave_up") end
+                    if i < #todo then breathe(rate) end
+                    if pass.finished then return end
+                end
+            end
+            pass.finish("done")
+        end, debug.traceback)
+        if not ok_run then
+            require("logger").warn("ShelfSync tweaks: Link All failed: " .. tostring(err_run))
+            pass.errors = pass.errors + 1
+            pass.finish("stopped")
+        end
+    end)
+end
+
+-- Link This Book (1.13.1): the held book only, to the site picked. Same match,
+-- shown to confirm before it's saved; nothing changed on the site.
+function LinkAll.linkOne(app, key, file, CACHE)
+    local UIManager = require("ui/uimanager")
+    local Trapper = require("ui/trapper")
+    local T = require("ffi/util").template
+    local _ = require("gettext")
+    local engine = app.engines and app.engines[key]
+    if not (engine and engine.provider and engine.settings and engine.api) then return end
+    local label = engine.label or key
+    if CACHE.linkall then
+        LinkAll.D.notify(_("Link All Books is running. Try again when it has finished."))
+        return
+    end
+    LinkAll.D.withNetwork(function()
+        Trapper:wrap(function()
+            local matcher = LinkAll.matcher(engine, key)
+            -- holds off a Link All meanwhile; sleep (SyncEngine.onSuspend) lets go
+            CACHE.linkall = { finish = function() matcher.restore(); CACHE.linkall = nil end }
+            Trapper:info(T(_("Looking for this book on %1…"), label))
+            local ok, outcome, item = pcall(matcher.match, file)
+            matcher.restore()
+            pcall(Trapper.clear, Trapper)
+            CACHE.linkall = nil
+            if not ok then outcome = "error" end
+            if outcome == "found" then
+                local who = linkAllAuthor(item.book)
+                UIManager:show(require("ui/widget/confirmbox"):new{
+                    text = T(_("Link this book to %1?\n\n%2\n→ %3%4\n(found by %5)\n\nNothing changes on %1."),
+                        label, item.name, tostring(item.book.title or "?"), who and (" · " .. who) or "",
+                        LinkAll.METHOD[item.method] or tostring(item.method)),
+                    ok_text = _("Link"),
+                    ok_callback = function()
+                        local ok_s, saved = pcall(LinkAll.save, engine, key, item)
+                        if ok_s and saved then
+                            LinkAll.D.notify(T(_("Linked to %1: %2"), label, tostring(item.book.title or "?")))
+                        else
+                            LinkAll.D.notify(T(_("Couldn't save the link to %1."), label), true)
+                        end
+                    end,
+                })
+            elseif outcome == "audio" then
+                LinkAll.D.notify(T(_("%1 only has an audio edition of this book, which ShelfSync can't link."), label), true)
+            elseif outcome == "unreadable" then
+                LinkAll.D.notify(_("Couldn't read this book's title and author."), true)
+            elseif outcome == "error" then
+                LinkAll.D.notify(T(_("Couldn't search %1 (Wi-Fi, sign-in, or %1 blocking the search). Try again later."), label), true)
+            else
+                LinkAll.D.notify(T(_("No match on %1. Open the book and use %1 › Link book to search by hand."), label))
+            end
+        end)
+    end, false, app)
+end
+
+-- The two cards in Bookshelf's book menu (and the file browser's long-press menu)
+function LinkAll.registerCards(CACHE, isActive)
+    local ok_fm, FileManager = pcall(require, "apps/filemanager/filemanager")
+    if not (ok_fm and type(FileManager) == "table" and type(FileManager.addFileDialogButtons) == "function") then return end
+    if FileManager.__ss_linkall_cards then return end
+    FileManager.__ss_linkall_cards = true
+    local _ = require("gettext")
+    local T = require("ffi/util").template
+    local UIManager = require("ui/uimanager")
+    local function liveApp()
+        local fm = FileManager.instance
+        local app = type(fm) == "table" and fm.shelfsync
+        if type(app) == "table" and type(app.engines) == "table" then return app end
+    end
+    -- close the menu the card was tapped in: Bookshelf's book menu (the top
+    -- window with a rebuildTab), or the file browser's own
+    local function closeMenu()
+        pcall(function()
+            local stack = UIManager._window_stack or {}
+            for i = #stack, 1, -1 do
+                local w = stack[i].widget
+                if type(w) == "table" and type(w.rebuildTab) == "function" then
+                    UIManager:close(w)
+                    break
+                end
+            end
+        end)
+        pcall(function()
+            local fm = FileManager.instance
+            if type(fm) == "table" and fm.file_dialog then
+                UIManager:close(fm.file_dialog)
+                fm.file_dialog = nil
+            end
+        end)
+    end
+    local SITES = { "goodreads", "hardcover", "storygraph" }
+    FileManager.addFileDialogButtons(FileManager, "shelfsync_tweaks_link_one", function(file, is_file)
+        if not is_file or not liveApp() then return nil end
+        return {{
+            text = _("ShelfSync: Link This Book"),
+            callback = function()
+                closeMenu()
+                local app = liveApp()
+                if not app then return end
+                local ButtonDialog = require("ui/widget/buttondialog")
+                local dlg
+                local rows = {}
+                for _i, key in ipairs(SITES) do
+                    local e = app.engines[key]
+                    if e and isActive(e) then
+                        local ok_l, linked_id = pcall(e.settings.readBookSetting, e.settings, file, "book_id")
+                        local linked = ok_l and linked_id ~= nil
+                        local title = linked and e.settings:readBookSetting(file, "title") or nil
+                        rows[#rows + 1] = {{
+                            text = linked and T(_("%1 · linked: %2"), e.label or key, tostring(title or linked_id))
+                                or (e.label or key),
+                            enabled = not linked,
+                            callback = function()
+                                UIManager:close(dlg)
+                                LinkAll.linkOne(app, key, file, CACHE)
+                            end,
+                        }}
+                    end
+                end
+                if #rows == 0 then
+                    LinkAll.D.notify(_("No enabled providers"))
+                    return
+                end
+                rows[#rows + 1] = {{ text = _("Cancel"), callback = function() UIManager:close(dlg) end }}
+                dlg = ButtonDialog:new{ title = _("Link this book to"), buttons = rows }
+                UIManager:show(dlg)
+            end,
+        }}
+    end)
+    FileManager.addFileDialogButtons(FileManager, "shelfsync_tweaks_link_all", function(file, is_file)
+        if not is_file or not liveApp() then return nil end
+        return {{
+            text = _("ShelfSync: Link All Books"),
+            callback = function()
+                closeMenu()
+                local app = liveApp()
+                if not app then return end
+                UIManager:nextTick(function()
+                    LinkAll.D.showHub(LinkAll.menuItems(app, CACHE, isActive))
+                end)
+            end,
+        }}
+    end)
+end
+
+-- Link & Update › Link All Books
+function LinkAll.menuItems(app, CACHE, isActive)
+    local _ = require("gettext")
+    local T = require("ffi/util").template
+    local function off(text) return { { text = text, enabled_func = function() return false end } } end
+    if app.ui and app.ui.document then return off(_("Close The Book First (File Browser Only)")) end
+    local out = {}
+    local last = LinkAll.last
+    if last then
+        out[#out + 1] = {
+            text = T(_("Review Matches (%1, %2)"), last.label, #last.found),
+            callback = function() LinkAll.review(app, last) end,
+            separator = true,
+        }
+    end
+    for _i, key in ipairs({ "goodreads", "hardcover", "storygraph" }) do
+        local e = app.engines and app.engines[key]
+        if e and isActive(e) then
+            out[#out + 1] = {
+                text = e.label or key,
+                enabled_func = function() return CACHE.linkall == nil end,
+                callback = function() LinkAll.run(app, key, CACHE) end,
+                hold_callback = function()
+                    LinkAll.D.notify(T(_("Links every unlinked book to %1: searches each one (embedded id, ISBN, then title and author, as in ShelfSync's Auto-link settings), shows you the matches to check, and saves the ones you keep. Nothing changes on %1."), e.label or key))
+                end,
+            }
+        end
+    end
+    if #out == 0 then return off(_("No Enabled Providers")) end
+    return out
+end
 
 userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local _ = require("gettext")
@@ -752,7 +1340,6 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     local ok_api, GoodreadsApi = pcall(require, "shelfsync/lib/goodreads/api")
     if ok_api and GoodreadsApi and not GoodreadsApi.__ss_waf_patched then
         GoodreadsApi.__ss_waf_patched = true
-        local logger = require("logger")
 
         local function decodeJson(body)
             if type(body) ~= "string" or body == "" then return nil end
@@ -1013,6 +1600,8 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
     -- book closes), but never records the retry it schedules, so the clear
     -- does nothing and a retry stays queued through sleep. Record each one
     -- here and cancel it for real when it clears.
+    -- Only for ShelfSync before 1.8.3: 1.8.3 cancels each lookup itself and
+    -- has no Scheduler.clear, so this block switches itself off there.
     local ok_sch, Scheduler = pcall(require, "shelfsync/lib/common/scheduler")
     if ok_sch and type(Scheduler) == "table" and type(Scheduler.withRetries) == "function"
             and type(Scheduler.clear) == "function" and not Scheduler.__ss_clear_patched then
@@ -1058,6 +1647,9 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         if type(orig_onSuspend) == "function" then
             SyncEngine.onSuspend = function(self, ...)
                 CACHE.sleep_gen = CACHE.sleep_gen + 1
+                -- Link All Books: stops here (what it found stays to review)
+                local la = CACHE.linkall
+                if la and la.finish then pcall(la.finish, "sleep") end
                 -- A "Retrying" pass waiting to run: don't leave it in the
                 -- queue through sleep; finish that update on wake instead
                 -- (it would have stopped there anyway, see shouldStop).
@@ -1716,6 +2308,15 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         later(1, poll)
     end
 
+    LinkAll.D.notify = notify
+    LinkAll.D.withNetwork = withNetwork
+    local function engineActive(e)
+        local ok, active = pcall(e.isActive, e)
+        return ok and active
+    end
+    -- 1.13.1: ShelfSync: Link This Book / Link All Books in Bookshelf's book menu
+    -- (and the file browser's long-press menu)
+    pcall(LinkAll.registerCards, CACHE, engineActive)
     local function hubRootItems(app)
         return {
             {
@@ -1726,11 +2327,18 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                 text = _("Update Status"),
                 sub_item_table_func = function() return hubStatusItems(app) end,
             },
+            {
+                text = _("Link All Books"),
+                help_text = _("Link every unlinked book to Goodreads, Hardcover or StoryGraph at once. Nothing changes on the site."),
+                sub_item_table_func = function() return LinkAll.menuItems(app, CACHE, engineActive) end,
+            },
         }
     end
 
     -- Standalone menu for gesture shortcuts (same widget KOReader's own menu uses)
-    local function showHub(items)
+    local showHub
+    LinkAll.D.showHub = function(items) return showHub(items) end
+    function showHub(items)
         local CenterContainer = require("ui/widget/container/centercontainer")
         local TouchMenu = require("ui/widget/touchmenu")
         local Screen = require("device").screen
