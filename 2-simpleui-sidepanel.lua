@@ -1,7 +1,16 @@
--- SimpleUI Side Panel v1.0.33
+-- SimpleUI Side Panel v1.0.36
 -- Tools → SimpleUI Side Panel
 -- Full edge-swipe panel for SimpleUI (TBR, collections, new, history, BookOrbit).
 --
+-- 1.0.36 No Gesture Only swipe zone: Panel: Off turns the edge swipe off and
+--        the gesture action still opens the panel (on the right). A saved
+--        Gesture Only reads as Narrow.
+-- 1.0.35 The gesture action works anywhere but in a book: SimpleUI home, the
+--        library, Project: Title and Bookshelf (the panel slides in over
+--        whatever is showing). 1.0.34 only reached it on home.
+-- 1.0.34 A gesture action, "SimpleUI Side Panel", in KOReader's Gestures.
+--        Swipe Zone › Gesture Only turns the edge swipe off so only the
+--        gesture opens it. Loops no longer use _ as their variable.
 -- 1.0.33 The list of books downloaded from here stays small: an entry
 --        goes once BookOrbit has linked the file, or the file was deleted
 --        (from the file browser too).
@@ -85,7 +94,7 @@
 --        picked BookOrbit collection older than 45 s, 0.5-0.6 s each, so
 --        swipes took up to 1.8 s.
 
-local VERSION = "1.0.33"
+local VERSION = "1.0.36"
 local TAG = "simpleui-sidepanel " .. VERSION .. ":"
 local SETTINGS_KEY = "simpleui_sidepanel"
 local OLD_KEY = "simpleui_mod"
@@ -107,7 +116,7 @@ local function loadConfig()
         local old = G_reader_settings:readSetting(OLD_KEY)
         if type(old) == "table" then
             saved = {}
-            for _, k in ipairs({"tbr_panel","tbr_edge","tbr_panel_view","tbr_panel_colls","tbr_panel_show_tbr","tbr_panel_show_new"}) do
+            for _i, k in ipairs({"tbr_panel","tbr_edge","tbr_panel_view","tbr_panel_colls","tbr_panel_show_tbr","tbr_panel_show_new"}) do
                 if old[k] ~= nil then saved[k] = old[k] end
             end
             local bo = G_reader_settings:readSetting("simpleui_bo_panel")
@@ -1555,7 +1564,7 @@ local function fetchBoEntries(cache_key, api_params, force)
     end
     local on_device = onDeviceByBookId()
     local books, seen_id, page, page_size = {}, {}, 1, 100
-    for _ = 1, 1 do -- one request (up to 100 books): the panel shows a handful
+    for _i = 1, 1 do -- one request (up to 100 books): the panel shows a handful
         local q = {}
         for k, v in pairs(api_params or {}) do q[k] = v end
         q.page, q.size = page, page_size
@@ -2031,6 +2040,56 @@ local function onHomeShow(hs)
     end
 end
 
+-- 1.0.34: the "SimpleUI Side Panel" gesture action, anywhere but in a book: on
+-- SimpleUI home, the stock library / Project: Title, Bookshelf. KOReader sends a
+-- gesture action's event only to the window on top, and one that covers the screen
+-- (Bookshelf) would keep it, so the event is taken here before it's sent. The panel
+-- slides in over whatever is showing (it needs home only to refresh home's lists).
+local function openFromGesture()
+    -- 1.0.36: Panel: Off turns the edge swipe off, not the gesture (it then opens on the right)
+    local RUI = package.loaded["apps/reader/readerui"]
+    if type(RUI) == "table" and RUI.instance then return end -- not while reading
+    local okU, UIManager = pcall(require, "ui/uimanager")
+    local home
+    if okU then
+        local stack = UIManager._window_stack or {}
+        local top = stack[#stack] and stack[#stack].widget
+        if type(top) == "table" and top.name == "homescreen" and not top._parked then home = top end
+    end
+    local ok, err = pcall(openTBRPanel, home)
+    if not ok then
+        tbr_panel_open = false
+        logger.warn(TAG, "panel (gesture):", err)
+    end
+end
+
+do
+    local ok, UIManager = pcall(require, "ui/uimanager")
+    if ok and type(UIManager) == "table" and type(UIManager.sendEvent) == "function"
+            and not UIManager._sui_sidepanel_event_hooked then
+        UIManager._sui_sidepanel_event_hooked = true
+        local orig_send = UIManager.sendEvent
+        UIManager.sendEvent = function(self, event, ...)
+            if type(event) == "table" and event.handler == "onSimpleUISidePanelOpen" then
+                openFromGesture()
+                return true
+            end
+            return orig_send(self, event, ...)
+        end
+        -- in case a KOReader version broadcasts gesture actions instead
+        if type(UIManager.broadcastEvent) == "function" then
+            local orig_bcast = UIManager.broadcastEvent
+            UIManager.broadcastEvent = function(self, event, ...)
+                if type(event) == "table" and event.handler == "onSimpleUISidePanelOpen" then
+                    openFromGesture()
+                    return true
+                end
+                return orig_bcast(self, event, ...)
+            end
+        end
+    end
+end
+
 -- Hook UIManager.show for future home opens; also attach if home is already up
 do
     local ok, UIManager = pcall(require, "ui/uimanager")
@@ -2047,6 +2106,20 @@ do
     local HS = package.loaded["screens/sui_homescreen"]
     if type(HS) == "table" and type(HS._instance) == "table" then
         pcall(onHomeShow, HS._instance)
+    end
+end
+
+-- 1.0.34: a gesture action, "SimpleUI Side Panel", in KOReader's Gestures (the file
+-- browser side: SimpleUI home, the library, Project: Title, Bookshelf; not in a book).
+-- It works with any Swipe Zone, and with Panel: Off (no edge swipe).
+do
+    local okD, Dispatcher = pcall(require, "dispatcher")
+    if okD and type(Dispatcher) == "table" and type(Dispatcher.registerAction) == "function" then
+        local okR, err = pcall(Dispatcher.registerAction, Dispatcher, "simpleui_sidepanel_open", {
+            category = "none", event = "SimpleUISidePanelOpen",
+            title = _("SimpleUI Side Panel"), filemanager = true,
+        })
+        if not okR then logger.warn(TAG, "gesture action:", err) end
     end
 end
 
@@ -2079,7 +2152,7 @@ local function buildMenu()
                   if side == "left" then return _("Panel: Left edge") end
                   return _("Panel: Right edge")
               end,
-              help_text = _("Swipe in from the home screen edge to open the panel. Tick means it is on; open this item to choose left, right, or off."),
+              help_text = _("Swipe in from the home screen edge to open the panel. Tick means it is on; open this item to choose left, right, or off. Off turns the edge swipe off; the \"SimpleUI Side Panel\" gesture action (KOReader's Gestures) still opens it, on home, the library, Project: Title and Bookshelf, not in a book."),
               checked_func = function() return cfg.tbr_panel ~= "off" end,
               -- Tap the row (not only the check) opens the side picker
               sub_item_table = {
@@ -2094,10 +2167,10 @@ local function buildMenu()
                   local names = { wide = _("Wide"), narrow = _("Narrow"), edge = _("Edge Only") }
                   return string.format(_("Swipe Zone: %s"), names[cfg.tbr_edge] or names.narrow)
               end,
-              help_text = _("How close to the screen edge a swipe must start to open the panel."),
+              help_text = _("How close to the screen edge a swipe must start to open the panel (on SimpleUI home)."),
               sub_item_table_func = function()
                   local items = {}
-                  for _, opt in ipairs({ {"wide", _("Wide")}, {"narrow", _("Narrow")}, {"edge", _("Edge Only")} }) do
+                  for _i, opt in ipairs({ {"wide", _("Wide")}, {"narrow", _("Narrow")}, {"edge", _("Edge Only")} }) do
                       items[#items + 1] = {
                           text = opt[2], radio = true,
                           checked_func = function() return cfg.tbr_edge == opt[1] end,
