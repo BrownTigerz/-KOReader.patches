@@ -1,7 +1,7 @@
 --[[
 Shortcuts Toolbar – Icon Tweaks (userpatch)
 ===========================================
-Version: 1.17.1
+Version: 1.17.2
 For xusoo/shortcutstoolbar.koplugin
 
 Adds  Shortcuts toolbar → Icon tweaks  to the plugin menu:
@@ -63,6 +63,10 @@ a D-Bus query), then reuse the answer for redraws. Nothing runs
 in the background or while asleep.
 
 Changelog
+  1.17.2 Icon Tweaks: each icon's settings are in an Icons submenu, so Hold
+         Actions and Reset are on the first page. Icon Tweaks sits before
+         the plugin's Reset settings, which stays last in the Shortcuts
+         toolbar menu. Same saved settings, nothing resets.
   1.17.1 Holding a Calibre or Bookshelf shortcut for BookOrbit closes the
          top menu first, so it's gone when you leave BookOrbit (it stayed
          open under BookOrbit).
@@ -197,7 +201,7 @@ local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.17.1"
+local PATCH_VERSION = "1.17.2"
 local SETTINGS_KEY = "shortcutstoolbar_icon_tweaks"
 local MODES = {
     { id = "default",  text = "Default (Follow UI)" },
@@ -217,7 +221,7 @@ local function saveSettings(s)
 end
 
 local function modeText(id)
-    for _loop, m in ipairs(MODES) do
+    for _i, m in ipairs(MODES) do
         if m.id == id then return m.text end
     end
     return id
@@ -557,7 +561,7 @@ table.insert(STATES, 2, { id = "menu", text = "Menu Toggle", get = cachedRead("m
 table.insert(STATES, { id = "bluetooth", text = "Bluetooth", get = cachedRead("bluetooth") })
 
 local STATE_BY_ID = {}
-for _loop, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
+for _i, st in ipairs(STATES) do STATE_BY_ID[st.id] = st end
 
 -- --------------------------------------------------------------------------
 -- Rendering
@@ -1069,9 +1073,9 @@ local function expectedKeys(config)
     local ok_d, SHORTCUT_DATA = pcall(require, "shortcuts_data")
     local ok_m, Manager = pcall(require, "custom_shortcut_manager")
     local known = {}
-    if ok_d then for _loop, it in ipairs(SHORTCUT_DATA) do known[it.key] = it end end
+    if ok_d then for _i, it in ipairs(SHORTCUT_DATA) do known[it.key] = it end end
     if ok_m then
-        for _loop, it in ipairs(Manager.getShortcutDataItems(config.view or "reader")) do
+        for _i, it in ipairs(Manager.getShortcutDataItems(config.view or "reader")) do
             known[it.key] = it
         end
     end
@@ -1133,7 +1137,7 @@ local function withCapture(config, fn, ...)
     if not ok then error(res) end
 
     local settings = loadSettings()
-    for _loop, c in ipairs(captured) do
+    for _i, c in ipairs(captured) do
         local btn, key = c.btn, c.key
         tweakButton(btn, key)
         local k = keySettings(settings, key)
@@ -1403,7 +1407,7 @@ end
 
 local function modeRadio(get, set)
     local t = {}
-    for _loop, m in ipairs(MODES) do
+    for _i, m in ipairs(MODES) do
         table.insert(t, {
             text = m.text,
             radio = true,
@@ -1572,6 +1576,7 @@ local function buildMenu()
     local ConfirmBox = require("ui/widget/confirmbox")
     return {
         text = _("Icon Tweaks"),
+        _stb_icon_tweaks = true, -- Quick Shelf puts its rows before this one
         sub_item_table_func = function()
             local t = {
                 {
@@ -1584,18 +1589,28 @@ local function buildMenu()
                     separator = true,
                 },
             }
-            group_cache = {}
-            for _i, it in ipairs(allShortcuts()) do
-                local key = it.key
-                table.insert(t, {
-                    text_func = function()
-                        local k = loadSettings().keys[key]
-                        return it.label .. ((k and next(k)) and "  ●" or "")
-                    end,
-                    sub_item_table_func = function() return perIconMenu(key) end,
-                })
-            end
-            t[#t].separator = true
+            -- each icon's own settings, in a submenu of their own
+            table.insert(t, {
+                text = _("Icons"),
+                sub_item_table_func = function()
+                    group_cache = {}
+                    local icons = {}
+                    for _i, it in ipairs(allShortcuts()) do
+                        local key = it.key
+                        table.insert(icons, {
+                            text_func = function()
+                                local k = loadSettings().keys[key]
+                                return it.label .. ((k and next(k)) and "  ●" or "")
+                            end,
+                            sub_item_table_func = function() return perIconMenu(key) end,
+                        })
+                    end
+                    if #icons == 0 then
+                        icons[1] = { text = _("No Shortcuts Yet"), enabled_func = function() return false end }
+                    end
+                    return icons
+                end,
+            })
             local function holdItem(text, id, help)
                 return {
                     text = text, help_text = help, keep_menu_open = true,
@@ -1739,7 +1754,16 @@ userpatch.registerPatchPluginFunc("shortcutstoolbar", function(plugin)
         orig_add(self, menu_items)
         local root = menu_items.shortcutstoolbar
         if root and root.sub_item_table then
-            table.insert(root.sub_item_table, buildMenu())
+            -- before the plugin's Reset settings (kept last), else at the end
+            local rows, reset = root.sub_item_table, require("gettext")("Reset settings")
+            local at = #rows + 1
+            for i, r in ipairs(rows) do
+                if r.text == reset then at = i; break end
+            end
+            local item = buildMenu()
+            if at > 1 then rows[at - 1].separator = true end
+            if at <= #rows then item.separator = true end
+            table.insert(rows, at, item)
         end
     end
 end)
