@@ -1,7 +1,28 @@
 -- ShelfSync tweaks (one patch, put in koreader/patches/ and restart)
 --
--- Version 1.13.1
+-- Version 1.14.3
 -- Changelog:
+--   1.14.3   Polish for release: "link restored" and "status question
+--            skipped" go to the ShelfSync diagnostic only (while it's
+--            logging), not crash.log.
+--   1.14.2   Settings menu: the tweaks' settings are in one Settings ›
+--            Tweaks submenu instead of mixed in with ShelfSync's own, in
+--            three groups: Auto Re-login; Retry Autolink, Remember Links,
+--            One "Linked To" Note, Remember Ignore; Hide Providers. Same
+--            saved settings, nothing resets.
+--   1.14.1   Remember Links also keeps books that were already linked
+--            (before 1.14.0, or another way) the next time they open, so
+--            they don't need linking again first.
+--   1.14.0   A quieter book open (each on by default, Settings toggles):
+--            Remember Links: links are also kept by the book file's
+--            fingerprint, so a book removed and downloaded again gets them
+--            back at once (no search, no "Linked to" notes); unlinking by
+--            hand forgets it. Remember Ignore: Ignore on "marked Read on ...
+--            Mark it as Currently Reading?" sticks for that book and site
+--            while its status there stays the same. One "Linked To" Note:
+--            a book open that links several sites shows one note naming
+--            them all. Kept in shelfsync_tweaks_memory.lua (up to 500
+--            books). The note's 2 s wait is dropped on sleep.
 --   1.13.1   Two cards in Bookshelf's book menu (hold a book) and the file
 --            browser's long-press menu: "ShelfSync: Link This Book" links
 --            just that book to the site you pick (Goodreads, Hardcover,
@@ -112,8 +133,9 @@
 -- 2) Saved logins for Goodreads and StoryGraph (encrypted, on-device).
 --    Tap "Log in as..." to use, long-press to edit, or "Forget saved login".
 -- 3) Goodreads search / CSRF routed around the AWS WAF bot check.
--- 4) Settings: Auto re-login, Retry autolink when Wi-Fi connects (both on),
---    Hide providers submenu (all off). Hidden providers do nothing.
+-- 4) Settings › Tweaks: Auto re-login, Retry autolink when Wi-Fi connects
+--    (both on), the quieter-book-open toggles (on), Hide providers submenu
+--    (all off). Hidden providers do nothing.
 -- 5) "Link & Update" menu: every enabled provider's Link book / Update
 --    status in one place, plus 3 gesture actions. Provider menus untouched.
 -- 6) "ShelfSync All: Update progress" action: Wi-Fi on if needed, sync every
@@ -127,6 +149,9 @@
 -- 10) Link All Books: link every unlinked book to Goodreads, Hardcover or
 --    StoryGraph at once, matches checked first, nothing changed on the site.
 --    Link This Book / Link All Books cards in Bookshelf's book menu.
+-- 11) Quieter book open: links remembered by file (survive remove and
+--    download again), Ignore on the status question remembered, one
+--    "Linked to" note per book open.
 --
 -- Notifications match Network Tweaks if it's installed, ReadMastery Notify
 -- if that's installed, otherwise plain KOReader popups. Hide changes show after reopening
@@ -134,7 +159,7 @@
 
 local userpatch = require("userpatch")
 
-local PATCH_VERSION = "1.13.1"
+local PATCH_VERSION = "1.14.3"
 require("logger").info("ShelfSync tweaks v" .. PATCH_VERSION .. " loaded")
 
 -- In-memory caches, shared across ShelfSync re-inits (the hook below runs
@@ -159,6 +184,10 @@ local CACHE = {
     guards = {}, -- [fn] = true: safety timeouts, run early (and stopped) on sleep (1.11.19)
     suspending = false, -- true while sleep wraps up running syncs
     linkall = nil, -- the Link All Books pass running, if any (1.13.0)
+    memory = nil, -- shelfsync_tweaks_memory.lua: links by fingerprint, Ignored questions (1.14.0)
+    fps = nil, -- [path\0size] = partial MD5 (or false)
+    restoring = false, -- a remembered link being put back
+    linked_note = nil, -- the merged "Linked to" note waiting to show
 }
 
 -- Safety timeouts (Wi-Fi safety net, BookOrbit step): on sleep they're
@@ -1570,7 +1599,7 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
 
     -- Tweaks settings + menu toggles ------------------------------------------
     local TWEAKS_FILE = DataStorage:getSettingsDir() .. "/shelfsync_tweaks.lua"
-    local DEFAULTS = { relink_on_connect = true, auto_relogin = true } -- everything else defaults OFF
+    local DEFAULTS = { relink_on_connect = true, auto_relogin = true } -- + the 1.14.0 quiet-open three below; everything else defaults OFF
     local function tweak(key)
         if not CACHE.tweaks then
             CACHE.tweaks = LuaSettings:open(TWEAKS_FILE).data or {}
@@ -1595,6 +1624,253 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         Pagebound = "hide_pagebound",
         LibraryThing = "hide_librarything",
     }
+
+    -- Quieter book open (1.14.0) -------------------------------------------
+    -- 1) Ignore sticks: tapping Ignore on "This book is marked Read on X ...
+    --    Mark it as Currently Reading?" isn't asked again for that book on that
+    --    site while its status there stays the same.
+    -- 2) Links survive removal: every link is also kept by the book's file
+    --    fingerprint (partial MD5), so a book removed and downloaded again gets
+    --    its links back at once (no search, no "Linked to" notes). Unlinking
+    --    by hand forgets it.
+    -- 3) One "Linked to" note: the autolinks of one book open become one note.
+    -- Kept in shelfsync_tweaks_memory.lua (not the book's folder, which goes
+    -- when a book is removed). On by default; each has its own toggle.
+    local MEMORY_FILE = DataStorage:getSettingsDir() .. "/shelfsync_tweaks_memory.lua"
+    local lfs = require("libs/libkoreader-lfs")
+    local MEMORY_MAX = 500 -- remembered books, oldest dropped first
+    local LINK_KEYS = { "book_id", "edition_id", "edition_format", "pages", "title", "link_method", "sync" }
+    DEFAULTS.remember_ignore = true
+    DEFAULTS.remember_links = true
+    DEFAULTS.merge_linked = true
+
+    local function memory()
+        if not CACHE.memory then
+            local d = LuaSettings:open(MEMORY_FILE).data or {}
+            d.links = type(d.links) == "table" and d.links or {}
+            d.ignored = type(d.ignored) == "table" and d.ignored or {}
+            CACHE.memory = d
+        end
+        return CACHE.memory
+    end
+    local function saveMemory()
+        local d = memory()
+        local n, oldest, oldest_at = 0, nil, math.huge
+        for fp, e in pairs(d.links) do
+            n = n + 1
+            local at = tonumber(e.at) or 0
+            if at < oldest_at then oldest, oldest_at = fp, at end
+        end
+        if n > MEMORY_MAX and oldest then d.links[oldest] = nil end
+        local s = LuaSettings:open(MEMORY_FILE)
+        s:saveSetting("links", d.links)
+        s:saveSetting("ignored", d.ignored)
+        s:flush()
+    end
+
+    -- a book file's fingerprint: KOReader's partial MD5 (same as BookOrbit /
+    -- KOSync use), cached per path + size for the session
+    local function fingerprint(file)
+        if type(file) ~= "string" then return nil end
+        local size = lfs.attributes(file, "size")
+        if not size then return nil end
+        CACHE.fps = CACHE.fps or {}
+        local k = file .. "\0" .. size
+        if CACHE.fps[k] == nil then
+            local ok, md5 = pcall(function() return require("util").partialMD5(file) end)
+            CACHE.fps[k] = (ok and type(md5) == "string" and md5 ~= "") and md5 or false
+        end
+        return CACHE.fps[k] or nil
+    end
+
+    -- keep the open book's link for this site, if it isn't kept already
+    -- (a book linked before 1.14.0, or another way)
+    local function keepOpenLink(settings, ui)
+        local file = ui and ui.document and ui.document.file
+        local key = settings and settings.sidecar_key
+        if not file or not key then return end
+        local now = settings:readBookSettings(file) or {}
+        if now.book_id == nil then return end
+        local fp = fingerprint(file)
+        if not fp then return end
+        local d = memory()
+        local e = d.links[fp]
+        if e and e[key] and tostring(e[key].book_id) == tostring(now.book_id) then return end
+        local keep = {}
+        for _i, k in ipairs(LINK_KEYS) do keep[k] = now[k] end
+        e = e or {}
+        e[key] = keep
+        e.at = os.time()
+        d.links[fp] = e
+        saveMemory()
+    end
+
+    local ok_bset, BaseSettings = pcall(require, "shelfsync/lib/common/base_settings")
+    if ok_bset and type(BaseSettings) == "table" and type(BaseSettings.updateBookSetting) == "function"
+            and not BaseSettings.__ss_memory_patched then
+        BaseSettings.__ss_memory_patched = true
+        local orig_update = BaseSettings.updateBookSetting
+        BaseSettings.updateBookSetting = function(self, filename, config, ...)
+            local ret = orig_update(self, filename, config, ...)
+            if CACHE.restoring or not tweak("remember_links") then return ret end
+            -- only a link or an unlink changes what's kept, not page counts
+            if type(config) ~= "table" or (config.book_id == nil and type(config._delete) ~= "table") then
+                return ret
+            end
+            local ok, err = pcall(function()
+                local fp = fingerprint(filename)
+                local key = self.sidecar_key
+                if not fp or not key then return end
+                local now = self:readBookSettings(filename) or {}
+                local d = memory()
+                local e = d.links[fp]
+                if now.book_id ~= nil then
+                    local keep = {}
+                    for _i, k in ipairs(LINK_KEYS) do keep[k] = now[k] end
+                    e = e or {}
+                    e[key] = keep
+                    e.at = os.time()
+                    d.links[fp] = e
+                elseif e and e[key] then
+                    e[key] = nil -- unlinked by hand: forget it
+                    if next(e) == "at" and next(e, "at") == nil then d.links[fp] = nil end
+                else
+                    return
+                end
+                saveMemory()
+            end)
+            if not ok then require("logger").warn("ShelfSync tweaks: remembering a link failed: " .. tostring(err)) end
+            return ret
+        end
+    end
+
+    local ok_bp, BaseProvider = pcall(require, "shelfsync/lib/common/base_provider")
+    if ok_bp and type(BaseProvider) == "table" and not BaseProvider.__ss_quiet_patched then
+        BaseProvider.__ss_quiet_patched = true
+        -- 2) a book that was linked before (same file): its link comes back
+        local orig_try = BaseProvider.tryAutolink
+        if type(orig_try) == "function" then
+            BaseProvider.tryAutolink = function(self, done, ...)
+                if tweak("remember_links") and self.settings and not self.settings:bookLinked() then
+                    local ok, restored = pcall(function()
+                        local file = self.ui and self.ui.document and self.ui.document.file
+                        local fp = fingerprint(file)
+                        local e = fp and memory().links[fp]
+                        local keep = e and self.settings.sidecar_key and e[self.settings.sidecar_key]
+                        if type(keep) ~= "table" or keep.book_id == nil then return false end
+                        local cfg = {}
+                        for k, v in pairs(keep) do cfg[k] = v end
+                        CACHE.restoring = true
+                        self.settings:updateBookSetting(file, cfg)
+                        CACHE.restoring = false
+                        return self.settings:bookLinked()
+                    end)
+                    CACHE.restoring = false
+                    if ok and restored then
+                        trace(tostring(self.label) .. ": link restored for this book (removed and downloaded again)")
+                        if done then done() end
+                        return
+                    elseif not ok then
+                        require("logger").warn("ShelfSync tweaks: restoring a link failed: " .. tostring(restored))
+                    end
+                end
+                return orig_try(self, done, ...)
+            end
+        end
+        -- 3) one note for all the sites a book open linked to
+        local orig_autolink = BaseProvider.autolinkBook
+        if type(orig_autolink) == "function" then
+            BaseProvider.autolinkBook = function(self, book, method, ...)
+                if not tweak("merge_linked") or not book then return orig_autolink(self, book, method, ...) end
+                local linked = self:linkBookWithMethod(book, method)
+                if not linked then return end
+                local p = CACHE.linked_note
+                local title = tostring(book.title or "")
+                if not p or p.title ~= title then
+                    if p then UIManager:unschedule(p.fn) end
+                    p = { title = title, sites = {} }
+                    p.fn = function()
+                        if CACHE.linked_note == p then CACHE.linked_note = nil end
+                        local text = require("ffi/util").template(_("Linked to %1: %2"),
+                            table.concat(p.sites, " · "), p.title)
+                        styledNote(text, text)
+                    end
+                    CACHE.linked_note = p
+                end
+                p.sites[#p.sites + 1] = tostring(self.label)
+                -- the other sites usually finish within a second or two
+                UIManager:unschedule(p.fn)
+                UIManager:scheduleIn(2, p.fn)
+            end
+        end
+    end
+
+    -- 1) Ignore sticks for that book and site, while its status there stays
+    local function ignoreKey(engine, book_id)
+        if book_id == nil then return nil end
+        return tostring(engine.label) .. "|" .. tostring(book_id)
+    end
+    local function statusOf(engine)
+        local st = engine.state and engine.state.book_status or {}
+        return tostring(st.status_id or (st.shelf and ("shelf:" .. tostring(st.shelf))) or "none")
+    end
+    local ok_se2, SyncEngine2 = pcall(require, "shelfsync/lib/common/sync_engine")
+    if ok_se2 and type(SyncEngine2) == "table" and type(SyncEngine2.warnStatusMismatch) == "function"
+            and not SyncEngine2.__ss_ignore_patched then
+        SyncEngine2.__ss_ignore_patched = true
+        -- every book open: an already-linked book's links are kept too
+        local orig_start = SyncEngine2.startReadCache
+        if type(orig_start) == "function" then
+            SyncEngine2.startReadCache = function(self, ...)
+                if tweak("remember_links") and self.settings and self.ui then
+                    local ok, err = pcall(keepOpenLink, self.settings, self.ui)
+                    if not ok then require("logger").warn("ShelfSync tweaks: remembering a link failed: " .. tostring(err)) end
+                end
+                return orig_start(self, ...)
+            end
+        end
+        local orig_warn = SyncEngine2.warnStatusMismatch
+        SyncEngine2.warnStatusMismatch = function(self, filename, ...)
+            if not tweak("remember_ignore") then return orig_warn(self, filename, ...) end
+            local ok_id, book_id = pcall(self.settings.readBookSetting, self.settings, filename, "book_id")
+            local key = ok_id and ignoreKey(self, book_id) or nil
+            local status = statusOf(self)
+            if key and memory().ignored[key] == status then
+                if self.state then self.state.status_mismatch_warned = true end
+                trace(tostring(self.label) .. ": status question skipped (Ignored before for this book)")
+                return false
+            end
+            -- learn the Ignore tap of this one question
+            local dm = self.dialog_manager
+            local own = dm and rawget(dm, "confirm")
+            local base = dm and dm.confirm
+            if key and type(base) == "function" then
+                dm.confirm = function(d, options, ...)
+                    dm.confirm = own
+                    if type(options) == "table" then
+                        local orig_cancel = options.cancel_callback
+                        options.cancel_callback = function(...)
+                            local mem = memory()
+                            mem.ignored[key] = status
+                            pcall(saveMemory)
+                            if orig_cancel then return orig_cancel(...) end
+                        end
+                        local orig_ok = options.ok_callback
+                        options.ok_callback = function(...)
+                            local mem = memory()
+                            if mem.ignored[key] then mem.ignored[key] = nil; pcall(saveMemory) end
+                            if orig_ok then return orig_ok(...) end
+                        end
+                    end
+                    return base(d, options, ...)
+                end
+            end
+            local ok, ret = pcall(orig_warn, self, filename, ...)
+            if dm and rawget(dm, "confirm") ~= own then dm.confirm = own end -- not asked after all
+            if not ok then error(ret, 0) end
+            return ret
+        end
+    end
 
     -- ShelfSync's retry scheduler clears its retries on sleep (and when a
     -- book closes), but never records the retry it schedules, so the clear
@@ -1647,6 +1923,12 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
         if type(orig_onSuspend) == "function" then
             SyncEngine.onSuspend = function(self, ...)
                 CACHE.sleep_gen = CACHE.sleep_gen + 1
+                -- A merged "Linked to" note waiting: dropped (no timer through sleep)
+                local ln = CACHE.linked_note
+                if ln then
+                    CACHE.linked_note = nil
+                    UIManager:unschedule(ln.fn)
+                end
                 -- Link All Books: stops here (what it found stays to review)
                 local la = CACHE.linkall
                 if la and la.finish then pcall(la.finish, "sleep") end
@@ -1833,11 +2115,22 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
             for i, item in ipairs(items) do
                 if item.text == _("Verbose logging") then idx = i; break end
             end
-            local new = {
-                toggle(_("Auto Re-login When Session Expires"), "auto_relogin",
-                    _("When a Goodreads or StoryGraph session expires and you've saved your login, it signs in again automatically (once per 30 min) and sends your progress again. Goodreads may still ask for a verification code.")),
+            -- One "Tweaks" row: ShelfSync's own settings stay as they are
+            local sign_in = toggle(_("Auto Re-login When Session Expires"), "auto_relogin",
+                    _("When a Goodreads or StoryGraph session expires and you've saved your login, it signs in again automatically (once per 30 min) and sends your progress again. Goodreads may still ask for a verification code."))
+            sign_in.separator = true
+            local remember_ignore = toggle(_("Remember Ignore"), "remember_ignore",
+                _("Tap Ignore on \"This book is marked Read on … Mark it as Currently Reading?\" and that site doesn't ask again for that book while its status there stays the same. Mark as Reading forgets it."))
+            remember_ignore.separator = true
+            local tweaks_items = {
+                sign_in,
                 toggle(_("Retry Autolink When Wi-Fi Connects"), "relink_on_connect",
                     _("If you open a book with Wi-Fi off, autolink can't reach the internet and the book stays unlinked. With this on, it tries again when Wi-Fi connects.")),
+                toggle(_("Remember Links"), "remember_links",
+                    _("Links are also kept by the book file itself, so a book you remove and download again gets its links back at once: no search, no \"Linked to\" notes. Unlinking a book by hand forgets it.")),
+                toggle(_("One \"Linked To\" Note"), "merge_linked",
+                    _("When opening a book links it to several sites, one note names them all (\"Linked to StoryGraph · Hardcover · Goodreads: …\") instead of one per site.")),
+                remember_ignore,
                 {
                     text = _("Hide Providers"),
                     sub_item_table = {
@@ -1856,8 +2149,13 @@ userpatch.registerPatchPluginFunc("shelfsync", function(plugin)
                     },
                 },
             }
-            new[#new].separator = true
-            for i = #new, 1, -1 do table.insert(items, idx, new[i]) end
+            if idx > 1 then items[idx - 1].separator = true end
+            table.insert(items, idx, {
+                text = _("Tweaks"),
+                help_text = _("Settings added by the ShelfSync tweaks patch."),
+                sub_item_table = tweaks_items,
+                separator = true,
+            })
             return items
         end
     end
