@@ -65,7 +65,7 @@ local DEFAULTS = {
     early_turn_dp    = 35,          -- 35 / 50 / 80 dp
     early_turn_lists = true,        -- also full-screen KOReader lists
     page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
-    open_one_flash   = true,        -- 2.16.3: a book opened from the home screen: one full refresh once it's up
+    open_one_flash   = true,        -- 2.16.3: a book opened from the home screen: one full refresh once it's up (on by default since 2.16.5)
     critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
     hidden_pages     = {},          -- home screen pages not shown: [page number] = true (SimpleUI's layout untouched)
@@ -4691,7 +4691,8 @@ end
 
 -- ---- Book Opens With One Flash (2.16.3) ----------------------------------------------------
 -- KOReader opens a book from the home screen with its "Opening file" box (a
--- flash) and then the book (another full flash). With the option on, a book
+-- flash) and then the book (another full flash). With the option on (the default
+-- since 2.16.5, TK: it's faster), a book
 -- opened while SimpleUI's home screen is on top opens "seamlessly", as Bookshelf
 -- does (no box, the book arrives with a light refresh), and one full refresh is
 -- asked for once the book is in the window stack, so it lands on the book's page.

@@ -4,11 +4,7 @@
 
 ## 2.16.5 (2026-11-15)
 
-- Book Opens With One Flash is now on by default (was off by default in 2.16.3–2.16.4). Only affects users without a saved value for the setting; a saved on/off stays as it is.
-
-## 2.16.5 (2026-11-15)
-
-- Appearance › Book Opens With One Flash is now on by default (TK): a book opened from the SimpleUI home screen opens with one full refresh once it's up, without KOReader's "Opening file" box. The default only reaches users without a saved value for the setting — a saved off stays off until toggled on in Appearance.
+- Book Opens With One Flash is on by default (TK: it opens and closes books much faster). Turn it off in Appearance to get KOReader's "Opening file" box back. Anyone who already switched it off keeps it off.
 
 ## 2.16.4 (2026-11-15)
 
