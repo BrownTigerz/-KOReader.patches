@@ -2,6 +2,14 @@
 
 `2-simpleui-tweaks.lua`, newest first. Everything before 2.16.2 was moved here unchanged from the patch file on Nov 15, 2026 (the file kept no dates).
 
+## 2.16.5 (2026-11-15)
+
+- Book Opens With One Flash is now on by default (was off by default in 2.16.3–2.16.4). Only affects users without a saved value for the setting; a saved on/off stays as it is.
+
+## 2.16.5 (2026-11-15)
+
+- Appearance › Book Opens With One Flash is now on by default (TK): a book opened from the SimpleUI home screen opens with one full refresh once it's up, without KOReader's "Opening file" box. The default only reaches users without a saved value for the setting — a saved off stays off until toggled on in Appearance.
+
 ## 2.16.4 (2026-11-15)
 
 - Book Opens With One Flash: the book now opens with one flash only. While it loads, a full refresh asked for by something else (TK's log showed one on a full-screen box just before the book, a second before ours) is done as a plain refresh, so the one after the book is on screen is the only flash. Only from the tap until the book shows (15 seconds at most).

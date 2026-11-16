@@ -36,7 +36,7 @@ return {
     ["2-shortcutstoolbar-icon-tweaks.lua"] = "1.17.2",
     ["2-shortcutstoolbar-quick-shelf.lua"] = "1.6.1",
     ["2-simpleui-sidepanel.lua"] = "1.0.36",
-    ["2-simpleui-tweaks.lua"] = "2.16.4",
+    ["2-simpleui-tweaks.lua"] = "2.16.5",
     ["2-track-reading-location.lua"] = "1.9.6",
     ["debug/2-zz-test-mode.lua"] = "1.0.2",
     ["2-tweaks-menu.lua"] = "1.2.0",

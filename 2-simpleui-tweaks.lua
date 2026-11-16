@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.16.4
+Version 2.16.5
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -15,7 +15,7 @@ Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 Changelog: changelog/2-simpleui-tweaks.md (in the patches repo)
 ]]
 
-local VERSION = "2.16.4"
+local VERSION = "2.16.5"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -65,7 +65,7 @@ local DEFAULTS = {
     early_turn_dp    = 35,          -- 35 / 50 / 80 dp
     early_turn_lists = true,        -- also full-screen KOReader lists
     page_flash       = "off",       -- home screen page turns: "off" / "normal" (UI flash) / "strong" (full refresh)
-    open_one_flash   = false,       -- 2.16.3: a book opened from the home screen: one full refresh once it's up
+    open_one_flash   = true,        -- 2.16.3: a book opened from the home screen: one full refresh once it's up
     critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
     hidden_pages     = {},          -- home screen pages not shown: [page number] = true (SimpleUI's layout untouched)
@@ -4346,7 +4346,7 @@ local function buildMenu()
             },
                     {
                 text = _("Book Opens With One Flash"),
-                help_text = _("A book opened from the SimpleUI home screen comes up the way Bookshelf opens one: without KOReader's \"Opening file\" box, and with one full refresh once the page is on screen, instead of a flash for the box and another for the book. Nothing shows while the book loads (a second or two). Off by default."),
+                help_text = _("A book opened from the SimpleUI home screen comes up the way Bookshelf opens one: without KOReader's \"Opening file\" box, and with one full refresh once the page is on screen, instead of a flash for the box and another for the book. Nothing shows while the book loads (a second or two). On by default."),
                 checked_func = function() return cfg.open_one_flash == true end,
                 callback = function() cfg.open_one_flash = not cfg.open_one_flash; saveConfig() end,
             },
