@@ -42,7 +42,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Test Mode](#test-mode) | `debug/2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.16.1 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.17.0 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -630,11 +630,11 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.16.1
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.17.0
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
-The menu is grouped (2.15.15): **Opening And Navigation** (Reopen BookOrbit At, Keep Open Through Sleep, Open Book Only From Buttons, Loop Pages, Second Swipe Opens Tools Menu), **Redraws And Flashing** (Draw BookOrbit Once On Open, Draw New Covers Once, Flash To Reduce Ghosting), **Night Mode** (Keep Covers Original, Keep Continue Reading Colour At Night), **Action Colours**, **Library Filter**, **Collections** (Add To Collection, Forget Saved Password, About The Saved Password), and **Server Management** (2.15.18: the Troubleshooting group is gone; the pill trace is in the BookOrbit diagnostic).
+The menu is grouped (2.15.15): **Opening And Navigation** (Reopen BookOrbit At, Keep Open Through Sleep, Open Book Only From Buttons, Loop Pages, Second Swipe Opens Tools Menu), **Redraws And Flashing** (Draw BookOrbit Once On Open, Draw New Covers Once, Flash To Reduce Ghosting), **Night Mode** (Keep Covers Original, Keep Continue Reading Colour At Night), **Action Colours**, **Library Filter**, **Collections** (Add To Collection, Create API Key File, Forget Saved API Key, About The API Key), and **Server Management** (2.15.18: the Troubleshooting group is gone; the pill trace is in the BookOrbit diagnostic).
 
 ![BookOrbit Tweaks menu](images/bookorbit-tweaks-menu.png)
 ![BookOrbit Library Filter submenu](images/bookorbit-library-filter.png)
@@ -681,9 +681,9 @@ In night mode the Continue Reading card also stays black with white text. With B
 
 **Add To Collection In Book Menu** (on by default) — hold a book in a list (the sheet gets an **Add To Collection** row), or tap ⋯ at the top right of a book's page (**Add To Collection**, above Refresh from BookOrbit; 2.15.3). It lists your BookOrbit collections with ✓ on the ones the book is already in; tap one to add or remove the book, or **New Collection…** to make one with the book in it.
 
-BookOrbit's KOReader sign-in can't change collections, so this signs in the way the web app does, with your BookOrbit **website** username and password (asked the first time). That's not your KOReader sync login: BookOrbit keeps that as a separate account, often with a different username, so the box starts empty (2.15.1) and remembers the website username after. The sign-in box has a **Save password on this device** tick (2.15.2; remembers your last choice). Only a sign-in BookOrbit accepted gets saved, AES-encrypted with a key in its own file (the way ShelfSync Tweaks keeps its logins). The saved password and its key are never in Patch Backup & Restore's backups or device backups. The encryption stops someone casually browsing your files, not someone with full access to the e-reader, since the key is on the same device. Before the password is first asked for, a notice spells all this out (also under **About The Saved Password**). **Forget Saved BookOrbit Password** clears it. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
+BookOrbit's KOReader sign-in can't change collections, so this uses a BookOrbit **API key** instead (2.17.0; needs BookOrbit 3.8.0+ on the server). Create a key under Settings > You > API keys with **Read and write**. Easiest: **Create API Key File** in the tweaks menu (it writes `koreader/orbitshelf_api_key.txt`), paste the key on the marked line over USB, then Add To Collection or **Set API Key…** — it is imported, AES-256 encrypted, and the temp file deleted. Or enter the key on the device with **Set API Key…**. The menu shows **BookOrbit Sign-In · API key active** when a key is saved. The key is shared with OrbitShelf 2.0.2 (same encrypted store), and **Forget Saved API Key** clears it for both. **About The API Key** explains it all on screen. The old saved website password is no longer used. Results (added, removed, saved) follow Network Tweaks' notification style; questions and failures stay popups.
 
-With the OrbitShelf plugin (1.2.12 on, its own **Add To Collection** setting on), holding a BookOrbit book in Bookshelf or tapping one that isn't on the device opens this same picker, with this sign-in and saved password (2.15.8). There, the sign-in and loading waits show as a plain KOReader message, so no blank bar is left on the shelf (2.15.10).
+With the OrbitShelf plugin (1.2.12 on, its own **Add To Collection** setting on), holding a BookOrbit book in Bookshelf or tapping one that isn't on the device opens this same picker, with this sign-in and saved API key (2.15.8). There, the sign-in and loading waits show as a plain KOReader message, so no blank bar is left on the shelf (2.15.10).
 
 ### Draw New Covers Once
 

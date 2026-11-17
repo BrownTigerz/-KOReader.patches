@@ -1,6 +1,7 @@
 --[[
 2-bookorbit-tweaks.lua
 BookOrbit Tweaks for current BookOrbit KOReader plugin (plugin 2.0+ / server 3.5+).
+Version: 2.17.0
 
 Install this file in KOReader/patches/ and restart KOReader.
 
@@ -214,7 +215,8 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.16.1"
+local VERSION = "2.17.0"
+-- Changelog: changelog/2-bookorbit-tweaks.md
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
 local MENU_ID = "bookorbit_tweaks"
@@ -3158,12 +3160,11 @@ end
 -- BookOrbit's book sheet (hold a book in a list, or ⋯ on a book's page) gets
 -- an "Add To Collection" row: your BookOrbit collections, ✓ on the ones the
 -- book is in; tap to add or remove, or make a new one. BookOrbit's KOReader
--- sign-in can't change collections, so this signs in like the web app, with
--- your BookOrbit password. Saved only if you say so, AES-encrypted with a key
--- kept in its own file (like ShelfSync Tweaks), and never in backups.
+-- sign-in can't change collections; this uses a BookOrbit API key (3.8.0+,
+-- Read and write). Shared encrypted store with OrbitShelf (orbitshelf_api_key*).
 
 local T = require("ffi/util").template
-local LOGIN_FILE = "bookorbit_tweaks_login.lua"
+local LOGIN_FILE = "orbitshelf_api_key.lua"  -- shared with OrbitShelf
 
 -- Shared notification contract (same as Network Tweaks' other patches):
 -- results follow Network Tweaks' style (Banner / Minimal / Normal), then
@@ -3266,16 +3267,23 @@ end
 
 -- Shown before the password is first asked for, and from the menu.
 local SECURITY_TEXT = _([[
-Add To Collection needs your BookOrbit password.
+Add To Collection needs a BookOrbit API key.
 
-• Why: BookOrbit's KOReader sign-in can read your library and sync, but it can't change collections. Only the web sign-in can, the same one the BookOrbit website uses.
-• Where it goes: only to your own BookOrbit server's sign-in, over the server address you set in BookOrbit. Nothing is sent anywhere else.
-• While KOReader runs: the server's session key is kept in memory for 10 minutes, then it signs in again. Nothing about the session is written to disk.
-• If you save it: it's encrypted (AES-256) in koreader/settings/bookorbit_tweaks_login.lua, with the key in a separate file, bookorbit_tweaks_keyring.lua. That stops someone casually browsing your files. It does not stop someone with full access to the e-reader, because the key is on the same device.
-• Backups: neither file goes into Patch Backup & Restore's backups or device backups.
-• Remove it anytime: BookOrbit Tweaks > Forget Saved BookOrbit Password.
-If you'd rather not keep it, untick Save Password in the sign-in box: you'll be asked again after 10 minutes or a restart. Only a sign-in BookOrbit accepts is ever saved.]])
-local KEYRING_FILE = "bookorbit_tweaks_keyring.lua"
+• Why: BookOrbit's KOReader sign-in can read your library and sync, but it cannot change collections. An API key with Read and write access can.
+
+• Create one: on the BookOrbit website go to Settings > You > API keys. Create a key, choose "Read and write", and copy the key (it starts with bok_ and is shown only once).
+
+• How to get it onto the device:
+  1. Easiest – over USB open koreader/orbitshelf_api_key.txt (a temp template). Paste the key on the marked line, save, then use Add To Collection. The key is imported, encrypted, and the temp file is deleted.
+  2. Or type / paste it when asked.
+
+• Shared with OrbitShelf: the same encrypted key is used by OrbitShelf Add To Collection if that plugin is installed. Enter it once.
+
+• Storage: encrypted (AES-256) in koreader/settings/orbitshelf_api_key.lua. Excluded from Patch Backup & Restore.
+
+• Remove it anytime: BookOrbit Tweaks > Forget Saved API Key (or OrbitShelf > BookOrbit Sign-In > Forget Saved API Key).
+]])
+local KEYRING_FILE = "orbitshelf_api_keyring.lua"  -- shared with OrbitShelf
 
 local Crypto = {}
 do
@@ -3376,143 +3384,211 @@ local function loginStore()
     return require("luasettings"):open(require("datastorage"):getSettingsDir() .. "/" .. LOGIN_FILE)
 end
 
--- server url -> { token, until }: the web session, in memory only
-local web_sessions = {}
 
--- the website username last signed in with (kept with a saved password,
--- else for this session), to fill in next time
-local typed_users = {}
-local function last_web_user(server)
-    local saved = loginStore():readSetting(server)
-    if type(saved) == "table" and type(saved.username) == "string" then return saved.username end
-    return typed_users[server]
+-- Shared with OrbitShelf: same encrypted API key store and temp import file.
+local PLAIN_KEY_FILE = "orbitshelf_api_key.txt"
+local key_cache = {}
+
+local function plainKeyPaths()
+    local DS = require("datastorage")
+    return {
+        DS:getDataDir() .. "/" .. PLAIN_KEY_FILE,
+        DS:getSettingsDir() .. "/" .. PLAIN_KEY_FILE,
+    }
 end
 
-local function forgetLogin(server)
-    web_sessions[server] = nil
+local function ensurePlainKeyTemplate(force)
+    local path = plainKeyPaths()[1]
+    if not path then return nil end
+    if not force and lfs.attributes(path, "mode") == "file" then return path end
+    local parent = path:match("^(.*)/[^/]+$")
+    if parent then pcall(function() require("util").makePath(parent) end) end
+    local f = io.open(path, "w")
+    if not f then return end
+    f:write([[
+OrbitShelf / BookOrbit Tweaks — Temporary API Key File
+
+This is a TEMPORARY file. It is only a way to get your BookOrbit API Key
+onto the device without typing it on the device keyboard.
+
+What happens:
+1. Paste your API Key on the line marked ENTER API KEY HERE below.
+2. Save this file and unplug the device.
+3. On the device use Add To Collection (BookOrbit or OrbitShelf), or
+   Tools > OrbitShelf > BookOrbit Sign-In > Set API Key…
+4. The key is read from this file, saved ENCRYPTED on this device, and
+   this file is deleted. After that, the only copy is the encrypted one.
+5. OrbitShelf and BookOrbit Tweaks share the same encrypted key — enter once.
+6. If you never sign in, nothing reads this file and the key stays here
+   in plain text. Delete this file yourself if you change your mind.
+
+Make the key on your PC in BookOrbit: Settings > You > API Keys > Create,
+with Read And Write. It starts with bok_ and is shown only once.
+
+ENTER API KEY HERE:
+
+]])
+    f:close()
+    return path
+end
+
+local function forgetKey(server)
+    if server then
+        key_cache[server] = nil
+        local s = loginStore()
+        s:delSetting(server)
+        s:flush()
+    else
+        key_cache = {}
+        local s = loginStore()
+        for k in pairs(s.data or {}) do s:delSetting(k) end
+        s:flush()
+    end
+end
+
+local function saveKey(server, key)
+    if type(server) ~= "string" or type(key) ~= "string" or key == "" then return false end
+    key = key:match("^%s*(.-)%s*$") or key
+    local enc = Crypto.encrypt(key)
+    if not enc then
+        local s = loginStore()
+        s:saveSetting(server, { key = key, plain = true })
+        s:flush()
+        key_cache[server] = key
+        return true
+    end
     local s = loginStore()
-    local saved = s:readSetting(server)
-    if type(saved) == "table" and type(saved.username) == "string" then typed_users[server] = saved.username end
-    s:delSetting(server)
+    s:saveSetting(server, { key_enc = enc })
     s:flush()
+    key_cache[server] = key
+    return true
 end
 
--- Signs in the way the web app does and hands the access token to done().
--- Uses a saved password when there is one; otherwise asks, then offers to
--- save it.
-local function webSignIn(catalog, done, ask)
-    local client = catalog.client
-    local server = client and client.server_url
-    if not server then return end
-    local cached = web_sessions[server]
-    if not ask and cached and cached.token and os.time() < cached["until"] then return done(cached.token) end
+local function loadKey(server)
+    if not server then return nil end
+    if key_cache[server] then return key_cache[server] end
+    local saved = loginStore():readSetting(server)
+    if type(saved) ~= "table" then return nil end
+    local key
+    if type(saved.key_enc) == "string" then
+        key = Crypto.decrypt(saved.key_enc)
+    elseif type(saved.key) == "string" and saved.plain then
+        key = saved.key
+    end
+    if type(key) == "string" and key ~= "" then
+        key_cache[server] = key
+        return key
+    end
+    return nil
+end
 
-    local UIManager = require("ui/uimanager")
-    -- typed: from the sign-in box (else the saved password); save: its
-    -- Save Password tick. Only a sign-in the server accepted gets saved.
-    local function login(username, password, typed, save)
-        local body, err = catalog:fetch(_("Signing in to BookOrbit…"), function()
-            return client:requestBlocking("POST", "/auth/login",
-                { username = username, password = password, clientKind = "native", deviceLabel = "KOReader" })
-        end)
-        if not (type(body) == "table" and type(body.accessToken) == "string") then
-            if err == "cancelled" then return end
-            if not typed then forgetLogin(server) end -- a saved password that no longer works
-            failure(err == 401 and _("BookOrbit didn't accept that username or password.\n\nUse the login you sign in to the BookOrbit website with. Your KOReader sync username can be different.") or T(_("Couldn't sign in to BookOrbit:\n%1"), tostring(err)))
-            if not typed then return webSignIn(catalog, done, true) end
-            return
-        end
-        web_sessions[server] = { token = body.accessToken, ["until"] = os.time() + 10 * 60 }
-        typed_users[server] = username
-        if typed and save then
-            local enc = Crypto.encrypt(password)
-            if enc then
-                local st = loginStore()
-                st:saveSetting(server, { username = username, password_enc = enc })
-                st:flush()
-                note(_("Signed in. Password saved on this device (encrypted)."), _("Password saved"))
-            else
-                -- never kept in plain text
-                failure(_("Signed in, but encryption isn't available on this device, so the password wasn't saved. You'll be asked for it again after a restart."))
+local function tryImportPlainKey(server)
+    for _i, path in ipairs(plainKeyPaths()) do
+        local f = io.open(path, "r")
+        if f then
+            local content = f:read("*a") or ""
+            f:close()
+            local key = content:match("(bok_[%w%-_]+)")
+            if key and #key >= 20 and key ~= "bok_" then
+                if saveKey(server, key) then
+                    pcall(os.remove, path)
+                    for _j, other in ipairs(plainKeyPaths()) do
+                        if other ~= path then pcall(os.remove, other) end
+                    end
+                    note(_("API key imported from the temp file and encrypted. The temp file was removed."), _("Key imported"))
+                    return key
+                end
             end
         end
-        return done(body.accessToken)
     end
+    return nil
+end
 
-    if not ask then
-        local saved = loginStore():readSetting(server)
-        local password = type(saved) == "table" and Crypto.decrypt(saved.password_enc)
-        if password then return login(saved.username, password, false, false) end
+local function getApiKey(server, force_ask)
+    if not server then return nil end
+    if not force_ask then
+        local k = loadKey(server)
+        if k then return k end
+        k = tryImportPlainKey(server)
+        if k then return k end
     end
-    local function askPassword()
+    return nil
+end
+
+local function askForKey(server, done)
+    ensurePlainKeyTemplate()
+    local UIManager = require("ui/uimanager")
     local MultiInputDialog = require("ui/widget/multiinputdialog")
-    local CheckButton = require("ui/widget/checkbutton")
-    local dlg, save_box
+    local dlg
     dlg = MultiInputDialog:new{
-        title = _("Sign in to BookOrbit"),
-        description = _("Your BookOrbit website login (not your KOReader sync name)."),
+        title = _("BookOrbit API Key"),
+        description = _("Paste or type a key that starts with bok_.\n\nEasier over USB: put the key in koreader/orbitshelf_api_key.txt (temp file; deleted after import). Shared with OrbitShelf."),
         fields = {
-            -- not the sync username: that's a separate account and often a
-            -- different name, which made the right password fail
-            { text = last_web_user(server) or "", hint = _("Website username") },
-            { text = "", hint = _("Password"), text_type = "password" },
+            { text = "", hint = _("bok_…"), text_type = "password" },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
-            { text = _("Sign In"), is_enter_default = true, callback = function()
+            { text = _("Save"), is_enter_default = true, callback = function()
                 local f = dlg:getFields()
-                local save = save_box and save_box.checked or false
                 UIManager:close(dlg)
-                if f[1] ~= "" and f[2] ~= "" then login(f[1], f[2], true, save) end
+                local key = f[1] and f[1]:match("^%s*(.-)%s*$")
+                if key and key ~= "" then
+                    if saveKey(server, key) then
+                        for _i, path in ipairs(plainKeyPaths()) do pcall(os.remove, path) end
+                        note(_("API key saved on this device (encrypted)."), _("Key saved"))
+                        if done then done(key) end
+                    else
+                        failure(_("Couldn't save the API key."))
+                    end
+                end
             end },
         }},
     }
-    -- ticked or not, nothing is saved until the server accepts the sign-in;
-    -- the choice is remembered for next time
-    save_box = CheckButton:new{
-        text = _("Save password on this device (encrypted)"),
-        checked = not (G_reader_settings and G_reader_settings:isFalse("bookorbit_tweaks_save_password")),
-        parent = dlg,
-        callback = function()
-            if G_reader_settings then
-                G_reader_settings:saveSetting("bookorbit_tweaks_save_password", save_box.checked and true or false)
-            end
-        end,
-    }
-    dlg:addWidget(save_box)
     UIManager:show(dlg)
     dlg:onShowKeyboard()
-    end
-    -- The first time on this device (and after Forget): what happens to the
-    -- password, before it's typed.
-    if G_reader_settings and not G_reader_settings:isTrue("bookorbit_tweaks_password_notice_seen") then
+end
+
+-- Obtain a usable API key; ask once if missing.
+local function ensureKey(catalog, done, force_ask)
+    local client = catalog and catalog.client
+    local server = client and client.server_url
+    if not server then return end
+    local key = getApiKey(server, force_ask)
+    if key then return done(key) end
+    ensurePlainKeyTemplate()
+    local UIManager = require("ui/uimanager")
+    if G_reader_settings and not G_reader_settings:isTrue("orbitshelf_api_key_notice_seen") then
         UIManager:show(require("ui/widget/confirmbox"):new{
             text = SECURITY_TEXT,
             ok_text = _("Continue"),
             cancel_text = _("Cancel"),
             ok_callback = function()
-                G_reader_settings:saveSetting("bookorbit_tweaks_password_notice_seen", true)
-                askPassword()
+                G_reader_settings:saveSetting("orbitshelf_api_key_notice_seen", true)
+                local k2 = tryImportPlainKey(server)
+                if k2 then return done(k2) end
+                askForKey(server, done)
             end,
         })
         return
     end
-    askPassword()
+    askForKey(server, done)
 end
 
--- One authorised call; a session the server turned down signs in again once.
+-- One authorised call with the API key. A 401 clears the key and asks again once.
 local function webCall(catalog, label, method, path, body, done, retried)
-    webSignIn(catalog, function(token)
+    ensureKey(catalog, function(key)
         local res, err = catalog:fetch(label, function()
-            return catalog.client:requestBlocking(method, path, body, { ["Authorization"] = "Bearer " .. token })
+            return catalog.client:requestBlocking(method, path, body, { ["Authorization"] = "Bearer " .. key })
         end)
         if err == 401 and not retried then
-            web_sessions[catalog.client.server_url] = nil
+            local server = catalog.client and catalog.client.server_url
+            forgetKey(server)
             return webCall(catalog, label, method, path, body, done, true)
         end
         done(res, err)
-    end)
+    end, retried == true)
 end
+
 
 local showCollections
 showCollections = function(catalog, detail)
@@ -3615,10 +3691,10 @@ local function shelfCatalog(client, Catalog)
     return shim
 end
 
--- 2.15.8: the same picker for other plugins (OrbitShelf's book menus). They
--- pass a BookOrbit API client and a book id; the sign-in and the saved
--- password stay this patch's. fetch / runConnected come from BookOrbit's own
--- catalog, so loading pills and Wi-Fi work the same.
+-- 2.15.8 / 2.17.0: the same picker for other plugins (OrbitShelf's book menus).
+-- They pass a BookOrbit API client and a book id; the API key is shared with
+-- OrbitShelf (same encrypted files). fetch / runConnected come from BookOrbit's
+-- own catalog, so loading pills and Wi-Fi work the same.
 package.loaded["bookorbit_tweaks_collections"] = {
     api = 1,
     show = function(client, book_id, title)
@@ -4203,7 +4279,7 @@ local function buildMenu()
         },
         {
             text = _("Add To Collection In Book Menu"),
-            help_text = _("Hold a book in a list, or tap ⋯ at the top right of a book's page: Add To Collection lists your BookOrbit collections (✓ = the book is in it). Tap one to add or remove the book, or make a new collection. It signs in like the web app, with your BookOrbit password."),
+            help_text = _("Hold a book in a list, or tap ⋯ at the top right of a book's page: Add To Collection lists your BookOrbit collections (✓ = the book is in it). Tap one to add or remove the book, or make a new collection. Uses a BookOrbit API key (shared with OrbitShelf if installed)."),
             checked_func = function() return cfg.collections_row ~= false end,
             callback = function()
                 cfg.collections_row = not (cfg.collections_row ~= false)
@@ -4211,28 +4287,45 @@ local function buildMenu()
             end,
         },
         {
-            text = _("Forget Saved BookOrbit Password"),
-            help_text = _("The password Add To Collection saved on this device (encrypted). You'll be asked again next time."),
+            text = _("Create API Key File"),
+            help_text = _("Writes koreader/orbitshelf_api_key.txt over USB. Paste your bok_ key, then use Add To Collection — the file is imported and deleted."),
+            callback = function()
+                local path = ensurePlainKeyTemplate(true)
+                if not path then
+                    failure(_("Couldn't create koreader/orbitshelf_api_key.txt"))
+                    return
+                end
+                note(T(_("API key file ready:\n%1\n\nPaste your bok_ key on the ENTER API KEY HERE line, then use Add To Collection."), path),
+                     _("Key file created"), 5)
+            end,
+        },
+        {
+            text = _("Forget Saved API Key"),
+            help_text = _("Removes the BookOrbit API key Add To Collection saved on this device (encrypted). Shared with OrbitShelf — both will ask again."),
             enabled_func = function()
                 local okl, st = pcall(loginStore)
                 return okl and type(st.data) == "table" and next(st.data) ~= nil
             end,
             callback = function()
-                local okl, st = pcall(loginStore)
-                if okl then
-                    for k in pairs(st.data) do st:delSetting(k) end
-                    st:flush()
-                end
-                for k in pairs(web_sessions) do web_sessions[k] = nil end
+                forgetKey(nil)
+                key_cache = {}
+                G_reader_settings:delSetting("orbitshelf_api_key_notice_seen")
                 G_reader_settings:delSetting("bookorbit_tweaks_password_notice_seen")
-                note(_("Saved BookOrbit password removed from this device."), _("Password forgotten"))
+                note(_("Saved API key removed from this device."), _("API key forgotten"))
             end,
         },
         {
-            text = _("About The Saved Password"),
+            text = _("About The API Key"),
             keep_menu_open = true,
             callback = function()
-                require("ui/uimanager"):show(require("ui/widget/infomessage"):new{ text = SECURITY_TEXT })
+                local Screen = require("device").screen
+                local TextViewer = require("ui/widget/textviewer")
+                require("ui/uimanager"):show(TextViewer:new{
+                    title = _("About The API Key"),
+                    text = SECURITY_TEXT,
+                    width = math.floor(Screen:getWidth() * 0.88),
+                    height = math.floor(Screen:getHeight() * 0.8),
+                })
             end,
             separator = true,
         },
@@ -4437,8 +4530,8 @@ local function buildMenu()
         by[_("Library Filter")],
         group(_("Collections"), _("Add To Collection and the password it saves."),
             _("Add To Collection In Book Menu"),
-            _("Forget Saved BookOrbit Password"),
-            _("About The Saved Password")),
+            _("Forget Saved API Key"),
+            _("About The API Key")),
         by[_("Server Management")],
     }
     local out = {}
