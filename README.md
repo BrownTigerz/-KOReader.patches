@@ -20,9 +20,9 @@ All patches work independently and together. If one fails to attach (for example
 
 | Patch | File | Requires | Version |
 |---|---|---|---|
-| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.16.5 |
-| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.36 |
-| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.9.8 |
+| [SimpleUI Tweaks](#simpleui-tweaks) | `2-simpleui-tweaks.lua` | simpleui.koplugin | 2.16.6 |
+| [SimpleUI Side Panel](#simpleui-side-panel) | `2-simpleui-sidepanel.lua` | simpleui.koplugin | 1.0.37 |
+| [Reading Log Tweaks](#reading-log-tweaks) | `2-readinglog-tweaks.lua` | [readinglog.koplugin](https://github.com/stevenzamora1/reading-log) 1.4+ | 2.9.9 |
 | [Critter phrases](#simpleui-tweaks) | `critter-phrases.lua` | SimpleUI Tweaks, Reading Log Tweaks, Quick Shelf | 1.2.0 |
 | [Add-ons menu](#add-ons-menu) | `2-tweaks-menu.lua` | none | 1.2.0 |
 | [Patch Backup & Restore](#patch-backup--restore) | `2-backup-patches.lua` | zip-capable KOReader build (2024+) | 3.2.1 |
@@ -68,7 +68,7 @@ Settings: Tools → SimpleUI Tweaks (or Tools → Add-ons → SimpleUI Tweaks wi
 - **Tiny Critter insights** (SimpleUI 3.0): Modules → Critter Insights, on by default. The critter tells you about your reading: your best reading day this month, book milestones this year (5, 10, 25, 50, 75, 100, then every 50), getting back on a roll after a break, the book you're on being 25 minutes or less from the end, the finish rate your yearly goal needs ("20 books to go, 69 days left. About one every 3 days catches you up.", worded for on pace or catching up), a gentle nudge after 3+ quiet days, and whether you read more on weekends or weekdays. They wait for the critter like its own reactions (book finished, comeback), at most 3 a day, and only when your stats back them: a milestone when you finish that book (once a year each), back on a roll once per comeback, a nudge once per quiet stretch, goal pace and weekend reading once a week (weekend reading needs 4+ weekend and 8+ weekday reading days in 8 weeks, and doesn't flip-flop). Best day is in minutes read. One statistics read a day, no timers. Its chat no longer suggests the same book twice in a day. Needs the critter's Reactions on.
 - **Side panel:** moved out in 2.14.6 — see SimpleUI Side Panel below.
 - **Finished Books In Stats** (SimpleUI Tweaks menu, 2.16.0): every finished book SimpleUI counts, newest year first, marked "deleted" or "not counted". Tap one: **Don't Count** keeps it listed but out of your totals and goals (like SimpleUI's own Exclude from goals, but it also works for a book you've deleted) / **Count Again**; for a deleted book, **Remove From Stats** (asks first). No more editing sui_settings by hand. Manual (paper) books stay in SimpleUI's own Finished Books window.
-- **Home Screen Pages** (SimpleUI Tweaks menu, 2.15.0): every home screen page is listed with its modules. Untick one to **hide** it without deleting it, so you don't have to set it up again; tick it to bring it back as it was. **Open On** picks the page the home screen opens on (Page 1 by default; a hidden page falls back to the first one that shows). SimpleUI's own layout and page editor aren't touched. At least one page always shows. Home screen only, not Custom Screens.
+- **Home Screen Opens On** (SimpleUI Tweaks menu, 2.16.6; replaces Home Screen Pages): picks the page the home screen opens on (Page 1 by default). It counts pages the way SimpleUI shows them, so a page you hide in SimpleUI's own page list is skipped and can't be picked; if the chosen page gets hidden, home opens on its first page. Hiding pages is SimpleUI's own feature from 3.1.0, so Tweaks no longer hides them: pages you hid with Tweaks before show again, and you hide them in SimpleUI's page list. Home screen only, not Custom Screens.
 - **Page Turn Flash** (SimpleUI Tweaks menu): SimpleUI turns home screen pages (page 1 to 2 and back) with a quiet update, so the old page can ghost through. **Normal** adds a quick flash to each turn; **Strong** a full refresh, which also clears dark pages and night mode. **Off** (default) keeps turns as fast as they are now.
 - **Book Opens With One Flash** (Appearance, on by default since 2.16.5): a book opened from the SimpleUI home screen comes up the way Bookshelf opens one, without KOReader's "Opening file" box and with a single full refresh once the page is on screen, instead of a flash for the box and another for the book. Nothing shows while the book loads (a second or two); turn it off to get the "Opening file" box back.
 - **Early Page Turn** (Page Turns, off by default): a sideways swipe turns the page once your finger has moved 35 dp (or 50 / 80), without waiting for the lift. Books in page mode, plus full-screen lists (file browser, history, collections, TOC, bookmarks, search) with **Also In Lists**. One turn per swipe; taps aren't changed. Turns itself off if `2-earlyturn.lua` is installed.
@@ -118,7 +118,7 @@ Download: [critters.zip](critters.zip) — extract to `koreader/settings/simpleu
 ![Simpleui Sidebar](images/simpleui-sidebar.png)
 ![Simpleui Sidebar 2](images/simpleui-sidebar-2.png)
 
-The edge-swipe panel for the SimpleUI home screen, split out of SimpleUI Tweaks in 2.14.6. Swipe in from the right (or left) edge for your To Be Read list, KOReader collections, newly added books, history, and BookOrbit views; tap a book to open it, hold it to remove it. Pick the edge or turn it off, and set how close to the edge the swipe has to start, so ordinary swipes don't open it by accident.
+The edge-swipe panel for the SimpleUI home screen, split out of SimpleUI Tweaks in 2.14.6. Swipe in from the right (or left) edge for your To Be Read list, KOReader collections, newly added books, history, and BookOrbit views; tap a book to open it, hold it to remove it. History leaves out books you've hidden from the reading history in SimpleUI 3.1.0. Pick the edge or turn it off, and set how close to the edge the swipe has to start, so ordinary swipes don't open it by accident.
 
 Settings: Tools → SimpleUI Side Panel.
 
@@ -459,7 +459,7 @@ For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the t
 
 ## Reading Log Tweaks
 
-**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.9.8
+**File:** `2-readinglog-tweaks.lua` · **Requires:** [stevenzamora1's Reading Log](https://github.com/stevenzamora1/reading-log) 1.4+ (`readinglog.koplugin`) with Simple UI · **Version:** 2.9.9
 
 Extras for Steven's Reading Log on Simple UI. It hooks his plugin from the outside and doesn't change its files; his Bookshelf cards aren't touched.
 

@@ -1,7 +1,7 @@
 --[[
 2-simpleui-tweaks.lua - SimpleUI Tweaks, a KOReader user patch for SimpleUI
 (simpleui.koplugin)
-Version 2.16.5
+Version 2.16.6
 
 Colours, bold, section title styling and Night Mode "day look" for the
 SimpleUI home screen, nav bar and status bar.
@@ -15,7 +15,7 @@ Colours are picked as they look ON SCREEN; Night Mode inversion is handled.
 Changelog: changelog/2-simpleui-tweaks.md (in the patches repo)
 ]]
 
-local VERSION = "2.16.5"
+local VERSION = "2.16.6"
 
 -- Only one copy may run (e.g. an old 2-simpleui-mod.lua left next to
 -- 2-simpleui-tweaks.lua): a second copy would hook everything twice.
@@ -68,7 +68,6 @@ local DEFAULTS = {
     open_one_flash   = true,        -- 2.16.3: a book opened from the home screen: one full refresh once it's up (on by default since 2.16.5)
     critter_text     = "auto",      -- critter's speech text: "auto" (white on a dark bubble) / "white" / "black"
     critter_pos      = "wander",    -- row spot: "wander" / "left" / "right" / "edges" (left or right, never the middle)
-    hidden_pages     = {},          -- home screen pages not shown: [page number] = true (SimpleUI's layout untouched)
     open_on_page     = 0,           -- home screen opens on this page (0 = SimpleUI's own, page 1)
 }
 
@@ -792,7 +791,10 @@ local function inProgressList(ctx, n)
     for i = 1, math.min(#hist, SCAN_MAX) do
         if #fps >= n then break end
         local fp = hist[i] and hist[i].file
-        if type(fp) == "string" and not seen[fp] then
+        -- SimpleUI 3.1.0 can hide a book from the reading history: skipped too
+        local hid = okb and type(SH) == "table" and type(SH.isHiddenEntry) == "function"
+            and SH.isHiddenEntry(hist[i])
+        if type(fp) == "string" and not seen[fp] and not hid then
             seen[fp] = true
             if okl and lfs.attributes(fp, "mode") == "file" then
                 local pct, status
@@ -1065,7 +1067,10 @@ local patchCritterSprite = function(Sprite)
         if not f then return { w = e.w, h = e.h, foot = e.foot or 0 } end
         local nw, nh = math.floor(e.w * f), math.floor(e.h * f)
         local bb = e.bb:scale(nw, nh)
+        -- base_l / base_r: where the image stands, for SimpleUI 3.1.0's shadow
         return { bb = bb, w = nw, h = nh, foot = math.floor((e.foot or 0) * f),
+                 base_l = e.base_l and math.floor(e.base_l * f) or nil,
+                 base_r = e.base_r and math.floor(e.base_r * f) or nil,
                  straight = e.straight, pixel = e.pixel }
     end
 
@@ -1093,7 +1098,11 @@ local patchCritterSprite = function(Sprite)
         self._tw_fill_key = self.key .. "|tweaks_fill"
         local fe = self:_entry()
         if fe.bb then
-            self.dimen.w, self.dimen.h = fe.w, fe.h - fe.foot
+            -- SimpleUI 3.1.0 adds rows under the image for its shadow when they fit
+            local ground = tonumber(self.ground) or 0
+            if fe.h - fe.foot + ground > self.max_h then ground = 0 end
+            if self.ground ~= nil then self.ground = ground end
+            self.dimen.w, self.dimen.h = fe.w, fe.h - fe.foot + ground
         else
             self._tw_fill_key = nil
         end
@@ -2771,6 +2780,23 @@ local patchBookshelfPark   -- Bookshelf: Close Bookshelf -> SimpleUI home (defin
 -- folders, the way Bookshelf's "Latest" does). So a book sent from Calibre
 -- didn't show up for up to 5 minutes. Now the ranking is redone whenever that
 -- scan has re-walked the library, and reused otherwise (no extra disk work).
+-- SimpleUI's library scan entry for the home folder (its cheap "anything
+-- changed?" check). 3.1.0 keys the scan and passes the extensions it accepts:
+-- getEntry(key, home_dir, accepts), called by getRaw with key = home_dir;
+-- before, getEntry(home_dir). Called the same way getRaw calls it, so the
+-- cache entry is the one getRaw uses (2.16.6).
+CF.scanEntry = function(LS, home)
+    local getEntry = type(LS) == "table" and findUpvalue(LS.getRaw, "getEntry")
+    if type(getEntry) ~= "function" then return false end
+    local info = debug.getinfo(getEntry, "u")
+    if info and (info.nparams or 1) >= 2 then
+        local accepts = findUpvalue(LS.getRaw, "supportedExt")
+        if accepts == nil then return false end
+        return pcall(getEntry, home, home, accepts)
+    end
+    return pcall(getEntry, home)
+end
+
 local function patchBookSources(Sources)
     if type(Sources) ~= "table" or type(Sources.get) ~= "function" then return false end
     local ok, src = pcall(Sources.get, "new_books")
@@ -2778,6 +2804,8 @@ local function patchBookSources(Sources)
     if ours[src.getFileList] then return true end
     local okl, LS = pcall(require, "engines/sui_library_scan")
     local getEntry = okl and type(LS) == "table" and findUpvalue(LS.getRaw, "getEntry")
+    local info = type(getEntry) == "function" and debug.getinfo(getEntry, "u")
+    if info and (info.nparams or 1) >= 2 and findUpvalue(LS.getRaw, "supportedExt") == nil then getEntry = nil end
     if type(getEntry) ~= "function" or type(LS.resolveHomeDir) ~= "function"
             or type(src.invalidate) ~= "function" then
         logger.warn(TAG, "new books: SimpleUI's library scan changed, left as is")
@@ -2789,7 +2817,7 @@ local function patchBookSources(Sources)
         -- table means it re-walked the library (something was added/removed)
         local okh, home = pcall(LS.resolveHomeDir)
         if okh and home and home ~= "" then
-            local oke, entry = pcall(getEntry, home)
+            local oke, entry = CF.scanEntry(LS, home)
             if oke and entry ~= nil and entry ~= last then
                 last = entry
                 pcall(src.invalidate)
@@ -2815,12 +2843,9 @@ local function newestBooks()
     if not okl or type(LS) ~= "table" or type(LS.getRaw) ~= "function" then return nil end
     local okh, home = pcall(LS.resolveHomeDir)
     if not okh or not home or home == "" then return {} end
-    local getEntry = findUpvalue(LS.getRaw, "getEntry")
     local entry
-    if type(getEntry) == "function" then
-        local oke, e = pcall(getEntry, home)
-        if oke then entry = e end
-    end
+    local oke, e = CF.scanEntry(LS, home)
+    if oke then entry = e end
     if entry ~= nil and entry == nb_entry and nb_list then return nb_list end
     local okr, raw = pcall(LS.getRaw, home)
     if not okr or type(raw) ~= "table" then return nil end
@@ -3040,32 +3065,22 @@ local function hookPageFlash(w)
     end)
 end
 
--- ---- Home Screen Pages: hide a page, open on a page ----------------------------
--- Home screen only (not Custom Screens). SimpleUI's saved layout is never
--- changed: while SimpleUI builds the home screen, its reads of the layout,
--- module order and page count get a copy without the hidden pages. Its own
--- layout editor still sees and saves every page.
+-- ---- Home Screen Opens On: the page the home screen opens on --------------------
+-- Home screen only (not Custom Screens). 2.16.6: hiding pages is SimpleUI's own
+-- since 3.1.0 (its page list); this only picks the page it opens on, counted
+-- the way SimpleUI shows them (pages it hides left out).
 CF.pages = (function()  -- on CF: the main chunk is at Lua's 200-local limit
 local HS_PFX, HS_LAYOUT, HS_BREAK = "simpleui_hs_", "simpleui_layout", "__page_break__"
 local hp_kept = {}   -- [screen id] = true: SimpleUI kept the page on close (tab switch)
 
-local function hiddenPages()
-    local set, n = {}, 0
-    if type(cfg.hidden_pages) == "table" then
-        for k, v in pairs(cfg.hidden_pages) do
-            local i = tonumber(k)
-            if v == true and i and not set[i] then set[i] = true; n = n + 1 end
-        end
-    end
-    return set, n
-end
-
--- Module ids on each home page (original numbering), read the way SimpleUI does.
+-- Module ids on each home page (SimpleUI's numbering, hidden pages included),
+-- read the way SimpleUI does; [i] = true in the second result for a page
+-- SimpleUI hides (3.1.0's page list); third: SimpleUI's module registry.
 local function homePages()
     local okS, S = pcall(orig_require, "infra/sui_store")
     local okR, R = pcall(orig_require, "modules/moduleregistry")
     if not okS or type(S) ~= "table" or not okR or type(R) ~= "table" then return nil end
-    local pages = {}
+    local pages, hidden = {}, {}
     local layout = S:readSetting(HS_LAYOUT)
     if type(layout) == "table" and type(layout.pages) == "table" then
         for i, page in ipairs(layout.pages) do
@@ -3074,6 +3089,7 @@ local function homePages()
                 ids[#ids + 1] = type(e) == "table" and e.id or e
             end
             pages[i] = ids
+            if type(page) == "table" and page.hidden then hidden[i] = true end
         end
     else
         local okO, order = pcall(R.loadOrder, HS_PFX)
@@ -3086,84 +3102,7 @@ local function homePages()
         local want = tonumber(S:readSetting(HS_PFX .. "homescreen_num_pages"))
         if want then for i = #pages + 1, want do pages[i] = {} end end
     end
-    return pages, S, R
-end
-
--- Hidden pages that exist and how many; nil when there's nothing to hide
--- (or every page would be hidden: then all show).
-local function activeHide()
-    local hide, n = hiddenPages()
-    if n == 0 then return nil end
-    local pages, S, R = homePages()
-    if not pages then return nil end
-    local total, gone = #pages, 0
-    if n > 0 then
-        for i = 1, total do if hide[i] then gone = gone + 1 end end
-    end
-    if gone == 0 or gone >= total then return nil, 0, total end
-    -- modules only on hidden pages: SimpleUI's "Cover Deck missing" safety net
-    -- must not put one back on the first page that shows
-    local away, kept = {}, {}
-    for i = 1, total do
-        for _j, id in ipairs(pages[i]) do
-            if hide[i] then away[id] = true else kept[id] = true end
-        end
-    end
-    for id in pairs(kept) do away[id] = nil end
-    return hide, gone, total, S, R, away
-end
-
-local function withoutHidden(S, R, hide, gone, away, fn, ...)
-    local own_read = rawget(S, "readSetting")
-    local orig_read = S.readSetting
-    local orig_order = R.loadOrder
-    local orig_enabled = R.isEnabled
-    if type(orig_enabled) == "function" then
-        R.isEnabled = function(mod, ...)
-            if type(mod) == "table" and away[mod.id] then return false end
-            return orig_enabled(mod, ...)
-        end
-    end
-    S.readSetting = function(st, key, ...)
-        local v = orig_read(st, key, ...)
-        if key == HS_LAYOUT and type(v) == "table" and type(v.pages) == "table" then
-            local copy = {}
-            for k, x in pairs(v) do copy[k] = x end
-            copy.pages = {}
-            for i, p in ipairs(v.pages) do
-                if not hide[i] then copy.pages[#copy.pages + 1] = p end
-            end
-            return copy
-        elseif key == HS_PFX .. "homescreen_num_pages" and tonumber(v) then
-            return math.max(1, tonumber(v) - gone)
-        end
-        return v
-    end
-    R.loadOrder = function(pfx, ...)
-        local order = orig_order(pfx, ...)
-        if pfx ~= HS_PFX or type(order) ~= "table" then return order end
-        local pages, cur = {}, {}
-        pages[1] = cur
-        for _j, id in ipairs(order) do
-            if id == HS_BREAK then cur = {}; pages[#pages + 1] = cur
-            else cur[#cur + 1] = id end
-        end
-        local out, shown = {}, 0
-        for i, page in ipairs(pages) do
-            if not hide[i] then
-                if shown > 0 then out[#out + 1] = HS_BREAK end
-                shown = shown + 1
-                for _j, id in ipairs(page) do out[#out + 1] = id end
-            end
-        end
-        return out
-    end
-    local res = pack(pcall(fn, ...))
-    if own_read ~= nil then S.readSetting = own_read else S.readSetting = nil end
-    R.loadOrder = orig_order
-    R.isEnabled = orig_enabled
-    if not res[1] then error(res[2], 0) end
-    return unpack(res, 2, res.n)
+    return pages, hidden, R
 end
 
 local function hookHomePages(w)
@@ -3177,28 +3116,23 @@ local function hookHomePages(w)
         local orig = owner._updatePage
         owner._updatePage = mine(function(self, ...)
             if self._pfx ~= HS_PFX then return orig(self, ...) end
-            local hide, gone, total, S, R, away = activeHide()
             if not self._sui_hp_opened then
                 self._sui_hp_opened = true
                 local want = tonumber(cfg.open_on_page) or 0
                 if want >= 1 and not hp_kept[self._id] then
-                    if not total then
-                        local pages = homePages()
-                        total = pages and #pages or 1
-                    end
+                    local pages, hidden = homePages()
+                    local total = pages and #pages or 1
+                    hidden = hidden or {}
                     local shown = 1
-                    if want <= total and not (hide and hide[want]) then
+                    if want <= total and not hidden[want] then
                         shown = want
-                        if hide then
-                            for i = 1, want - 1 do if hide[i] then shown = shown - 1 end end
-                        end
+                        for i = 1, want - 1 do if hidden[i] then shown = shown - 1 end end
                     end
                     self._current_page = shown
                 end
                 hp_kept[self._id] = nil
             end
-            if not hide then return orig(self, ...) end
-            return withoutHidden(S, R, hide, gone, away, orig, self, ...)
+            return orig(self, ...)
         end)
     end
     local close = rawget(owner, "onCloseWidget")
@@ -3213,7 +3147,7 @@ local function hookHomePages(w)
     end
 end
 
-return { hiddenPages = hiddenPages, homePages = homePages, hook = hookHomePages }
+return { homePages = homePages, hook = hookHomePages }
 end)()
 
 -- ---- Finished Books In Stats (2.16.0) -----------------------------------------
@@ -4226,12 +4160,14 @@ local function buildMenu()
                 end,
             },
             {
-                text = _("Home Screen Pages"),
-                help_text = _("Hide a home screen page without deleting it, or pick the page the home screen opens on. SimpleUI's own layout isn't changed: its page editor still shows every page, and showing a page again brings it back as it was."),
+                text_func = function()
+                    local n = tonumber(cfg.open_on_page) or 0
+                    return string.format(_("Home Screen Opens On: Page %d"), n < 1 and 1 or n)
+                end,
+                help_text = _("The page the home screen opens on. Coming back from a tab keeps the page you were on; tapping Home while on the home screen goes back to this page. A page hidden in SimpleUI's page list can't be picked; if the chosen one gets hidden, the home screen opens on its first page. Home screen only, not Custom Screens."),
                 sub_item_table_func = function()
-                    local pages, store, R = CF.pages.homePages()
-                    pages = pages or { {} }
-                    if store == nil then R = nil end
+                    local pages, hidden, R = CF.pages.homePages()
+                    pages, hidden = pages or { {} }, hidden or {}
                     local function label(i)
                         local names = {}
                         for _j, id in ipairs(pages[i] or {}) do
@@ -4240,58 +4176,30 @@ local function buildMenu()
                             if type(nm) == "string" and nm ~= "" and #names < 3 then names[#names + 1] = nm end
                         end
                         local more = #(pages[i] or {}) > #names and #names > 0 and ", ..." or ""
-                        if #names == 0 then return string.format(_("Page %d"), i) end
-                        return string.format(_("Page %d: %s%s"), i, table.concat(names, ", "), more)
+                        local t
+                        if i == 1 and #names == 0 then t = _("Page 1 (SimpleUI's own)")
+                        elseif #names == 0 then t = string.format(_("Page %d"), i)
+                        else t = string.format(_("Page %d: %s%s"), i, table.concat(names, ", "), more) end
+                        if hidden[i] then t = t .. " " .. _("(hidden in SimpleUI)") end
+                        return t
                     end
-                    local items = {}
+                    local opts = {}
                     for i = 1, #pages do
-                        items[#items + 1] = {
+                        opts[#opts + 1] = {
                             text = label(i),
-                            help_text = _("Ticked pages show on the home screen. Untick one to hide it; at least one page always shows."),
+                            radio = true,
+                            enabled_func = function() return not hidden[i] end,
                             checked_func = function()
-                                return not (type(cfg.hidden_pages) == "table" and cfg.hidden_pages[i] == true)
-                            end,
-                            enabled_func = function()
-                                local hide = CF.pages.hiddenPages()
-                                if hide[i] then return true end
-                                for j = 1, #pages do if j ~= i and not hide[j] then return true end end
-                                return false
+                                local n = tonumber(cfg.open_on_page) or 0
+                                return (n < 1 and 1 or n) == i
                             end,
                             callback = function()
-                                local hp = type(cfg.hidden_pages) == "table" and cfg.hidden_pages or {}
-                                hp[i] = (hp[i] ~= true) or nil
-                                setHome("hidden_pages", hp)
+                                cfg.open_on_page = (i == 1) and 0 or i
+                                saveConfig()
                             end,
-                            separator = i == #pages,
                         }
                     end
-                    items[#items + 1] = {
-                        text_func = function()
-                            local n = tonumber(cfg.open_on_page) or 0
-                            if n < 1 then return _("Open On: Page 1") end
-                            return string.format(_("Open On: Page %d"), n)
-                        end,
-                        help_text = _("The page the home screen opens on. If that page is hidden, it opens on the first page that shows. Coming back from a tab keeps the page you were on; tapping Home while on the home screen goes back to this page."),
-                        sub_item_table_func = function()
-                            local opts = {}
-                            for i = 1, #pages do
-                                opts[#opts + 1] = {
-                                    text = i == 1 and _("Page 1 (SimpleUI's own)") or label(i),
-                                    radio = true,
-                                    checked_func = function()
-                                        local n = tonumber(cfg.open_on_page) or 0
-                                        return (n < 1 and 1 or n) == i
-                                    end,
-                                    callback = function()
-                                        cfg.open_on_page = (i == 1) and 0 or i
-                                        saveConfig()
-                                    end,
-                                }
-                            end
-                            return opts
-                        end,
-                    }
-                    return items
+                    return opts
                 end,
             },
             {

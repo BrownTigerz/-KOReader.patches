@@ -2,6 +2,14 @@
 
 `2-simpleui-tweaks.lua`, newest first. Everything before 2.16.2 was moved here unchanged from the patch file on Nov 15, 2026 (the file kept no dates).
 
+## 2.16.6 (2026-11-16)
+
+- Checked against SimpleUI 3.1.0 (every hook, the functions it finds inside SimpleUI and the ones it calls); still works with 3.0.3.
+- Home Screen Pages' page hiding removed (TK): SimpleUI 3.1.0 hides pages itself, from its own page list. What's left is **Home Screen Opens On** (the menu item that replaces Home Screen Pages): it counts pages the way SimpleUI shows them, so a page SimpleUI hides is skipped, and a hidden page can't be picked (if the chosen one gets hidden, home opens on its first page). Pages hidden with Tweaks before show again: hide them in SimpleUI's page list.
+- Fix for SimpleUI 3.1.0: New Books (and the side panel's Newly Added) could miss a new book. 3.1.0 changed how its library scan is asked "has anything changed?"; Tweaks now asks it the new way (and the old way on older SimpleUI).
+- Fix for SimpleUI 3.1.0: Critter Size › Fill crashed while drawing the critter once SimpleUI 3.1.0 gave it a shadow; the filled image now carries what the shadow needs and leaves room for it when there is some.
+- Currently Reading swipe: a book hidden from the reading history in SimpleUI 3.1.0 is skipped.
+
 ## 2.16.5 (2026-11-15)
 
 - Book Opens With One Flash is on by default (TK: it opens and closes books much faster). Turn it off in Appearance to get KOReader's "Opening file" box back. Anyone who already switched it off keeps it off.
