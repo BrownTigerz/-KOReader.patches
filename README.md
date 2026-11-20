@@ -34,7 +34,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Kobo Style Sleep Screen Banner](#kobo-style-sleep-screen-banner) | `2-kobo-style-sleepscreen-banner.lua` | none | 1.2.2 |
 | [Track Reading Location](#track-reading-location) | `2-track-reading-location.lua` | none | 1.9.6 |
 | [Shortcuts Toolbar Icon Tweaks](#shortcuts-toolbar-icon-tweaks) | `2-shortcutstoolbar-icon-tweaks.lua` | shortcutstoolbar.koplugin | 1.17.2 |
-| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.6.1 |
+| [Shortcuts Toolbar Quick Shelf](#shortcuts-toolbar-quick-shelf) | `2-shortcutstoolbar-quick-shelf.lua` | shortcutstoolbar.koplugin | 1.6.2 |
 | [X-Ray Direct Lookup](#x-ray-direct-lookup) | ~~`2-xray-direct-lookup.lua`~~ | xray.koplugin | discontinued |
 | [Reading Insights Tweaks](#reading-insights-tweaks) | `2-readinginsights-tweaks.lua` | readinginsights.koplugin + CoverBrowser | 2.1.1 |
 | [QuickMenu Toggle State](#quickmenu-toggle-state) | `2-quickmenu-toggle-state.lua` | none | 1.0.5 |
@@ -42,7 +42,7 @@ All patches work independently and together. If one fails to attach (for example
 | [Screenshot Timer](#screenshot-timer) | `2-screenshot-timer.lua` | none | 1.0.0 |
 | [Test Mode](#test-mode) | `debug/2-zz-test-mode.lua` | none (holds back ShelfSync, BookOrbit, Progress sync, Statistics, ReadMastery, SimpleUI when installed) | 1.0.2 |
 | [Custom Quotes for SimpleUI](#custom-quotes-for-simpleui) | `Quotes.lua` | simpleui.koplugin | 1.0.0 |
-| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.17.0 |
+| [BookOrbit Tweaks](#bookorbit-tweaks) | `2-bookorbit-tweaks.lua` | bookorbit.koplugin | 2.17.1 |
 | [OrbitShelf Tweaks](#orbitshelf-tweaks) | ~~`2-orbitshelf-tweaks.lua`~~ | bookshelf.koplugin + bookorbit.koplugin | discontinued |
 
 Versioning across the patches: `1.0.x` is a fix, `1.x.0` is a new feature, and `2.0.0` is a change that affects how existing saved settings or backups work.
@@ -442,7 +442,7 @@ Cost: icons you leave untouched get no hooks. Nothing runs in the background or 
 For the shortcutstoolbar plugin (reader menu only). Swipe left or right on the toolbar's top row to flip between the book info panel and a Quick Shelf strip of up to 5 books. Tap a cover to switch to that book. Two dots show which page you're on. Every menu open starts on the book panel, unless you set Opens On to Quick Shelf.
 - **The menu:** three submenus in the Shortcuts toolbar menu, after File browser settings: **Book Panel** (the tap and the hold), **Quick Shelf** (Opens On, Shows) and **Critter Remarks**. With Icon Tweaks they sit before it, and the plugin's Reset settings stays last (1.6.1).
 - **Opens On** (Shortcuts toolbar → Quick Shelf → Opens On, Book Panel by default): **Quick Shelf** opens the toolbar straight on the strip of books, so you don't swipe to it; swipe left or right still flips to the book panel. If the device sleeps with the menu up, it comes back on the page you chose. Nothing changes until you pick it.
-- **Shows:** Books In Progress (started and not finished, most recent first — the open book left out, progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf → Shows.
+- **Shows:** Books In Progress (started and not finished, most recent first — the open book left out, and books you hid from history in SimpleUI 3.1; progress under each cover) or the To Be Read collection. Switch it in Shortcuts toolbar → Quick Shelf → Shows.
 - Covers come from thumbnails SimpleUI or CoverBrowser already keeps. A book is never opened to pull its cover. A book with no saved thumbnail gets a title tile.
 - **Cost:** nothing until you swipe (or, with Opens On set to Quick Shelf, until you open the menu). The strip builds once per menu open and is reused after that. Covers are kept already sized between menu opens, up to 10. A swipe redraws only the top row. No timers. Works alongside Shortcuts Toolbar Icon Tweaks.
 - **Book Panel** (Shortcuts toolbar → Book Panel, off by default): **Tap Opens BookOrbit "This Book"** makes a tap on the book panel open BookOrbit's This book sheet (sync status, Sync now, progress) instead of KOReader's book details. **Hold Opens Book Details** (on by default) keeps the details a long-press away. Without BookOrbit, a tap does what it always did.
@@ -630,7 +630,7 @@ It's on the patch updater (Check for Patch Updates → Extras) with its own vers
 
 ## BookOrbit Tweaks
 
-**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.17.0
+**File:** `2-bookorbit-tweaks.lua` · **Requires:** [bookorbit.koplugin](https://github.com/bookorbit/bookorbit) · **Version:** 2.17.1
 
 Settings live under **Tools → BookOrbit Tweaks** (or **Tools → Add-ons → BookOrbit Tweaks** when the Add-ons menu patch is installed).
 
@@ -664,7 +664,7 @@ Pick the library for the catalog (Books, not Comics, say) from the tweaks menu, 
 - Optional: show a server chooser inside BookOrbit **Settings → Account** (toggle under Server Management).
 - **Enter A Different Address** from the server chooser opens the address entry on the first tap — no double chooser.
 - **Clean switch** (2.16.0): picking a saved server with BookOrbit on screen (sign-in page, Settings → Account → Server, or the Tweaks menu) closes BookOrbit and opens it again fresh on the new server, so nothing from the old one is left and no reopen or restart is needed. A BookOrbit left underneath something else is just closed, so its next open is fresh.
-- **Pick Server By Wi-Fi** (2.16.0, off by default, under Server Management): set **Home Wi-Fi** (tap while connected to it; hold to clear), a **Home Server** and an **Away Server** from your saved ones. When BookOrbit opens on your home Wi-Fi it uses the home server; on any other network the away one (Tailscale, say), with a short note when it changes. BookOrbit's background sync and OrbitShelf's browsing and downloads follow it too (checked quietly, at most every 30 seconds, never while BookOrbit is open). It needs Wi-Fi already connected; otherwise nothing changes. Editing a saved server keeps it picked.
+- **Pick Server By Wi-Fi** (2.16.0, off by default, under Server Management): set **Home Wi-Fi** (tap while connected to it; hold to clear), a **Home Server** and an **Away Server** from your saved ones. When BookOrbit opens on your home Wi-Fi it uses the home server; on any other network the away one (Tailscale, say), with a short note when it changes. BookOrbit's background sync and OrbitShelf's browsing and downloads follow it too (checked quietly, at most every 30 seconds, never while BookOrbit is open). It needs Wi-Fi already connected; otherwise nothing changes. Editing a saved server keeps it picked. A server you pick by hand (the Tweaks menu or the saved-servers picker) stays picked for as long as that Wi-Fi connection lasts (2.17.1); when the Wi-Fi disconnects (sleep included) or you move to a different network, or you change any of these settings, Pick Server By Wi-Fi takes over again.
 - Second swipe down on the BookOrbit settings sheet opens the tools menu.
 
 ### Flash

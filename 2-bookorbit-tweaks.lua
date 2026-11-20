@@ -1,7 +1,7 @@
 --[[
 2-bookorbit-tweaks.lua
 BookOrbit Tweaks for current BookOrbit KOReader plugin (plugin 2.0+ / server 3.5+).
-Version: 2.17.0
+Version: 2.17.1
 
 Install this file in KOReader/patches/ and restart KOReader.
 
@@ -215,7 +215,7 @@ Changes:
                       code removed.
 ]]
 
-local VERSION = "2.17.0"
+local VERSION = "2.17.1"
 -- Changelog: changelog/2-bookorbit-tweaks.md
 local TAG = "bookorbit-tweaks " .. VERSION .. ":"
 local SETTINGS_KEY = "bookorbit_tweaks"
@@ -2512,7 +2512,16 @@ end
 -- while Settings or the catalog are open — that path was crashing on switch.
 local skip_server_chooser = false
 
-local function switchToSavedServer(plugin, entry)
+-- 2.17.1: a server picked by hand holds against Pick Server By Wi-Fi for as long as
+-- the same Wi-Fi connection lasts (it used to be switched straight back when
+-- BookOrbit reopened on the new server). In memory only. Released when the Wi-Fi
+-- disconnects (KOReader's NetworkDisconnected, or any check that finds no network),
+-- when the network changes, or when the Pick Server By Wi-Fi settings are changed.
+-- A server picked while offline holds nothing.
+local manual_hold = nil
+local currentSSID -- defined with Pick Server By Wi-Fi, further down
+
+local function switchToSavedServer(plugin, entry, by_wifi)
     if type(entry) ~= "table" or not entry.server_url then return false end
     if not applyBookOrbitCreds(entry) then return false end
 
@@ -2536,7 +2545,12 @@ local function switchToSavedServer(plugin, entry)
         pcall(plugin.refreshActiveCatalogApi, plugin, false)
     end
 
-    tweaksTrace("server: switched to", serverLabel(entry))
+    if not by_wifi then
+        local ssid = currentSSID and currentSSID() or nil
+        manual_hold = ssid and { ssid = ssid } or nil
+    end
+    local held = not by_wifi and manual_hold and "(by hand: held until this Wi-Fi disconnects)" or ""
+    tweaksTrace("server: switched to", serverLabel(entry), held)
     return true
 end
 
@@ -3196,7 +3210,7 @@ end
 -- When BookOrbit opens: on the home Wi-Fi the home server, on any other
 -- network the away one. Needs Wi-Fi connected (otherwise nothing changes)
 -- and both servers saved. Returns true when it switched.
-local function currentSSID()
+currentSSID = function()
     local ok, NetworkMgr = pcall(require, "ui/network/manager")
     if not ok or type(NetworkMgr) ~= "table" then return nil end
     local okc, connected = pcall(NetworkMgr.isConnected, NetworkMgr)
@@ -3210,12 +3224,19 @@ end
 autoPickServer = function(plugin, quiet)
     if not cfg.auto_server or cfg.home_ssid == "" then return false end
     local ssid = currentSSID()
-    if not ssid then return false end
+    if not ssid then
+        manual_hold = nil -- no Wi-Fi: a server picked by hand is let go
+        return false
+    end
+    if manual_hold then
+        if manual_hold.ssid == ssid then return false end
+        manual_hold = nil
+    end
     local target = serverByKey(ssid == cfg.home_ssid and cfg.home_server or cfg.away_server)
     if not target then return false end
     local cur = currentBookOrbitCreds()
     if cur and serverKey(cur) == serverKey(target) then return false end
-    local ok_s, switched = pcall(switchToSavedServer, plugin, target)
+    local ok_s, switched = pcall(switchToSavedServer, plugin, target, true)
     if not ok_s then logger.warn(TAG, "server switch by Wi-Fi failed:", switched) end
     if not (ok_s and switched) then return false end
     tweaksTrace("server: picked by Wi-Fi", serverLabel(target), quiet and "(in the background)" or "")
@@ -3237,6 +3258,13 @@ local AUTO_RECHECK_S = 30
 local function hookAutoServer(plugin)
     if type(plugin) ~= "table" or type(plugin.openCatalogBrowser) ~= "function" or plugin._tw_auto_server then return end
     plugin._tw_auto_server = true
+    -- Wi-Fi turned off or lost (a sleep with Wi-Fi off too): a server picked by hand
+    -- is let go, so the next connection follows Pick Server By Wi-Fi again.
+    local prev_disconnected = plugin.onNetworkDisconnected
+    plugin.onNetworkDisconnected = function(self, ...)
+        manual_hold = nil
+        if type(prev_disconnected) == "function" then return prev_disconnected(self, ...) end
+    end
     local checked_at, picking = nil, false
     local orig = plugin.openCatalogBrowser
     plugin.openCatalogBrowser = function(self, ...)
@@ -4005,6 +4033,7 @@ local function buildServerMenu()
                         checked_func = function() return cfg[key] == k end,
                         callback = function()
                             cfg[key] = k
+                            manual_hold = nil
                             saveConfig()
                         end,
                     }
@@ -4022,6 +4051,7 @@ local function buildServerMenu()
                 checked_func = function() return cfg.auto_server == true end,
                 callback = function()
                     cfg.auto_server = not cfg.auto_server
+                    manual_hold = nil
                     saveConfig()
                 end,
             },
@@ -4038,11 +4068,13 @@ local function buildServerMenu()
                         return
                     end
                     cfg.home_ssid = ssid
+                    manual_hold = nil
                     saveConfig()
                     if touchmenu_instance then touchmenu_instance:updateItems() end
                 end,
                 hold_callback = function(touchmenu_instance)
                     cfg.home_ssid = ""
+                    manual_hold = nil
                     saveConfig()
                     if touchmenu_instance then touchmenu_instance:updateItems() end
                 end,

@@ -1,5 +1,11 @@
 # BookOrbit Tweaks Changelog
 
+## 2.17.1 (2026-11-18)
+
+- **A server you pick by hand now stays picked.** With Pick Server By Wi-Fi on, switching servers in the Tweaks menu (or the saved-servers picker) was undone as soon as BookOrbit reopened: on your home Wi-Fi it went straight back to the home server. A hand-picked server now holds for as long as that Wi-Fi connection lasts.
+- When the Wi-Fi disconnects (turned off, lost, or off for sleep), or you move to a different network, the hold ends and Pick Server By Wi-Fi takes over again. Picking a server while offline holds nothing.
+- Changing any Pick Server By Wi-Fi setting (on/off, Home Wi-Fi, Home Server, Away Server) also makes it apply again. A restart does too.
+
 ## 2.17.0 (2026-11-17)
 
 - **Add To Collection uses a BookOrbit API key** (server 3.8.0+, Read and write) instead of the website password.
